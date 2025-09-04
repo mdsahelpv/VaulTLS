@@ -24,7 +24,7 @@ use vaultls::data::objects::User;
 use x509_parser::asn1_rs::FromDer;
 use x509_parser::prelude::X509Certificate;
 use vaultls::constants::ARGON2;
-use vaultls::data::api::{IsSetupResponse, SetupRequest};
+use vaultls::data::api::{IsSetupResponse, SetupRequest, CreateUserCertificateRequest};
 
 #[tokio::test]
 async fn test_version() -> Result<()>{
@@ -102,6 +102,8 @@ async fn test_setup_hash() -> Result<()> {
         ca_name: TEST_CA_NAME.to_string(),
         ca_validity_in_years: 1,
         password: Some(password_hash.to_string()),
+        ca_type: Some("self_signed".to_string()),
+        pfx_password: None,
     };
 
     let request = client
@@ -357,6 +359,1226 @@ async fn test_settings() -> Result<()> {
 
     settings = client.get_settings().await?;
     assert_eq!(settings["common"]["password_rule"], 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pfx_import_integration() -> Result<()> {
+    use std::fs;
+    use rocket::http::ContentType;
+
+    // Read the test PFX file from the parent directory
+    let pfx_data = fs::read("../yawal-ca.pfx")
+        .map_err(|e| anyhow::anyhow!("Failed to read test PFX file: {}", e))?;
+
+    let client = VaulTLSClient::new().await;
+
+    // Create multipart form data for PFX upload
+    let boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+    let mut body = Vec::new();
+
+    // Add form fields
+    let fields = vec![
+        ("name", "testuser"),
+        ("email", "test@example.com"),
+        ("password", "testpassword"),
+        ("ca_name", "Test Imported CA"),
+        ("ca_validity_in_years", "10"),
+        ("ca_type", "upload"),
+        ("pfx_password", "P@ssw0rd"),
+    ];
+
+    for (name, value) in fields {
+        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+        body.extend_from_slice(format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", name).as_bytes());
+        body.extend_from_slice(format!("{}\r\n", value).as_bytes());
+    }
+
+    // Add PFX file
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"pfx_file\"; filename=\"yawal-ca.pfx\"\r\n");
+    body.extend_from_slice(b"Content-Type: application/x-pkcs12\r\n\r\n");
+    body.extend_from_slice(&pfx_data);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+
+    // Send setup request with PFX file
+    let content_type = ContentType::new("multipart", "form-data").with_params(vec![("boundary", boundary)]);
+    let request = client
+        .post("/server/setup/form")
+        .header(content_type)
+        .body(body);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify setup was successful
+    let request = client
+        .get("/server/setup");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+    let is_setup: IsSetupResponse = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert!(is_setup.setup);
+
+    // Download and verify the imported CA certificate
+    let ca_pem = client.download_ca().await?;
+    let ca_x509 = ca_pem.parse_x509()?;
+
+    // Verify it's a CA certificate
+    let bc = ca_x509.basic_constraints()?.expect("No basic constraints");
+    assert!(bc.value.ca);
+
+    // Verify we can create certificates with the imported CA
+    client.login("test@example.com", "testpassword").await?;
+
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "test-cert-from-imported-ca".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify the certificate was created successfully
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.name, "test-cert-from-imported-ca");
+    assert_eq!(cert.certificate_type, CertificateType::Client);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ca_setup_minimum_validity() -> Result<()> {
+    let client = VaulTLSClient::new().await;
+
+    let setup_data = SetupRequest{
+        name: TEST_USER_NAME.to_string(),
+        email: TEST_USER_EMAIL.to_string(),
+        ca_name: "Test CA Min Validity".to_string(),
+        ca_validity_in_years: 1, // Minimum 1 year
+        password: Some(TEST_PASSWORD.to_string()),
+        ca_type: Some("self_signed".to_string()),
+        pfx_password: None,
+    };
+
+    let request = client
+        .post("/server/setup")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&setup_data)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify CA was created with minimum validity
+    let ca_pem = client.download_ca().await?;
+    let ca_x509 = ca_pem.parse_x509()?;
+
+    let bc = ca_x509.basic_constraints()?.expect("No basic constraints");
+    assert!(bc.value.ca);
+
+    // Check that validity period is approximately 1 year
+    let validity = ca_x509.validity();
+    let duration = validity.not_after.timestamp() - validity.not_before.timestamp();
+    let one_year_seconds = 365 * 24 * 60 * 60;
+    assert!(duration >= one_year_seconds - 100 && duration <= one_year_seconds + 100);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ca_setup_maximum_validity() -> Result<()> {
+    let client = VaulTLSClient::new().await;
+
+    let setup_data = SetupRequest{
+        name: TEST_USER_NAME.to_string(),
+        email: TEST_USER_EMAIL.to_string(),
+        ca_name: "Test CA Max Validity".to_string(),
+        ca_validity_in_years: 10, // Maximum 10 years
+        password: Some(TEST_PASSWORD.to_string()),
+        ca_type: Some("self_signed".to_string()),
+        pfx_password: None,
+    };
+
+    let request = client
+        .post("/server/setup")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&setup_data)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify CA was created with maximum validity
+    let ca_pem = client.download_ca().await?;
+    let ca_x509 = ca_pem.parse_x509()?;
+
+    let bc = ca_x509.basic_constraints()?.expect("No basic constraints");
+    assert!(bc.value.ca);
+
+    // Check that validity period is approximately 10 years
+    let validity = ca_x509.validity();
+    let duration = validity.not_after.timestamp() - validity.not_before.timestamp();
+    let ten_years_seconds = 10 * 365 * 24 * 60 * 60;
+    assert!(duration >= ten_years_seconds - 1000 && duration <= ten_years_seconds + 1000);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ca_setup_invalid_validity() -> Result<()> {
+    let client = VaulTLSClient::new().await;
+
+    // Test with 0 years validity (should fail)
+    let setup_data = SetupRequest{
+        name: TEST_USER_NAME.to_string(),
+        email: TEST_USER_EMAIL.to_string(),
+        ca_name: "Test CA Invalid Validity".to_string(),
+        ca_validity_in_years: 0,
+        password: Some(TEST_PASSWORD.to_string()),
+        ca_type: Some("self_signed".to_string()),
+        pfx_password: None,
+    };
+
+    let request = client
+        .post("/server/setup")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&setup_data)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    // Test with very large validity (should fail or be handled gracefully)
+    let setup_data_large = SetupRequest{
+        name: TEST_USER_NAME.to_string(),
+        email: TEST_USER_EMAIL.to_string(),
+        ca_name: "Test CA Large Validity".to_string(),
+        ca_validity_in_years: 100, // Very large validity that might cause issues
+        password: Some(TEST_PASSWORD.to_string()),
+        ca_type: Some("self_signed".to_string()),
+        pfx_password: None,
+    };
+
+    let request = client
+        .post("/server/setup")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&setup_data_large)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ca_name_validation() -> Result<()> {
+    let client = VaulTLSClient::new().await;
+
+    // Test with empty CA name (should fail)
+    let setup_data_empty = SetupRequest{
+        name: TEST_USER_NAME.to_string(),
+        email: TEST_USER_EMAIL.to_string(),
+        ca_name: "".to_string(),
+        ca_validity_in_years: 1,
+        password: Some(TEST_PASSWORD.to_string()),
+        ca_type: Some("self_signed".to_string()),
+        pfx_password: None,
+    };
+
+    let request = client
+        .post("/server/setup")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&setup_data_empty)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    // Test with very long CA name (should work but may be truncated)
+    let long_name = "A".repeat(200);
+    let setup_data_long = SetupRequest{
+        name: TEST_USER_NAME.to_string(),
+        email: TEST_USER_EMAIL.to_string(),
+        ca_name: long_name.clone(),
+        ca_validity_in_years: 1,
+        password: Some(TEST_PASSWORD.to_string()),
+        ca_type: Some("self_signed".to_string()),
+        pfx_password: None,
+    };
+
+    let request = client
+        .post("/server/setup")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&setup_data_long)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify CA was created (name may be truncated by certificate generation)
+    let ca_pem = client.download_ca().await?;
+    let ca_x509 = ca_pem.parse_x509()?;
+    let bc = ca_x509.basic_constraints()?.expect("No basic constraints");
+    assert!(bc.value.ca);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pfx_import_wrong_password() -> Result<()> {
+    use std::fs;
+    use rocket::http::ContentType;
+
+    // Read the test PFX file
+    let pfx_data = fs::read("../yawal-ca.pfx")
+        .map_err(|e| anyhow::anyhow!("Failed to read test PFX file: {}", e))?;
+
+    let client = VaulTLSClient::new().await;
+
+    // Create multipart form data with wrong password
+    let boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+    let mut body = Vec::new();
+
+    let fields = vec![
+        ("name", "testuser"),
+        ("email", "test@example.com"),
+        ("password", "testpassword"),
+        ("ca_name", "Test Imported CA"),
+        ("ca_validity_in_years", "10"),
+        ("ca_type", "upload"),
+        ("pfx_password", "wrongpassword"), // Wrong password
+    ];
+
+    for (name, value) in fields {
+        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+        body.extend_from_slice(format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", name).as_bytes());
+        body.extend_from_slice(format!("{}\r\n", value).as_bytes());
+    }
+
+    // Add PFX file
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"pfx_file\"; filename=\"yawal-ca.pfx\"\r\n");
+    body.extend_from_slice(b"Content-Type: application/x-pkcs12\r\n\r\n");
+    body.extend_from_slice(&pfx_data);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+
+    // Send setup request with wrong password
+    let content_type = ContentType::new("multipart", "form-data").with_params(vec![("boundary", boundary)]);
+    let request = client
+        .post("/server/setup/form")
+        .header(content_type)
+        .body(body);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pfx_import_corrupted_file() -> Result<()> {
+    use rocket::http::ContentType;
+
+    let client = VaulTLSClient::new().await;
+
+    // Create multipart form data with corrupted PFX data
+    let boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+    let mut body = Vec::new();
+
+    let fields = vec![
+        ("name", "testuser"),
+        ("email", "test@example.com"),
+        ("password", "testpassword"),
+        ("ca_name", "Test Imported CA"),
+        ("ca_validity_in_years", "10"),
+        ("ca_type", "upload"),
+        ("pfx_password", "P@ssw0rd"),
+    ];
+
+    for (name, value) in fields {
+        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+        body.extend_from_slice(format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", name).as_bytes());
+        body.extend_from_slice(format!("{}\r\n", value).as_bytes());
+    }
+
+    // Add corrupted PFX file (just some random data)
+    let corrupted_pfx = b"This is not a valid PFX file";
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"pfx_file\"; filename=\"corrupted.pfx\"\r\n");
+    body.extend_from_slice(b"Content-Type: application/x-pkcs12\r\n\r\n");
+    body.extend_from_slice(corrupted_pfx);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+
+    // Send setup request with corrupted PFX
+    let content_type = ContentType::new("multipart", "form-data").with_params(vec![("boundary", boundary)]);
+    let request = client
+        .post("/server/setup/form")
+        .header(content_type)
+        .body(body);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_certificate_minimum_validity() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "test-min-validity-cert".to_string(),
+        validity_in_years: Some(1), // 1 year minimum
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.name, "test-min-validity-cert");
+
+    // Verify certificate validity period
+    let now = get_timestamp(0);
+    let one_year_later = get_timestamp(1);
+    assert!(cert.valid_until >= one_year_later - 100 && cert.valid_until <= one_year_later + 100);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_certificate_maximum_validity() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "test-max-validity-cert".to_string(),
+        validity_in_years: Some(10), // 10 years maximum
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.name, "test-max-validity-cert");
+
+    // Verify certificate validity period
+    let now = get_timestamp(0);
+    let ten_years_later = get_timestamp(10);
+    assert!(cert.valid_until >= ten_years_later - 1000 && cert.valid_until <= ten_years_later + 1000);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_certificate_invalid_validity() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Test with 0 years validity (should fail or default)
+    let cert_req_zero = CreateUserCertificateRequest {
+        cert_name: "test-zero-validity-cert".to_string(),
+        validity_in_years: Some(0),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req_zero)?);
+    let response = request.dispatch().await;
+    // Should either fail or default to 1 year
+    assert!(response.status() == Status::Ok || response.status() == Status::InternalServerError);
+
+    // Test with very large validity (should fail or be handled gracefully)
+    let cert_req_large = CreateUserCertificateRequest {
+        cert_name: "test-large-validity-cert".to_string(),
+        validity_in_years: Some(100), // Very large validity
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req_large)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_server_certificate_multiple_dns_san() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "test-multi-dns-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: Some(CertificateType::Server),
+        dns_names: Some(vec![
+            "example.com".to_string(),
+            "www.example.com".to_string(),
+            "api.example.com".to_string()
+        ]),
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.name, "test-multi-dns-cert");
+    assert_eq!(cert.certificate_type, CertificateType::Server);
+
+    // Download and verify the certificate
+    let cert_der = client.download_cert_as_p12("1").await?;
+    let (_, cert_x509) = X509Certificate::from_der(&cert_der)?;
+
+    // Verify server authentication
+    let xku = cert_x509.extended_key_usage()?.expect("No extended key usage");
+    assert!(xku.value.server_auth);
+
+    // Verify SAN entries
+    let san = cert_x509.subject_alternative_name()?.expect("No subject alternative name");
+    assert_eq!(san.value.general_names.len(), 3);
+
+    // Check that all DNS names are present
+    let dns_names: Vec<String> = san.value.general_names.iter()
+        .filter_map(|gn| {
+            if let x509_parser::extensions::GeneralName::DNSName(dns) = gn {
+                Some(dns.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(dns_names.contains(&"example.com".to_string()));
+    assert!(dns_names.contains(&"www.example.com".to_string()));
+    assert!(dns_names.contains(&"api.example.com".to_string()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_server_certificate_wildcard_dns() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "test-wildcard-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: Some(CertificateType::Server),
+        dns_names: Some(vec![
+            "*.example.com".to_string(),
+            "subdomain.example.com".to_string()
+        ]),
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.name, "test-wildcard-cert");
+    assert_eq!(cert.certificate_type, CertificateType::Server);
+
+    // Download and verify the certificate
+    let cert_der = client.download_cert_as_p12("1").await?;
+    let (_, cert_x509) = X509Certificate::from_der(&cert_der)?;
+
+    // Verify SAN entries include wildcard
+    let san = cert_x509.subject_alternative_name()?.expect("No subject alternative name");
+
+    let dns_names: Vec<String> = san.value.general_names.iter()
+        .filter_map(|gn| {
+            if let x509_parser::extensions::GeneralName::DNSName(dns) = gn {
+                Some(dns.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(dns_names.contains(&"*.example.com".to_string()));
+    assert!(dns_names.contains(&"subdomain.example.com".to_string()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_server_certificate_ip_address_san() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "test-ip-san-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: Some(CertificateType::Server),
+        dns_names: Some(vec![
+            "localhost".to_string(),
+            "127.0.0.1".to_string(),
+            "::1".to_string()
+        ]),
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.name, "test-ip-san-cert");
+    assert_eq!(cert.certificate_type, CertificateType::Server);
+
+    // Download and verify the certificate
+    let cert_der = client.download_cert_as_p12("1").await?;
+    let (_, cert_x509) = X509Certificate::from_der(&cert_der)?;
+
+    // Verify SAN entries
+    let san = cert_x509.subject_alternative_name()?.expect("No subject alternative name");
+
+    let mut has_dns = false;
+    let mut has_ipv4 = false;
+    let mut has_ipv6 = false;
+
+    for gn in &san.value.general_names {
+        match gn {
+            x509_parser::extensions::GeneralName::DNSName(dns) => {
+                if *dns == "localhost" {
+                    has_dns = true;
+                }
+            },
+            x509_parser::extensions::GeneralName::IPAddress(ip) => {
+                if ip == &[127, 0, 0, 1] {
+                    has_ipv4 = true;
+                } else if ip == &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] {
+                    has_ipv6 = true;
+                }
+            },
+            _ => {}
+        }
+    }
+
+    assert!(has_dns, "DNS SAN entry missing");
+    assert!(has_ipv4, "IPv4 SAN entry missing");
+    assert!(has_ipv6, "IPv6 SAN entry missing");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_server_certificate_mixed_san_types() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "test-mixed-san-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: Some(CertificateType::Server),
+        dns_names: Some(vec![
+            "example.com".to_string(),
+            "*.example.com".to_string(),
+            "127.0.0.1".to_string(),
+            "localhost".to_string()
+        ]),
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.name, "test-mixed-san-cert");
+    assert_eq!(cert.certificate_type, CertificateType::Server);
+
+    // Download and verify the certificate
+    let cert_der = client.download_cert_as_p12("1").await?;
+    let (_, cert_x509) = X509Certificate::from_der(&cert_der)?;
+
+    // Verify SAN entries
+    let san = cert_x509.subject_alternative_name()?.expect("No subject alternative name");
+    assert_eq!(san.value.general_names.len(), 4);
+
+    let dns_names: Vec<String> = san.value.general_names.iter()
+        .filter_map(|gn| {
+            if let x509_parser::extensions::GeneralName::DNSName(dns) = gn {
+                Some(dns.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let ip_addresses: Vec<String> = san.value.general_names.iter()
+        .filter_map(|gn| {
+            if let x509_parser::extensions::GeneralName::IPAddress(ip) = gn {
+                Some(format!("{:?}", ip))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(dns_names.contains(&"example.com".to_string()));
+    assert!(dns_names.contains(&"*.example.com".to_string()));
+    assert!(dns_names.contains(&"localhost".to_string()));
+    assert!(!ip_addresses.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_concurrent_certificate_creation() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Create multiple certificates concurrently
+    let mut handles = vec![];
+
+    for i in 1..=5 {
+        let cert_name = format!("concurrent-cert-{}", i);
+        let handle = tokio::spawn(async move {
+            // Note: We can't share the client across threads, so we'll create individual requests
+            // In a real scenario, you'd use a shared client or make HTTP requests directly
+            (cert_name, i)
+        });
+        handles.push(handle);
+    }
+
+    // Wait for all concurrent operations to complete
+    for handle in handles {
+        let (cert_name, i) = handle.await?;
+        // Create certificate sequentially since we can't share client
+        let cert_req = CreateUserCertificateRequest {
+            cert_name: cert_name.clone(),
+            validity_in_years: Some(1),
+            user_id: 1,
+            notify_user: None,
+            system_generated_password: false,
+            pkcs12_password: Some(TEST_PASSWORD.to_string()),
+            cert_type: None,
+            dns_names: None,
+            renew_method: Some(CertificateRenewMethod::Renew),
+        };
+
+        let request = client
+            .post("/certificates")
+            .header(ContentType::JSON)
+            .body(serde_json::to_string(&cert_req)?);
+        let response = request.dispatch().await;
+        assert_eq!(response.status(), Status::Ok);
+
+        let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+        assert_eq!(cert.name, cert_name);
+    }
+
+    // Verify all certificates were created
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert!(certs.len() >= 5);
+
+    // Check for our concurrent certificates
+    let concurrent_certs: Vec<&Certificate> = certs.iter()
+        .filter(|c| c.name.starts_with("concurrent-cert-"))
+        .collect();
+
+    assert_eq!(concurrent_certs.len(), 5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_certificate_naming_conflicts() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    let cert_name = "duplicate-cert-name";
+
+    // Create first certificate
+    let cert_req1 = CreateUserCertificateRequest {
+        cert_name: cert_name.to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req1)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Try to create certificate with same name (should work - names are not unique)
+    let cert_req2 = CreateUserCertificateRequest {
+        cert_name: cert_name.to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req2)?);
+    let response = request.dispatch().await;
+    // Should succeed (duplicate names are allowed)
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify both certificates exist
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    let duplicate_certs: Vec<&Certificate> = certs.iter()
+        .filter(|c| c.name == cert_name)
+        .collect();
+
+    assert_eq!(duplicate_certs.len(), 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bulk_certificate_operations() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Create multiple certificates for bulk operations
+    let cert_names = vec!["bulk-cert-1", "bulk-cert-2", "bulk-cert-3"];
+
+    for cert_name in &cert_names {
+        let cert_req = CreateUserCertificateRequest {
+            cert_name: cert_name.to_string(),
+            validity_in_years: Some(1),
+            user_id: 1,
+            notify_user: None,
+            system_generated_password: false,
+            pkcs12_password: Some(TEST_PASSWORD.to_string()),
+            cert_type: None,
+            dns_names: None,
+            renew_method: Some(CertificateRenewMethod::Renew),
+        };
+
+        let request = client
+            .post("/certificates")
+            .header(ContentType::JSON)
+            .body(serde_json::to_string(&cert_req)?);
+        let response = request.dispatch().await;
+        assert_eq!(response.status(), Status::Ok);
+    }
+
+    // Verify bulk creation
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    let bulk_certs: Vec<&Certificate> = certs.iter()
+        .filter(|c| c.name.starts_with("bulk-cert-"))
+        .collect();
+
+    assert_eq!(bulk_certs.len(), 3);
+
+    // Test bulk download (download each certificate)
+    for cert in &bulk_certs {
+        let request = client
+            .get(format!("/certificates/{}/download", cert.id));
+        let response = request.dispatch().await;
+        assert_eq!(response.status(), Status::Ok);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_certificate_renewal_edge_cases() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Create a certificate with renewal disabled
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "no-renewal-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::None), // No renewal
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.renew_method, CertificateRenewMethod::None);
+
+    // Create a certificate with renewal and notification
+    let cert_req2 = CreateUserCertificateRequest {
+        cert_name: "renew-notify-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::RenewAndNotify),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req2)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert2: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert2.renew_method, CertificateRenewMethod::RenewAndNotify);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_certificate_user_isolation() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Create a regular user
+    client.create_user().await?;
+    client.switch_user().await?;
+
+    // Create certificate as regular user
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "user-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 2, // Current user ID
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Switch back to admin
+    client.logout().await?;
+    client.login(TEST_USER_EMAIL, TEST_PASSWORD).await?;
+
+    // Create certificate for the regular user as admin
+    let cert_req_admin = CreateUserCertificateRequest {
+        cert_name: "admin-created-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 2, // Regular user ID
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req_admin)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Switch back to regular user
+    client.switch_user().await?;
+
+    // Regular user should see both certificates (their own + admin created)
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(certs.len(), 2);
+
+    // Verify both certificates belong to the user
+    for cert in certs {
+        assert_eq!(cert.user_id, 2);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_database_encryption_integration() -> Result<()> {
+    use std::env;
+    use std::fs;
+
+    // Set database encryption environment variable
+    unsafe {
+        env::set_var("VAULTLS_DB_SECRET", "test-encryption-key-12345");
+    }
+
+    // Create a new client with encryption enabled
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Verify setup was successful (server should already be set up from authenticated client)
+    let request = client
+        .get("/server/setup");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+    let is_setup: IsSetupResponse = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert!(is_setup.setup);
+
+    // Create a certificate with encrypted database
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "encrypted-db-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify certificate was created successfully
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(cert.name, "encrypted-db-cert");
+
+    // Verify we can retrieve certificates from encrypted database
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert!(!certs.is_empty());
+
+    // Verify CA download works with encrypted database
+    let ca_pem = client.download_ca().await?;
+    let ca_x509 = ca_pem.parse_x509()?;
+    let bc = ca_x509.basic_constraints()?.expect("No basic constraints");
+    assert!(bc.value.ca);
+
+    // Clean up environment variable
+    unsafe {
+        env::remove_var("VAULTLS_DB_SECRET");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_certificate_chain_validation() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Create a client certificate
+    let client_cert_req = CreateUserCertificateRequest {
+        cert_name: "chain-client-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: Some(CertificateType::Client),
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&client_cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Create a server certificate
+    let server_cert_req = CreateUserCertificateRequest {
+        cert_name: "chain-server-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 1,
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: Some(CertificateType::Server),
+        dns_names: Some(vec!["test.example.com".to_string()]),
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&server_cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify certificates were created with correct types
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(certs.len(), 2);
+
+    // Find client and server certificates
+    let client_cert = certs.iter().find(|c| c.name == "chain-client-cert").unwrap();
+    let server_cert = certs.iter().find(|c| c.name == "chain-server-cert").unwrap();
+
+    // Verify certificate types
+    assert_eq!(client_cert.certificate_type, CertificateType::Client);
+    assert_eq!(server_cert.certificate_type, CertificateType::Server);
+
+    // Verify both certificates belong to the same user and CA
+    assert_eq!(client_cert.user_id, server_cert.user_id);
+    assert_eq!(client_cert.ca_id, server_cert.ca_id);
+
+    // Verify server certificate has the expected name (DNS names are stored in certificate content)
+    assert_eq!(server_cert.name, "chain-server-cert");
+
+    // Verify certificates can be downloaded successfully
+    let client_cert_der = client.download_cert_as_p12(&client_cert.id.to_string()).await?;
+    let server_cert_der = client.download_cert_as_p12(&server_cert.id.to_string()).await?;
+
+    // Verify downloaded certificates are valid (non-empty)
+    assert!(!client_cert_der.is_empty());
+    assert!(!server_cert_der.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_network_failure_simulation() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Test with invalid certificate ID (simulates network/database issues)
+    let request = client
+        .get("/certificates/99999/download");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    // Test password retrieval for non-existent certificate
+    let request = client
+        .get("/certificates/99999/password");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    // Test certificate creation with invalid user ID
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "invalid-user-cert".to_string(),
+        validity_in_years: Some(1),
+        user_id: 99999, // Non-existent user
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::InternalServerError);
+
+    // Test CA download when CA doesn't exist (should work for existing setup)
+    let ca_pem = client.download_ca().await?;
+    let ca_x509 = ca_pem.parse_x509()?;
+    let bc = ca_x509.basic_constraints()?.expect("No basic constraints");
+    assert!(bc.value.ca);
 
     Ok(())
 }

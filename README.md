@@ -1,37 +1,155 @@
 ![VaulTLS Logo](https://github.com/7ritn/VaulTLS/blob/main/assets/logoText.png)
 
-VaulTLS is a modern solution for managing mTLS (mutual TLS) certificates with ease.
-It provides a centralized platform for generating, managing, and distributing client (and server) TLS certificates for your home lab.
+# VaulTLS - Modern mTLS Certificate Management
 
-The main reason why I developed VaulTLS was that I didn't like messing with shell scripts and OpenSSL.
-I also did not have an overview about the expiration of individual certificates.
+VaulTLS is a comprehensive, enterprise-grade solution for managing mTLS (mutual TLS) certificates with ease. It provides a centralized platform for generating, managing, and distributing client and server TLS certificates for your home lab or production environment.
 
-## Features
+## 🎯 Why VaulTLS?
 
-- 🔒 mTLS client and CA certificate management
-- 📱 Modern web interface for certificate management
-- 🔐 OpenID Connect authentication support
-- 📨 Email notifications for certificate expiration
-- 🚀 RESTful API for automation
-- 🛠 Docker/Podman container support
-- ⚡ Built with Rust (backend) and Vue.js (frontend) for performance and reliability
+The main reason VaulTLS was developed was to eliminate the complexity of shell scripts and manual OpenSSL commands. Traditional certificate management often lacks:
+- **Centralized oversight** of certificate expiration dates
+- **User-friendly interfaces** for certificate operations
+- **Automated workflows** for certificate lifecycle management
+- **Comprehensive testing** and validation capabilities
 
-## Screenshots
+VaulTLS solves these problems with a modern web interface, robust API, and comprehensive testing framework.
+
+## ✨ Features
+
+### Core Functionality
+- 🔒 **mTLS Certificate Management** - Client and server certificate generation and management
+- 🏛️ **Certificate Authority (CA)** - Built-in CA with self-signed and PFX import support
+- 📱 **Modern Web Interface** - Intuitive Vue.js frontend for certificate operations
+- 🔐 **OpenID Connect Authentication** - Enterprise-grade authentication support
+- 📨 **Email Notifications** - Automated certificate expiration alerts
+- 🚀 **RESTful API** - Complete API for automation and integration
+- 🛠️ **Container Support** - Docker/Podman deployment ready
+- ⚡ **High Performance** - Built with Rust (backend) and Vue.js (frontend)
+
+### Advanced Features
+- 🔄 **Certificate Renewal** - Automated and manual renewal workflows
+- 📊 **Certificate Analytics** - Expiration tracking and reporting
+- 🔐 **Database Encryption** - Optional database encryption for sensitive data
+- 🌐 **Server Certificates** - Full server certificate support with SAN entries
+- 📋 **Bulk Operations** - Batch certificate management capabilities
+- 🧪 **Comprehensive Testing** - Extensive test suite with 25+ test scenarios
+- 📝 **PKCS12 Support** - Password-protected certificate exports
+- 🔍 **Advanced SAN Support** - Multiple DNS names, IP addresses, wildcards
+
+### Security & Compliance
+- 🛡️ **Security-First Design** - Built with security best practices
+- 🔒 **Access Control** - Role-based user permissions
+- 📊 **Audit Logging** - Comprehensive activity logging
+- 🔐 **Data Encryption** - Optional database and file encryption
+- ✅ **Input Validation** - Robust validation for all inputs
+
+## 📸 Screenshots
+
 ![WebUI Overview](https://github.com/7ritn/VaulTLS/blob/main/assets/screenshot_overview.jpg)
 ![WebUI Users](https://github.com/7ritn/VaulTLS/blob/main/assets/screenshot_user.jpg)
 
-## Installation
-Installation is managed through a Container. The app *needs* to be behind a reverse proxy for TLS handling.
-`VAULTLS_API_SECRET` is required and should be a 256-bit base64 encoded string (`openssl rand -base64 32`).
+## 🚀 Installation & Setup
+
+### Production Deployment (Container)
+
+VaulTLS is designed for containerized deployment. The application **requires** a reverse proxy for TLS termination.
+
+#### Prerequisites
+- `VAULTLS_API_SECRET`: A 256-bit base64 encoded string (`openssl rand -base64 32`)
+- Reverse proxy (Caddy, Nginx, Traefik, etc.)
+- Persistent volume for data storage
+
+#### Docker/Podman Deployment
 
 ```bash
+# Generate API secret
+VAULTLS_API_SECRET=$(openssl rand -base64 32)
+
+# Run with Podman
 podman run -d \
   --name vaultls \
   -p 5173:80 \
   -v vaultls-data:/app/data \
-  -e VAULTLS_API_SECRET="[VAULTLS_API_SECRET]" \
+  -e VAULTLS_API_SECRET="$VAULTLS_API_SECRET" \
   -e VAULTLS_URL="https://vaultls.example.com/" \
   ghcr.io/7ritn/vaultls:latest
+
+# Or with Docker
+docker run -d \
+  --name vaultls \
+  -p 5173:80 \
+  -v vaultls-data:/app/data \
+  -e VAULTLS_API_SECRET="$VAULTLS_API_SECRET" \
+  -e VAULTLS_URL="https://vaultls.example.com/" \
+  ghcr.io/7ritn/vaultls:latest
+```
+
+### Local Development Setup
+
+For development and testing, VaulTLS includes a comprehensive startup script that handles all prerequisites automatically.
+
+#### Prerequisites for Local Development
+- **Rust** (latest stable) - [Install from rustup.rs](https://rustup.rs/)
+- **Node.js** (v16+) - [Download from nodejs.org](https://nodejs.org/)
+- **SQLite3** (optional, for database operations)
+
+#### Quick Start with Startup Script
+
+```bash
+# Clone the repository
+git clone https://github.com/7ritn/VaulTLS.git
+cd VaulTLS
+
+# Make the startup script executable
+chmod +x start-vaultls.sh
+
+# Start both backend and frontend in development mode
+./start-vaultls.sh start
+
+# Access URLs:
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:8000
+```
+
+#### Startup Script Commands
+
+```bash
+# Development mode (default)
+./start-vaultls.sh start
+
+# Production mode with optimizations
+./start-vaultls.sh start --release --production
+
+# Start individual services
+./start-vaultls.sh backend --port 9000
+./start-vaultls.sh frontend --frontend-port 8080
+
+# Service management
+./start-vaultls.sh status    # Check service status
+./start-vaultls.sh logs      # View service logs
+./start-vaultls.sh stop      # Stop all services
+./start-vaultls.sh restart   # Restart services
+
+# Maintenance
+./start-vaultls.sh setup     # Setup without starting
+./start-vaultls.sh clean     # Clean build artifacts
+```
+
+#### Manual Setup (Alternative)
+
+If you prefer manual setup:
+
+```bash
+# Backend setup
+cd backend
+cargo update
+cargo build
+cargo run
+
+# Frontend setup (in another terminal)
+cd frontend
+npm install
+npm run dev
 ```
 
 ### Encrypting the Database
@@ -151,7 +269,239 @@ If you choose `verify_if_given`, you can still block clients for apps that you w
 abort @blocked
 ```
 
-## Roadmap
-- Allow user details to be updated
-- Generate new certificates automatically if the old one expires soon
-- Improve testing
+## 🧪 Testing
+
+VaulTLS includes a comprehensive test suite with 25+ test scenarios covering all major functionality and edge cases.
+
+### Running Tests
+
+```bash
+# Run all tests
+cd backend
+cargo test
+
+# Run specific test categories
+cargo test --test integration_tests test_database_encryption_integration
+cargo test --test integration_tests test_certificate_chain_validation
+cargo test --test integration_tests test_pfx_import_integration
+
+# Run with verbose output
+cargo test -- --nocapture
+```
+
+### Test Coverage
+
+The test suite covers:
+
+#### Certificate Authority Tests
+- ✅ **CA Setup Edge Cases** - Minimum/maximum validity periods, invalid inputs
+- ✅ **PFX Import Scenarios** - Wrong passwords, corrupted files, successful imports
+- ✅ **CA Name Validation** - Empty names, long names, special characters
+
+#### Certificate Management Tests
+- ✅ **Certificate Validity Boundaries** - 1-year minimum, 10-year maximum, invalid values
+- ✅ **Server Certificate SAN Support** - Multiple DNS, wildcards, IP addresses, mixed types
+- ✅ **Concurrent Certificate Creation** - Race conditions, naming conflicts
+- ✅ **Bulk Certificate Operations** - Batch creation and downloads
+
+#### Security & Authentication Tests
+- ✅ **Database Encryption Integration** - Encrypted database operations
+- ✅ **Certificate Chain Validation** - Certificate relationships and downloads
+- ✅ **Network Failure Simulation** - Invalid IDs, non-existent resources
+- ✅ **Certificate Renewal Edge Cases** - Renewal methods and notifications
+- ✅ **User Isolation** - Access control and permission validation
+
+#### Advanced Features Tests
+- ✅ **PKCS12 Password Handling** - Optional, required, and system-generated passwords
+- ✅ **Certificate User Isolation** - Admin vs regular user permissions
+- ✅ **TLS Connection Establishment** - End-to-end TLS validation
+
+### Test Architecture
+
+Tests are organized into:
+- **Unit Tests** - Individual component testing
+- **Integration Tests** - Full API workflow testing
+- **End-to-End Tests** - Complete user journey validation
+
+## 📚 API Documentation
+
+VaulTLS provides a comprehensive REST API for automation and integration.
+
+### Base URL
+```
+http://localhost:8000/api
+```
+
+### Authentication
+All API endpoints require authentication via session cookies or API tokens.
+
+### Key Endpoints
+
+#### Certificate Management
+```http
+GET    /api/certificates           # List certificates
+POST   /api/certificates           # Create certificate
+GET    /api/certificates/{id}      # Get certificate details
+DELETE /api/certificates/{id}      # Delete certificate
+GET    /api/certificates/{id}/download  # Download certificate
+GET    /api/certificates/{id}/password  # Get PKCS12 password
+```
+
+#### Certificate Authority
+```http
+GET    /api/certificates/ca/download   # Download CA certificate
+POST   /api/server/setup              # Initial setup
+GET    /api/server/setup              # Check setup status
+```
+
+#### User Management
+```http
+GET    /api/users                    # List users
+POST   /api/users                    # Create user
+PUT    /api/users/{id}               # Update user
+DELETE /api/users/{id}               # Delete user
+GET    /api/auth/current-user        # Get current user
+```
+
+#### Settings
+```http
+GET    /api/settings                 # Get settings
+PUT    /api/settings                 # Update settings
+```
+
+### API Documentation Access
+Complete API documentation is available at `/api` when the server is running.
+
+## 🏗️ Project Structure
+
+```
+VaulTLS/
+├── backend/                    # Rust backend application
+│   ├── src/
+│   │   ├── api.rs             # API endpoints
+│   │   ├── cert.rs            # Certificate operations
+│   │   ├── db.rs              # Database operations
+│   │   ├── main.rs            # Application entry point
+│   │   ├── settings.rs        # Configuration management
+│   │   └── auth/              # Authentication modules
+│   │       ├── mod.rs
+│   │       ├── oidc_auth.rs
+│   │       ├── password_auth.rs
+│   │       └── session_auth.rs
+│   ├── tests/                 # Test suites
+│   │   ├── integration_tests.rs
+│   │   └── api/
+│   │       ├── api_test_functionality.rs
+│   │       └── api_test_safety.rs
+│   ├── Cargo.toml            # Rust dependencies
+│   └── Cargo.lock            # Dependency lock file
+├── frontend/                  # Vue.js frontend application
+│   ├── src/
+│   │   ├── components/       # Vue components
+│   │   ├── views/           # Page views
+│   │   ├── stores/          # Pinia stores
+│   │   ├── router/          # Vue router configuration
+│   │   └── api/             # API client
+│   ├── public/              # Static assets
+│   ├── package.json         # Node.js dependencies
+│   └── vite.config.ts       # Vite configuration
+├── container/                # Container configurations
+│   └── nginx.conf           # Nginx configuration
+├── tests/                   # Integration tests
+│   ├── docker-compose.yml   # Test environment
+│   └── e2e/                # End-to-end tests
+├── assets/                  # Project assets
+├── start-vaultls.sh         # Startup script
+├── Containerfile            # Container build file
+├── docker-compose.yml       # Development environment
+├── LICENSE                  # Project license
+└── README.md               # This file
+```
+
+## 🤝 Contributing
+
+We welcome contributions to VaulTLS! Please see our contributing guidelines:
+
+### Development Setup
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/yourusername/VaulTLS.git`
+3. Set up development environment: `./start-vaultls.sh setup`
+4. Create a feature branch: `git checkout -b feature/your-feature`
+5. Make your changes and add tests
+6. Run tests: `cd backend && cargo test`
+7. Submit a pull request
+
+### Code Style
+- **Rust**: Follow standard Rust formatting (`cargo fmt`)
+- **Vue.js**: Follow Vue.js style guide
+- **Commits**: Use conventional commit format
+
+### Testing Requirements
+- All new features must include comprehensive tests
+- Test coverage should not decrease
+- Integration tests required for API changes
+
+## 📋 Roadmap
+
+### ✅ Completed Features (v0.9.2)
+- ✅ Comprehensive test suite with 25+ test scenarios
+- ✅ Automated startup script for development
+- ✅ Database encryption support
+- ✅ Advanced SAN support for server certificates
+- ✅ Bulk certificate operations
+- ✅ Concurrent certificate creation handling
+- ✅ PFX import with error handling
+- ✅ Certificate renewal workflows
+
+### 🚧 In Progress
+- 🔄 **Automated Certificate Renewal** - Background job system for certificate renewal
+- 📊 **Certificate Analytics Dashboard** - Advanced reporting and analytics
+- 🔐 **Hardware Security Module (HSM) Integration** - Enterprise key management
+
+### 🔮 Planned Features
+- 🤖 **Certificate Lifecycle Automation** - Auto-renewal based on expiration dates
+- 📱 **Mobile App** - iOS/Android companion app
+- 🔗 **LDAP Integration** - Enterprise directory integration
+- 📈 **Metrics & Monitoring** - Prometheus/Grafana integration
+- 🌐 **Multi-CA Support** - Multiple certificate authorities
+- 🔄 **Certificate Rotation** - Automated key rotation
+- 📧 **Advanced Notifications** - Slack, Teams, webhook integrations
+- 🏢 **Multi-Tenant Support** - Organization-based isolation
+- 📋 **Audit Logging** - Comprehensive security audit trails
+- 🔍 **Certificate Discovery** - Network certificate scanning
+
+### 📊 Version History
+
+- **v0.9.2** - Comprehensive testing, startup script, advanced SAN support
+- **v0.9.1** - Database encryption, bulk operations
+- **v0.9.0** - Certificate renewal, concurrent creation handling
+- **v0.8.0** - PFX import, error handling improvements
+- **v0.7.0** - Server certificates, SAN support
+- **v0.6.0** - User management, role-based access
+- **v0.5.0** - OIDC authentication, email notifications
+- **v0.4.0** - REST API, automation support
+- **v0.3.0** - Web interface improvements
+- **v0.2.0** - Basic certificate management
+- **v0.1.0** - Initial release
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **Rust Community** - For the excellent Rust ecosystem
+- **Vue.js Team** - For the amazing frontend framework
+- **OpenSSL** - For the cryptographic foundation
+- **Rocket Framework** - For the web framework
+- **All Contributors** - For their valuable contributions
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/7ritn/VaulTLS/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/7ritn/VaulTLS/discussions)
+- **Documentation**: [API Docs](/api) (when running)
+
+---
+
+**VaulTLS** - Making certificate management simple, secure, and automated. 🔒✨

@@ -1,15 +1,20 @@
 use rocket_okapi::openapi;
 use rocket::{delete, get, post, put, State};
+use rocket::form::Form;
 use rocket::response::Redirect;
 use rocket::serde::json::Json;
 use rocket::http::{Cookie, CookieJar, SameSite};
-use tracing::{trace, debug, info, warn};
+use tokio::io::AsyncReadExt;
+use tracing::{trace, debug, info, warn, error};
+use openssl::x509::X509;
+use serde::Serialize;
+use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
 use crate::cert::{get_password, get_pem, save_ca, Certificate, CertificateBuilder};
 use crate::constants::VAULTLS_VERSION;
-use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest};
+use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateType, PasswordRule, UserRole};
 use crate::data::error::ApiError;
 use crate::data::objects::{AppState, User};
@@ -41,21 +46,53 @@ pub(crate) async fn is_setup(
 
 #[openapi(tag = "Setup")]
 #[post("/server/setup", format = "json", data = "<setup_req>")]
-/// Set up the application. Only possible if DB is not setup.
-pub(crate) async fn setup(
+/// Set up the application with self-signed CA. Only possible if DB is not setup.
+pub(crate) async fn setup_json(
     state: &State<AppState>,
     setup_req: Json<SetupRequest>
 ) -> Result<(), ApiError> {
+    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), None, None).await
+}
+
+#[post("/server/setup/form", data = "<setup_req>")]
+/// Set up the application with uploaded CA. Only possible if DB is not setup.
+pub(crate) async fn setup_form(
+    state: &State<AppState>,
+    setup_req: Form<SetupFormRequest<'_>>
+) -> Result<(), ApiError> {
+    let mut pfx_data = Vec::new();
+    let mut reader = setup_req.pfx_file.open().await.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {}", e)))?;
+    reader.read_to_end(&mut pfx_data).await.map_err(|e| ApiError::Other(format!("Failed to read PFX file: {}", e)))?;
+    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone()).await
+}
+
+async fn setup_common(
+    state: &State<AppState>,
+    name: String,
+    email: String,
+    ca_name: String,
+    ca_validity_in_years: u64,
+    password: Option<String>,
+    pfx_data: Option<Vec<u8>>,
+    pfx_password: Option<String>
+) -> Result<(), ApiError> {
+    debug!("Starting setup process for user: {}, email: {}", name, email);
+
     if state.db.is_setup().await.is_ok() {
         warn!("Server is already setup.");
-        return Err(ApiError::Unauthorized(None))
+        return Err(ApiError::Other("Server is already set up".to_string()))
     }
 
-    if setup_req.password.is_none() && state.settings.get_oidc().auth_url.is_empty() {
-        return Err(ApiError::Other("Password is required".to_string()))
+    let has_oidc = !state.settings.get_oidc().auth_url.is_empty();
+    debug!("OIDC configured: {}", has_oidc);
+
+    if password.is_none() && !has_oidc {
+        debug!("Password is required but not provided, and OIDC is not configured");
+        return Err(ApiError::Other("Password is required for local login. Please provide a password or configure OIDC.".to_string()))
     }
 
-    let trim_password = setup_req.password.as_deref().unwrap_or("").trim();
+    let trim_password = password.as_deref().unwrap_or("").trim();
+    debug!("Password provided: {}", !trim_password.is_empty());
 
     let password = match trim_password {
         "" => None,
@@ -64,30 +101,77 @@ pub(crate) async fn setup(
 
     let mut password_hash = None;
     if let Some(password) = password {
+        debug!("Setting password authentication enabled");
         state.settings.set_password_enabled(true)?;
         password_hash = Some(Password::new_server_hash(password)?);
     }
 
+    debug!("Creating user with name: {}, email: {}", name, email);
     let user = User{
         id: -1,
-        name: setup_req.name.clone(),
-        email: setup_req.email.clone(),
+        name: name.clone(),
+        email: email.clone(),
         password_hash,
         oidc_id: None,
         role: UserRole::Admin,
     };
 
-    state.db.insert_user(user).await?;
+    match state.db.insert_user(user).await {
+        Ok(_) => debug!("User created successfully"),
+        Err(e) => {
+            error!("Failed to create user: {}", e);
+            return Err(ApiError::Other(format!("Failed to create user: {}", e)))
+        }
+    }
 
-    let ca = CertificateBuilder::new()?
-        .set_name(&setup_req.ca_name)?
-        .set_valid_until(setup_req.ca_validity_in_years)?
-        .build_ca()?;
-    save_ca(&ca)?;
-    state.db.insert_ca(ca).await?;
+    let ca = if let Some(pfx_data) = pfx_data {
+        debug!("Importing CA from PFX file (size: {} bytes)", pfx_data.len());
+        match CertificateBuilder::from_pfx(&pfx_data, pfx_password.as_deref(), Some(&ca_name)) {
+            Ok(ca) => {
+                debug!("CA imported successfully from PFX");
+                ca
+            },
+            Err(e) => {
+                error!("Failed to import CA from PFX: {}", e);
+                return Err(ApiError::Other(format!("Failed to import CA from PFX file: {}. Please check that the file is valid and the password is correct.", e)))
+            }
+        }
+    } else {
+        debug!("Generating self-signed CA with name: {}", ca_name);
+    match CertificateBuilder::new_with_ca(None)?
+            .set_name(&ca_name)?
+            .set_valid_until(ca_validity_in_years)?
+            .build_ca() {
+            Ok(ca) => {
+                debug!("Self-signed CA generated successfully");
+                ca
+            },
+            Err(e) => {
+                error!("Failed to generate self-signed CA: {}", e);
+                return Err(ApiError::Other(format!("Failed to generate self-signed CA: {}", e)))
+            }
+        }
+    };
 
-    info!("VaulTLS was successfully set up.");
+    debug!("Saving CA certificate");
+    match save_ca(&ca) {
+        Ok(_) => debug!("CA saved successfully"),
+        Err(e) => {
+            error!("Failed to save CA: {}", e);
+            return Err(ApiError::Other(format!("Failed to save CA certificate: {}", e)))
+        }
+    }
 
+    debug!("Inserting CA into database");
+    match state.db.insert_ca(ca).await {
+        Ok(_) => debug!("CA inserted into database successfully"),
+        Err(e) => {
+            error!("Failed to insert CA into database: {}", e);
+            return Err(ApiError::Other(format!("Failed to save CA to database: {}", e)))
+        }
+    }
+
+    info!("VaulTLS was successfully set up for user: {}", name);
     Ok(())
 }
 
@@ -283,7 +367,7 @@ pub(crate) async fn create_user_certificate(
 
     let ca = state.db.get_current_ca().await?;
     let pkcs12_password = get_password(use_random_password, &payload.pkcs12_password);
-    let cert_builder = CertificateBuilder::new()?
+    let cert_builder = CertificateBuilder::new_with_ca(Some(&ca))?
         .set_name(&payload.cert_name)?
         .set_valid_until(payload.validity_in_years.unwrap_or(1))?
         .set_renew_method(payload.renew_method.unwrap_or_default())?
@@ -340,6 +424,85 @@ pub(crate) async fn download_ca(
     let ca = state.db.get_current_ca().await?;
     let pem = get_pem(&ca)?;
     Ok(DownloadResponse::new(pem, "ca_certificate.pem"))
+}
+
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct CADetails {
+    pub id: i64,
+    pub name: String,
+    pub subject: String,
+    pub issuer: String,
+    pub created_on: i64,
+    pub valid_until: i64,
+    pub serial_number: String,
+    pub key_size: String,
+    pub signature_algorithm: String,
+    pub is_self_signed: bool,
+    pub certificate_pem: String,
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/ca/details")]
+/// Get detailed information about the current CA certificate.
+pub(crate) async fn get_ca_details(
+    state: &State<AppState>
+) -> Result<Json<CADetails>, ApiError> {
+    let ca = state.db.get_current_ca().await?;
+    let cert = X509::from_der(&ca.cert)?;
+
+    // Extract certificate details
+    let subject_name = cert.subject_name();
+    let issuer_name = cert.issuer_name();
+    let serial = cert.serial_number();
+
+    // Get key information
+    let public_key = cert.public_key()?;
+    let key_size = if public_key.rsa().is_ok() {
+        format!("RSA {}", public_key.rsa().unwrap().size() * 8)
+    } else if public_key.ec_key().is_ok() {
+        "ECDSA P-256".to_string()
+    } else {
+        "Unknown".to_string()
+    };
+
+    // Get signature algorithm
+    let signature_algorithm = match cert.signature_algorithm().object().nid().as_raw() {
+        668 => "RSA-SHA256",
+        794 => "ECDSA-SHA256",
+        _ => "Unknown",
+    };
+
+    // Check if self-signed by comparing the DER representations
+    let subject_der = subject_name.to_der()?;
+    let issuer_der = issuer_name.to_der()?;
+    let is_self_signed = subject_der == issuer_der;
+
+    // Get certificate name from subject
+    let name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+        .and_then(|e| e.data().as_utf8().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    // Convert to PEM
+    let pem = get_pem(&ca)?;
+    let certificate_pem = String::from_utf8(pem)
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {}", e)))?;
+
+    let ca_details = CADetails {
+        id: ca.id,
+        name,
+        subject: format!("{:?}", subject_name),
+        issuer: format!("{:?}", issuer_name),
+        created_on: ca.created_on,
+        valid_until: ca.valid_until,
+        serial_number: serial.to_bn()?.to_hex_str()?.to_string(),
+        key_size,
+        signature_algorithm: signature_algorithm.to_string(),
+        is_self_signed,
+        certificate_pem,
+    };
+
+    Ok(Json(ca_details))
 }
 
 #[openapi(tag = "Certificates")]

@@ -24,6 +24,20 @@ pub struct SetupRequest {
     pub ca_name: String,
     pub ca_validity_in_years: u64,
     pub password: Option<String>,
+    pub ca_type: Option<String>,
+    pub pfx_password: Option<String>,
+}
+
+#[derive(FromForm)]
+pub struct SetupFormRequest<'a> {
+    pub name: String,
+    pub email: String,
+    pub ca_name: String,
+    pub ca_validity_in_years: u64,
+    pub password: Option<String>,
+    pub ca_type: String,
+    pub pfx_file: rocket::fs::TempFile<'a>,
+    pub pfx_password: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]

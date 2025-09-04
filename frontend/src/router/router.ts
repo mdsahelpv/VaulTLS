@@ -9,6 +9,7 @@ import MainLayout from '@/layouts/MainLayout.vue';
 import OverviewTab from '@/components/OverviewTab.vue';
 import SettingsTab from '@/components/SettingsTab.vue';
 import UserTab from "@/components/UserTab.vue";
+import CADetails from '@/components/CADetails.vue';
 
 const router = createRouter({
     history: createWebHistory(),
@@ -36,6 +37,11 @@ const router = createRouter({
                     path: 'overview',
                     name: 'Overview',
                     component: OverviewTab,
+                },
+                {
+                    path: 'ca',
+                    name: 'CA',
+                    component: CADetails,
                 },
                 {
                     path: 'users',

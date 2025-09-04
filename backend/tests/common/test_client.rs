@@ -47,6 +47,8 @@ impl VaulTLSClient {
             ca_name: TEST_CA_NAME.to_string(),
             ca_validity_in_years: 1,
             password: Some(TEST_PASSWORD.to_string()),
+            ca_type: Some("self_signed".to_string()),
+            pfx_password: None,
         };
 
         let request = client

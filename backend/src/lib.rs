@@ -2,7 +2,7 @@ use std::{env, fs};
 use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
-use rocket::{Build, Config, Rocket};
+use rocket::{Build, Config, Rocket, routes};
 use rocket::fairing::AdHoc;
 use rocket::http::Method;
 use rocket_cors::{AllowedOrigins, CorsOptions};
@@ -116,7 +116,7 @@ pub async fn create_rocket() -> Rocket<Build> {
 
     let rocket_secret = get_secret("VAULTLS_API_SECRET").expect("Failed to get VAULTLS_API_SECRET");
     trace!("Rocket secret: {}", rocket_secret);
-    
+
     let mailer = Arc::new(Mutex::new(mailer));
 
     let app_state = AppState {
@@ -145,9 +145,15 @@ pub async fn create_rocket() -> Rocket<Build> {
 
     info!("Initialization complete.");
 
+    // Use environment variable ROCKET_PORT if set, otherwise use API_PORT default
+    let port = env::var("ROCKET_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(API_PORT);
+
     let figment = Config::figment()
         .merge(("secret_key", rocket_secret))
-        .merge(("port", API_PORT));
+        .merge(("port", port));
 
     rocket::build()
         .configure(figment)
@@ -159,13 +165,14 @@ pub async fn create_rocket() -> Rocket<Build> {
                 get_certificates,
                 create_user_certificate,
                 download_ca,
+                get_ca_details,
                 download_certificate,
                 delete_user_cert,
                 fetch_certificate_password,
                 fetch_settings,
                 update_settings,
                 is_setup,
-                setup,
+                setup_json,
                 login,
                 change_password,
                 logout,
@@ -178,6 +185,7 @@ pub async fn create_rocket() -> Rocket<Build> {
                 update_user
             ],
         )
+        .mount("/api", routes![setup_form])
         .mount(
             "/api",
             make_rapidoc(&RapiDocConfig {
@@ -236,13 +244,14 @@ pub async fn create_test_rocket() -> Rocket<Build> {
                 get_certificates,
                 create_user_certificate,
                 download_ca,
+                get_ca_details,
                 download_certificate,
                 delete_user_cert,
                 fetch_certificate_password,
                 fetch_settings,
                 update_settings,
                 is_setup,
-                setup,
+                setup_json,
                 login,
                 change_password,
                 logout,
@@ -255,4 +264,5 @@ pub async fn create_test_rocket() -> Rocket<Build> {
                 update_user
             ],
         )
+        .mount("/", routes![setup_form])
 }

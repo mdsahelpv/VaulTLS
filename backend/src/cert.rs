@@ -17,6 +17,7 @@ use openssl::x509::X509Builder;
 use passwords::PasswordGenerator;
 use rocket_okapi::JsonSchema;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, error};
 use crate::constants::CA_FILE_PATH;
 use crate::data::enums::{CertificateRenewMethod, CertificateType};
 use crate::data::enums::CertificateType::{Client, Server};
@@ -62,9 +63,170 @@ pub struct CertificateBuilder {
     user_id: Option<i64>,
     renew_method: CertificateRenewMethod
 }
+
 impl CertificateBuilder {
-    pub fn new() -> Result<Self> {
-        let private_key = generate_private_key()?;
+    /// Create a CA from a PKCS#12 file containing a CA certificate
+    pub fn from_pfx(pfx_data: &[u8], password: Option<&str>, ca_name: Option<&str>) -> Result<CA, anyhow::Error> {
+        debug!("Starting PFX import process (file size: {} bytes)", pfx_data.len());
+        if let Some(name) = ca_name {
+            debug!("Importing CA with name: {}", name);
+        }
+
+        let password = password.unwrap_or("");
+        debug!("Password provided: {}", !password.is_empty());
+
+        // Parse the PKCS#12 file
+        let pkcs12 = Pkcs12::from_der(pfx_data)
+            .map_err(|e| {
+                error!("Failed to parse PKCS#12 DER data: {}", e);
+                anyhow!("Invalid PKCS#12 file format: {}", e)
+            })?;
+
+        debug!("PKCS#12 file parsed successfully");
+
+        // Try to parse with the provided password
+        let parsed = if password.is_empty() {
+            debug!("Attempting to parse PKCS#12 without password");
+            match pkcs12.parse2("") {
+                Ok(parsed) => {
+                    debug!("Successfully parsed PKCS#12 without password");
+                    parsed
+                },
+                Err(e1) => {
+                    debug!("Failed to parse without password: {}", e1);
+                    match pkcs12.parse2("") {
+                        Ok(parsed) => {
+                            debug!("Successfully parsed PKCS#12 on second attempt without password");
+                            parsed
+                        },
+                        Err(e2) => {
+                            error!("Failed to parse PKCS#12 without password: first={}, second={}", e1, e2);
+                            return Err(anyhow!("PKCS#12 file requires a password. Please provide the correct password for the keystore."));
+                        }
+                    }
+                }
+            }
+        } else {
+            debug!("Attempting to parse PKCS#12 with provided password");
+            pkcs12.parse2(password)
+                .map_err(|e| {
+                    error!("Failed to parse PKCS#12 with password: {}", e);
+                    anyhow!("Incorrect password for PKCS#12 file. Please check the keystore password and try again.")
+                })?
+        };
+
+        debug!("PKCS#12 content parsed successfully");
+
+        // Extract the certificate
+        let cert = parsed.cert
+            .ok_or_else(|| {
+                error!("No certificate found in PKCS#12");
+                anyhow!("No certificate found in PKCS#12 file. The file may be corrupted or invalid.")
+            })?;
+
+        debug!("Certificate extracted from PKCS#12: subject={:?}", cert.subject_name());
+
+        // Extract the private key
+        let pkey = parsed.pkey
+            .ok_or_else(|| {
+                error!("No private key found in PKCS#12");
+                anyhow!("No private key found in PKCS#12 file. The file may be missing the private key or be corrupted.")
+            })?;
+
+        debug!("Private key extracted from PKCS#12");
+
+        // Basic validation: ensure we have both certificate and private key
+        // For more detailed CA validation, we would need to check extensions
+        // but the OpenSSL API has changed. This is a simplified validation.
+        // In production, you might want to add more robust CA validation.
+
+        // Get certificate validity timestamps
+        // Use current time as approximation since parsing ASN.1 time can be complex
+        let created_on = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        // Get the not_after field from the certificate
+        let not_after = cert.not_after();
+        // Get the current time as an Asn1Time object
+        let now = Asn1Time::from_unix(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        )
+        .unwrap();
+        // Calculate the difference in seconds
+        let diff = not_after.diff(&now).unwrap();
+
+        // Handle potential overflow by clamping the values
+        let days_seconds = if diff.days > 0 {
+            // Certificate is not expired, calculate future expiration
+            let days_u64 = diff.days as u64;
+            // Prevent overflow by limiting to reasonable maximum (100 years)
+            let clamped_days = days_u64.min(365 * 100);
+            clamped_days * 24 * 60 * 60
+        } else {
+            // Certificate is expired or expires today, use a default validity period
+            365 * 24 * 60 * 60 // 1 year in seconds
+        };
+
+        // Handle seconds with bounds checking
+        let secs_u64 = if diff.secs > 0 {
+            (diff.secs as u64).min(24 * 60 * 60) // Max 1 day in seconds
+        } else {
+            0 // Ignore negative seconds (expired)
+        };
+
+        let total_seconds = days_seconds + secs_u64;
+
+        // Calculate the valid_until timestamp
+        let valid_until = (SystemTime::now()
+            + std::time::Duration::from_secs(total_seconds))
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        debug!("Certificate validity: created_on={}, valid_until={}", created_on, valid_until);
+
+        let ca_cert_der = cert.to_der().map_err(|e| {
+            error!("Failed to encode certificate to DER: {}", e);
+            anyhow!("Failed to process certificate: {}", e)
+        })?;
+
+        let ca_key_der = pkey.private_key_to_der().map_err(|e| {
+            error!("Failed to encode private key to DER: {}", e);
+            anyhow!("Failed to process private key: {}", e)
+        })?;
+
+        debug!("CA certificate and key processed successfully");
+
+        Ok(CA {
+            id: -1,
+            created_on,
+            valid_until,
+            cert: ca_cert_der,
+            key: ca_key_der,
+        })
+    }
+}
+impl CertificateBuilder {
+    pub fn new_with_ca(ca: Option<&CA>) -> Result<Self> {
+        let private_key = match ca {
+            Some(ca) => {
+                // Detect CA key type
+                let ca_key = PKey::private_key_from_der(&ca.key)?;
+                if ca_key.rsa().is_ok() {
+                    generate_rsa_private_key()?
+                } else if ca_key.ec_key().is_ok() {
+                    generate_ecdsa_private_key()?
+                } else {
+                    return Err(anyhow!("Unsupported CA key type"));
+                }
+            },
+            None => generate_ecdsa_private_key()?
+        };
         let asn1_serial = generate_serial_number()?;
         let (created_on_unix, created_on_openssl) = get_timestamp(0)?;
 
@@ -97,7 +259,7 @@ impl CertificateBuilder {
     pub fn try_from(old_cert: &Certificate) -> Result<Self> {
         let validity_in_years = ((old_cert.valid_until - old_cert.created_on) / 1000 / 60 / 60 / 24 / 365).max(1);
 
-        Self::new()?
+    Self::new_with_ca(None)?
             .set_name(&old_cert.name)?
             .set_valid_until(validity_in_years as u64)?
             .set_pkcs12_password(&old_cert.pkcs12_password)?
@@ -263,10 +425,17 @@ impl CertificateBuilder {
 }
 
 /// Generates a new private key.
-fn generate_private_key() -> Result<PKey<Private>, ErrorStack> {
+fn generate_ecdsa_private_key() -> Result<PKey<Private>, ErrorStack> {
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
     let ec_key = EcKey::generate(&group)?;
     let server_key = PKey::from_ec_key(ec_key)?;
+    Ok(server_key)
+}
+
+fn generate_rsa_private_key() -> Result<PKey<Private>, ErrorStack> {
+    use openssl::rsa::Rsa;
+    let rsa = Rsa::generate(4096)?;
+    let server_key = PKey::from_rsa(rsa)?;
     Ok(server_key)
 }
 
