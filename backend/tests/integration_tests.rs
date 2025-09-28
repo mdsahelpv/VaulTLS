@@ -25,17 +25,9 @@ mod ca_setup_and_certificate_tests {
         let pfx_data = fs::read(pfx_path)
             .expect("Failed to read yawal-ca.pfx file");
 
-        // Setup CA from PFX (try without password first, then with common passwords)
-        let ca = match CertificateBuilder::from_pfx(&pfx_data, None, Some("Test CA from PFX")) {
-            Ok(ca) => ca,
-            Err(_) => match CertificateBuilder::from_pfx(&pfx_data, Some("password"), Some("Test CA from PFX")) {
-                Ok(ca) => ca,
-                Err(_) => match CertificateBuilder::from_pfx(&pfx_data, Some("123456"), Some("Test CA from PFX")) {
-                    Ok(ca) => ca,
-                    Err(_) => panic!("Could not open PFX file with common passwords. Please provide the correct password or use a PFX without password protection.")
-                }
-            }
-        };
+        // Setup CA from PFX using the correct password
+        let ca = CertificateBuilder::from_pfx(&pfx_data, Some("P@ssw0rd"), Some("Test CA from PFX"))
+            .expect("Failed to create CA from PFX with correct password");
 
         // Verify CA structure
         assert!(ca.cert.len() > 0);
@@ -185,17 +177,9 @@ mod ca_setup_and_certificate_tests {
 
         println!("📋 Read PFX file: {} bytes", pfx_data.len());
 
-        // Import CA from PFX (try without password first, then with common passwords)
-        let imported_ca = match CertificateBuilder::from_pfx(&pfx_data, None, Some("Imported Test CA")) {
-            Ok(ca) => ca,
-            Err(_) => match CertificateBuilder::from_pfx(&pfx_data, Some("password"), Some("Imported Test CA")) {
-                Ok(ca) => ca,
-                Err(_) => match CertificateBuilder::from_pfx(&pfx_data, Some("123456"), Some("Imported Test CA")) {
-                    Ok(ca) => ca,
-                    Err(_) => panic!("Could not open PFX file with common passwords. Please provide the correct password or use a PFX without password protection.")
-                }
-            }
-        };
+        // Import CA from PFX using the correct password
+        let imported_ca = CertificateBuilder::from_pfx(&pfx_data, Some("P@ssw0rd"), Some("Imported Test CA"))
+            .expect("Failed to import CA from PFX with correct password");
 
         println!("✅ CA imported from PFX - Cert: {} bytes, Key: {} bytes",
                  imported_ca.cert.len(), imported_ca.key.len());

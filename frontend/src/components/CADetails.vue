@@ -230,11 +230,24 @@ const loadCADetails = async () => {
     loading.value = true;
     error.value = null;
 
-    const response = await ApiClient.get('/certificates/ca/details') as { data: CADetails };
-    caDetails.value = response.data;
+    // Use raw fetch to bypass any ApiClient issues
+    const apiUrl = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/certificates/ca/details`;
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const caData = await response.json();
+    caDetails.value = caData;
   } catch (err: any) {
     console.error('Failed to load CA details:', err);
-    error.value = err.response?.data?.message || 'Failed to load CA details';
+    error.value = `Failed to load CA details: ${err.message}`;
   } finally {
     loading.value = false;
   }

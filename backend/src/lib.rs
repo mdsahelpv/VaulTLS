@@ -134,14 +134,14 @@ pub async fn create_rocket() -> Rocket<Build> {
 
     let cors = CorsOptions::default()
         .allowed_origins(AllowedOrigins::all())
+        .allowed_headers(rocket_cors::AllowedHeaders::all())
         .allow_credentials(true)
         .allowed_methods(
             vec![Method::Get, Method::Post, Method::Put, Method::Delete]
                 .into_iter()
                 .map(From::from)
                 .collect(),
-        )
-        .allow_credentials(true);
+        );
 
     info!("Initialization complete.");
 

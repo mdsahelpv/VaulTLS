@@ -198,7 +198,8 @@ pub(crate) async fn login(
 
             let cookie = Cookie::build(("auth_token", token.clone()))
                 .http_only(true)
-                .same_site(SameSite::Lax);
+                .same_site(SameSite::Lax)
+                .secure(false);
             jar.add_private(cookie);
 
             info!(user=user.name, "Successful password-based user login.");
@@ -307,7 +308,8 @@ pub(crate) async fn oidc_callback(
 
             let auth_cookie = Cookie::build(("auth_token", token))
                 .http_only(true)
-                .same_site(SameSite::Lax);
+                .same_site(SameSite::None)
+                .secure(false);
             jar.add_private(auth_cookie);
 
             info!(user=user.name, "Successful oidc-based user login");

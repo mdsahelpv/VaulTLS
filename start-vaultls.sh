@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 BACKEND_PORT=${BACKEND_PORT:-8000}
-FRONTEND_PORT=${FRONTEND_PORT:-3000}
+FRONTEND_PORT=${FRONTEND_PORT:-4000}
 DB_PATH=${DB_PATH:-"./backend/database.db3"}
 VAULTLS_DB_SECRET=${VAULTLS_DB_SECRET:-""}
 VAULTLS_API_SECRET=${VAULTLS_API_SECRET:-"$(openssl rand -base64 32)"}
@@ -312,12 +312,12 @@ show_help() {
     echo "  --release      Start backend in release mode"
     echo "  --production   Start frontend in production mode"
     echo "  --port PORT    Set backend port (default: 8000)"
-    echo "  --frontend-port PORT    Set frontend port (default: 3000)"
+    echo "  --frontend-port PORT    Set frontend port (default: 4000)"
     echo "  --help         Show this help message"
     echo ""
     echo "Environment Variables:"
     echo "  BACKEND_PORT           Backend server port (default: 8000)"
-    echo "  FRONTEND_PORT          Frontend server port (default: 3000)"
+    echo "  FRONTEND_PORT          Frontend server port (default: 4000)"
     echo "  VAULTLS_API_SECRET     API secret key (default: development key)"
     echo "  VAULTLS_DB_SECRET      Database encryption secret"
     echo "  DB_PATH                Database file path (default: ./backend/database.db3)"
