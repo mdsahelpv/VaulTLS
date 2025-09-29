@@ -42,3 +42,19 @@ export interface CADetails {
     is_self_signed: boolean;
     certificate_pem: string;
 }
+
+export interface CertificateDetails {
+    id: number;
+    name: string;
+    subject: string;
+    issuer: string;
+    created_on: number;
+    valid_until: number;
+    serial_number: string;
+    key_size: string;
+    signature_algorithm: string;
+    certificate_type: CertificateType;
+    user_id: number;
+    renew_method: CertificateRenewMethod;
+    certificate_pem: string;
+}

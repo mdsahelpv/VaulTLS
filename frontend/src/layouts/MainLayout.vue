@@ -43,9 +43,15 @@ watch(() => window.innerWidth, (width) => {
 </script>
 
 <style scoped>
+.d-flex {
+  min-height: 100vh;
+  background-color: var(--color-page-background, #f8f9fa);
+}
+
 .container-fluid {
   margin-left: 250px;
   transition: margin-left 0.3s ease;
+  background-color: transparent;
 }
 
 .content-shifted {

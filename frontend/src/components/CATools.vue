@@ -71,29 +71,29 @@
                 </td>
                 <td>{{ formatDate(ca.created_on) }}</td>
                 <td>{{ formatDate(ca.valid_until) }}</td>
-                <td class="text-center">
-                  <div class="btn-group">
+                <td>
+                  <div class="d-flex flex-sm-row flex-column gap-1">
                     <button
-                      class="btn btn-outline-primary btn-sm"
-                      @click.stop="viewCADetails(ca)"
+                      class="btn btn-primary btn-sm"
+                      @click="viewCADetails(ca)"
                       title="View CA Details"
                     >
                       <i class="bi bi-eye"></i> View
                     </button>
                     <button
-                      class="btn btn-outline-secondary btn-sm"
-                      @click.stop="handleDownloadCA(ca)"
+                      class="btn btn-primary btn-sm flex-grow-1"
+                      @click="handleDownloadCA(ca)"
                       title="Download CA Certificate"
                     >
-                      <i class="bi bi-download"></i> Download
+                      Download
                     </button>
                     <button
                       v-if="isAdmin"
-                      class="btn btn-outline-danger btn-sm"
-                      @click.stop="confirmDeleteCA(ca)"
+                      class="btn btn-danger btn-sm flex-grow-1"
+                      @click="confirmDeleteCA(ca)"
                       title="Delete CA"
                     >
-                      <i class="bi bi-trash"></i> Delete
+                      Delete
                     </button>
                   </div>
                 </td>

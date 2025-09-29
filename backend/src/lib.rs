@@ -172,6 +172,7 @@ pub async fn create_rocket() -> Rocket<Build> {
                 delete_ca,
                 delete_user_cert,
                 fetch_certificate_password,
+                get_certificate_details,
                 fetch_settings,
                 update_settings,
                 is_setup,

@@ -1,6 +1,6 @@
 use crate::cert::{Certificate, CA};
 use crate::constants::{DB_FILE_PATH, TEMP_DB_FILE_PATH};
-use crate::data::enums::{CertificateRenewMethod, UserRole};
+use crate::data::enums::{CertificateRenewMethod, CertificateType, UserRole};
 use crate::data::objects::User;
 use crate::helper::get_secret;
 use anyhow::anyhow;
@@ -294,6 +294,29 @@ impl VaulTLSDB {
             Ok(stmt.query_row(
                 params![id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?)
+        })
+    }
+
+    /// Retrieve a single user certificate with all its data
+    /// Returns (user_id, name, created_on, valid_until, pkcs12, pkcs12_password, certificate_type, renew_method, ca_id)
+    pub(crate) async fn get_user_cert(&self, id: i64) -> Result<(i64, String, i64, i64, Vec<u8>, String, CertificateType, CertificateRenewMethod, i64)> {
+        db_do!(self.pool, |conn: &Connection| {
+            let mut stmt = conn.prepare("SELECT user_id, name, created_on, valid_until, pkcs12, pkcs12_password, type, renew_method, ca_id FROM user_certificates WHERE id = ?1")?;
+
+            Ok(stmt.query_row(
+                params![id],
+                |row| Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5).unwrap_or_default(),
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?
+                )),
             )?)
         })
     }

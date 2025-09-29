@@ -1,5 +1,5 @@
 import ApiClient from './ApiClient';
-import type {Certificate} from '@/types/Certificate';
+import type {Certificate, CertificateDetails} from '@/types/Certificate';
 import type {CertificateRequirements} from "@/types/CertificateRequirements.ts";
 import type {CAAndCertificate} from '@/types/CA';
 
@@ -22,6 +22,10 @@ export const createCertificate = async (certReq: CertificateRequirements): Promi
 
 export const deleteCertificate = async (id: number): Promise<void> => {
     await ApiClient.delete<void>(`/certificates/${id}`);
+};
+
+export const getCertificateDetails = async (id: number): Promise<CertificateDetails> => {
+    return await ApiClient.get<CertificateDetails>(`/certificates/${id}/details`);
 };
 
 export const downloadCA = async (): Promise<void> => {

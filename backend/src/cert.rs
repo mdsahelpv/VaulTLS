@@ -517,3 +517,82 @@ pub(crate) fn get_dns_names(cert: &Certificate) -> Result<Vec<String>, anyhow::E
     let Some(san) = cert.subject_alt_names() else { return Err(anyhow::anyhow!("No certificate found in PKCS#12"))};
     Ok(san.iter().filter_map(|name| name.dnsname().map(|s| s.to_string())).collect())
 }
+
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct CertificateDetails {
+    pub id: i64,
+    pub name: String,
+    pub subject: String,
+    pub issuer: String,
+    pub created_on: i64,
+    pub valid_until: i64,
+    pub serial_number: String,
+    pub key_size: String,
+    pub signature_algorithm: String,
+    pub certificate_type: CertificateType,
+    pub user_id: i64,
+    pub renew_method: CertificateRenewMethod,
+    pub certificate_pem: String,
+}
+
+/// Extract detailed information from a user certificate's PKCS#12 data
+pub(crate) fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails, ApiError> {
+    let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
+
+    let parsed = encrypted_p12.parse2(&cert.pkcs12_password)
+        .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12: {}", e)))?;
+
+    let x509_cert = parsed.cert
+        .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;
+
+    // Extract certificate details
+    let subject_name = x509_cert.subject_name();
+    let issuer_name = x509_cert.issuer_name();
+    let serial = x509_cert.serial_number();
+
+    // Get key information from the certificate's public key
+    let public_key = x509_cert.public_key()
+        .map_err(|e| ApiError::Other(format!("Failed to get public key: {}", e)))?;
+
+    let key_size = if public_key.rsa().is_ok() {
+        format!("RSA {}", public_key.rsa().unwrap().size() * 8)
+    } else if public_key.ec_key().is_ok() {
+        "ECDSA P-256".to_string()
+    } else {
+        "Unknown".to_string()
+    };
+
+    // Get signature algorithm
+    let signature_algorithm = match x509_cert.signature_algorithm().object().nid().as_raw() {
+        668 => "RSA-SHA256",
+        794 => "ECDSA-SHA256",
+        _ => "Unknown",
+    };
+
+    // Convert certificate to PEM format
+    let certificate_pem = String::from_utf8(
+        x509_cert.to_pem()
+            .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))?
+    ).map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {}", e)))?;
+
+    Ok(CertificateDetails {
+        id: cert.id,
+        name: cert.name.clone(),
+        subject: format!("{:?}", subject_name),
+        issuer: format!("{:?}", issuer_name),
+        created_on: cert.created_on,
+        valid_until: cert.valid_until,
+        serial_number: serial.to_bn()
+            .map_err(|e| ApiError::Other(format!("Failed to convert serial number: {}", e)))?
+            .to_hex_str()
+            .map_err(|e| ApiError::Other(format!("Failed to format serial number: {}", e)))?
+            .to_string(),
+        key_size,
+        signature_algorithm: signature_algorithm.to_string(),
+        certificate_type: cert.certificate_type,
+        user_id: cert.user_id,
+        renew_method: cert.renew_method,
+        certificate_pem,
+    })
+}

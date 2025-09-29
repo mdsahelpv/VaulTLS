@@ -1,27 +1,38 @@
 // src/components/UserTab.vue
 <template>
-  <div>
-    <h1>Users</h1>
-    <hr />
-    <!-- Loading and Error states -->
-    <div v-if="userStore.loading" class="alert alert-info">
-      Loading...
-    </div>
-    <div v-if="userStore.error" class="alert alert-danger">
-      {{ userStore.error }}
+  <div class="user-container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1>Users</h1>
+      <div class="d-flex gap-2">
+        <button
+          class="btn btn-primary"
+          @click="isCreateModalVisible = true"
+        >
+          Create New User
+        </button>
+      </div>
     </div>
 
-    <!-- Users Table -->
-    <div class="table-responsive">
-      <table class="table table-striped">
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>E-Mail</th>
-            <th>Role</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
+    <div class="card">
+      <div class="card-body p-0">
+        <!-- Loading and Error states inside card -->
+        <div v-if="userStore.loading" class="alert alert-info m-3">
+          Loading...
+        </div>
+        <div v-else-if="userStore.error" class="alert alert-danger m-3">
+          {{ userStore.error }}
+        </div>
+        <!-- Users Table -->
+        <div v-else class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Username</th>
+                <th>E-Mail</th>
+                <th>Role</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
         <tbody>
           <tr v-for="user in userStore.users" :key="user.id">
             <td :id="'UserName-' + user.id">{{ user.name }}</td>
@@ -39,15 +50,9 @@
           </tr>
         </tbody>
       </table>
+        </div>
+      </div>
     </div>
-
-    <!-- Create User Button -->
-    <button 
-      class="btn btn-primary mb-3"
-      @click="isCreateModalVisible = true"
-    >
-      Create New User
-    </button>
 
     <!-- Create User Modal -->
     <div 
@@ -231,8 +236,40 @@ const deleteUser = async () => {
 
 
 <style scoped>
+.user-container {
+  padding: 20px;
+  background-color: transparent;
+}
+
+.card {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e9ecef;
+}
+
+.card-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.table th {
+  border-top: none;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+  letter-spacing: 0.025em;
+}
+
+.table-hover tbody tr:hover {
+  background-color: rgba(0, 0, 123, 0.075);
+}
 
 :deep(.modal.show) {
   background-color: rgba(0, 0, 0, 0.5);
+}
+
+@media (max-width: 768px) {
+  .user-container {
+    padding: 10px;
+  }
 }
 </style>

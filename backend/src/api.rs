@@ -14,7 +14,7 @@ use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
-use crate::cert::{get_password, get_pem, save_ca, Certificate, CertificateBuilder};
+use crate::cert::{get_password, get_pem, save_ca, Certificate, CertificateBuilder, CertificateDetails};
 use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateType, PasswordRule, UserRole};
@@ -689,6 +689,36 @@ pub(crate) async fn fetch_certificate_password(
     let (user_id, pkcs12_password) = state.db.get_user_cert_pkcs12_password(id).await?;
     if user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin { return Err(ApiError::Forbidden(None)) }
     Ok(Json(pkcs12_password))
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/<id>/details")]
+/// Get detailed information about a user certificate. Requires authentication.
+pub(crate) async fn get_certificate_details(
+    state: &State<AppState>,
+    id: i64,
+    authentication: Authenticated
+) -> Result<Json<CertificateDetails>, ApiError> {
+    let (user_id, name, created_on, valid_until, pkcs12, pkcs12_password, certificate_type, renew_method, ca_id) = state.db.get_user_cert(id).await?;
+    if user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin {
+        return Err(ApiError::Forbidden(None));
+    }
+
+    let cert = Certificate {
+        id,
+        name,
+        created_on,
+        valid_until,
+        certificate_type,
+        user_id,
+        renew_method,
+        pkcs12,
+        pkcs12_password,
+        ca_id,
+    };
+
+    let details = crate::cert::get_certificate_details(&cert)?;
+    Ok(Json(details))
 }
 
 #[openapi(tag = "Certificates")]

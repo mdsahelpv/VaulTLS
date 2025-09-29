@@ -41,6 +41,6 @@ const authStore = useAuthStore();
   border: none;
   border-radius: 12px;
   padding: 1.5rem;
-  box-shadow: 0 2px 8px var(--shadow-color);;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);;
 }
 </style>
