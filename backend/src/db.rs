@@ -179,8 +179,8 @@ impl VaulTLSDB {
     ) -> Result<i64> {
         db_do!(self.pool, |conn: &Connection| {
             conn.execute(
-                "INSERT INTO ca_certificates (created_on, valid_until, certificate, key) VALUES (?1, ?2, ?3, ?4)",
-                params![ca.created_on, ca.valid_until, ca.cert, ca.key],
+                "INSERT INTO ca_certificates (created_on, valid_until, certificate, key, creation_source) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![ca.created_on, ca.valid_until, ca.cert, ca.key, ca.creation_source],
             )?;
 
             Ok(conn.last_insert_rowid())
@@ -190,7 +190,7 @@ impl VaulTLSDB {
     /// Retrieve the most recent CA entry from the database
     pub(crate) async fn get_current_ca(&self) -> Result<CA> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT * FROM ca_certificates ORDER BY id DESC LIMIT 1")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source FROM ca_certificates ORDER BY id DESC LIMIT 1")?;
 
             stmt.query_row([], |row| {
                 Ok(CA{
@@ -198,7 +198,8 @@ impl VaulTLSDB {
                     created_on: row.get(1)?,
                     valid_until: row.get(2)?,
                     cert: row.get(3)?,
-                    key: row.get(4)?
+                    key: row.get(4)?,
+                    creation_source: row.get(5)?
                 })
             }).map_err(|_| anyhow!("VaulTLS has not been set-up yet"))
         })
@@ -207,7 +208,7 @@ impl VaulTLSDB {
     /// Retrieve all CA certificates from the database
     pub(crate) async fn get_all_ca(&self) -> Result<Vec<CA>> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key FROM ca_certificates ORDER BY id DESC")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source FROM ca_certificates ORDER BY id DESC")?;
             let rows = stmt.query([])?;
             Ok(rows.map(|row| {
                 Ok(CA {
@@ -215,7 +216,8 @@ impl VaulTLSDB {
                     created_on: row.get(1)?,
                     valid_until: row.get(2)?,
                     cert: row.get(3)?,
-                    key: row.get(4)?
+                    key: row.get(4)?,
+                    creation_source: row.get(5)?
                 })
             })
             .collect()?)
@@ -223,9 +225,10 @@ impl VaulTLSDB {
     }
 
     /// Retrieve a specific CA by ID from the database
+    #[allow(dead_code)]
     pub(crate) async fn get_ca(&self, id: i64) -> Result<CA> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key FROM ca_certificates WHERE id = ?1")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source FROM ca_certificates WHERE id = ?1")?;
 
             stmt.query_row(params![id], |row| {
                 Ok(CA{
@@ -233,7 +236,8 @@ impl VaulTLSDB {
                     created_on: row.get(1)?,
                     valid_until: row.get(2)?,
                     cert: row.get(3)?,
-                    key: row.get(4)?
+                    key: row.get(4)?,
+                    creation_source: row.get(5)?
                 })
             }).map_err(|e| anyhow!("CA with id {} not found: {}", id, e))
         })

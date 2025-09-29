@@ -72,28 +72,28 @@
                 <td>{{ formatDate(ca.created_on) }}</td>
                 <td>{{ formatDate(ca.valid_until) }}</td>
                 <td class="text-center">
-                  <div class="btn-group btn-group-sm">
+                  <div class="btn-group">
                     <button
-                      class="btn btn-outline-primary"
+                      class="btn btn-outline-primary btn-sm"
                       @click.stop="viewCADetails(ca)"
-                      title="View Details"
+                      title="View CA Details"
                     >
-                      <i class="bi bi-eye"></i>
+                      <i class="bi bi-eye"></i> View
                     </button>
                     <button
-                      class="btn btn-outline-secondary"
+                      class="btn btn-outline-secondary btn-sm"
                       @click.stop="handleDownloadCA(ca)"
-                      title="Download Certificate"
+                      title="Download CA Certificate"
                     >
-                      <i class="bi bi-download"></i>
+                      <i class="bi bi-download"></i> Download
                     </button>
                     <button
                       v-if="isAdmin"
-                      class="btn btn-outline-danger"
+                      class="btn btn-outline-danger btn-sm"
                       @click.stop="confirmDeleteCA(ca)"
                       title="Delete CA"
                     >
-                      <i class="bi bi-trash"></i>
+                      <i class="bi bi-trash"></i> Delete
                     </button>
                   </div>
                 </td>
@@ -446,6 +446,7 @@ import { useAuthStore } from '@/stores/auth';
 import { fetchCAs, createSelfSignedCA, importCAFromFile, deleteCA, downloadCA } from '@/api/certificates';
 import { UserRole } from '@/types/User';
 import type { CA } from '@/types/CA';
+import ApiClient from '@/api/ApiClient';
 
 const authStore = useAuthStore();
 
@@ -500,14 +501,31 @@ const viewCADetails = (ca: CA) => {
 
 const handleDownloadCA = async (ca: CA) => {
   try {
-    // For now, download the first/current CA. Will need to update API to support multiple
-    await downloadCA(); // This downloads current CA
-    // TODO: Add API endpoint to download specific CA by ID
+    const response = await fetch('/api/certificates/ca/download', {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = `${ca.name.replace(/[^a-zA-Z0-9]/g, '_')}.crt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(blobUrl);
   } catch (err: any) {
     console.error('Failed to download CA:', err);
     alert('Failed to download CA certificate');
   }
 };
+
+
 
 const confirmDeleteCA = (ca: CA) => {
   deletingCA.value = ca;
@@ -617,12 +635,12 @@ const copyToClipboard = async (text: string) => {
 };
 
 const formatDate = (timestamp: number): string => {
-  return new Date(timestamp * 1000).toLocaleDateString();
+  return new Date(timestamp).toLocaleDateString();
 };
 
 const getStatusText = (ca: CA): string => {
   const now = Date.now();
-  const validUntil = ca.valid_until * 1000;
+  const validUntil = ca.valid_until;
 
   if (validUntil < now) {
     return 'Expired';

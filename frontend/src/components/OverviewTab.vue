@@ -1,6 +1,18 @@
 <template>
   <div>
-    <h1>Certificates</h1>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1 class="mb-0">Certificates</h1>
+      <div class="d-flex gap-2">
+        <button
+            id="CreateCertificateButton"
+            v-if="authStore.isAdmin"
+            class="btn btn-primary"
+            @click="showGenerateModal"
+        >
+          Create New Certificate
+        </button>
+      </div>
+    </div>
     <hr />
     <div class="table-responsive">
       <table class="table table-striped">
@@ -73,23 +85,6 @@
       </table>
     </div>
 
-    <button
-        id="DownloadCAButton"
-        class="btn btn-primary mx-1"
-        @click="downloadCA"
-    >
-      Get CA certificate
-    </button>
-
-    <button
-        id="CreateCertificateButton"
-        v-if="authStore.isAdmin"
-        class="btn btn-primary mx-1"
-        @click="showGenerateModal"
-    >
-      Create New Certificate
-    </button>
-
     <div v-if="loading" class="text-center mt-3">Loading certificates...</div>
     <div v-if="error" class="alert alert-danger mt-3">{{ error }}</div>
 
@@ -128,6 +123,22 @@
                 <option :value="CertificateType.Client">Client</option>
                 <option :value="CertificateType.Server">Server</option>
               </select>
+            </div>
+            <div class="mb-3">
+              <label for="caId" class="form-label">Certificate Authority (CA)</label>
+              <select
+                  id="caId"
+                  v-model="certReq.ca_id"
+                  class="form-control"
+              >
+                <option value="" disabled>Select a CA</option>
+                <option v-for="ca in availableCAs" :key="ca.id" :value="ca.id">
+                  {{ ca.name }} ({{ ca.is_self_signed ? 'Self-Signed' : 'Imported' }})
+                </option>
+              </select>
+              <div class="form-text">
+                Choose which CA to use for signing this certificate.
+              </div>
             </div>
             <div class="mb-3" v-if="certReq.cert_type == CertificateType.Server">
               <label class="form-label">DNS Names</label>
@@ -291,11 +302,12 @@ import {computed, onMounted, reactive, ref, watch} from 'vue';
 import {useCertificateStore} from '@/stores/certificates';
 import {type Certificate, CertificateRenewMethod, CertificateType} from "@/types/Certificate";
 import type {CertificateRequirements} from "@/types/CertificateRequirements";
+import type {CAAndCertificate} from "@/types/CA";
 import {useAuthStore} from "@/stores/auth.ts";
 import {useUserStore} from "@/stores/users.ts";
 import {useSettingsStore} from "@/stores/settings.ts";
 import {PasswordRule} from "@/types/Settings.ts";
-import {downloadCA} from "@/api/certificates.ts";
+import {downloadCA, fetchCAs} from "@/api/certificates.ts";
 
 // stores
 const certificateStore = useCertificateStore();
@@ -305,6 +317,7 @@ const settingStore = useSettingsStore();
 
 // local state
 const shownCerts = ref(new Set<number>());
+const availableCAs = ref<CAAndCertificate[]>([]);
 
 const certificates = computed(() => certificateStore.certificates);
 const settings = computed(() => settingStore.settings);
@@ -349,7 +362,16 @@ onMounted(async () => {
 
 const showGenerateModal = async () => {
   await userStore.fetchUsers();
+  await fetchAvailableCAs();
   isGenerateModalVisible.value = true;
+};
+
+const fetchAvailableCAs = async () => {
+  try {
+    availableCAs.value = await fetchCAs();
+  } catch (err) {
+    console.error('Failed to fetch CAs:', err);
+  }
 };
 
 const closeGenerateModal = () => {

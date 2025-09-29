@@ -46,6 +46,7 @@ pub struct CA {
     pub id: i64,
     pub created_on: i64,
     pub valid_until: i64,
+    pub creation_source: i32, // 0: self-signed, 1: imported
     #[serde(skip)]
     pub cert: Vec<u8>,
     #[serde(skip)]
@@ -206,6 +207,7 @@ impl CertificateBuilder {
             id: -1,
             created_on,
             valid_until,
+            creation_source: 1, // 1 = imported
             cert: ca_cert_der,
             key: ca_key_der,
         })
@@ -356,6 +358,7 @@ impl CertificateBuilder {
             id: -1,
             created_on: self.created_on,
             valid_until,
+            creation_source: 0, // 0 = self-signed
             cert: cert.to_der()?,
             key: self.private_key.private_key_to_der()?,
         })

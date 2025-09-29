@@ -369,7 +369,14 @@ pub(crate) async fn create_user_certificate(
         payload.system_generated_password
     };
 
-    let ca = state.db.get_current_ca().await?;
+    // Use specified CA or default to current (first) CA
+    let ca_id = payload.ca_id.unwrap_or(0);
+    let ca = if ca_id > 0 {
+        state.db.get_ca(ca_id).await?
+    } else {
+        state.db.get_current_ca().await?
+    };
+
     let pkcs12_password = get_password(use_random_password, &payload.pkcs12_password);
     let cert_builder = CertificateBuilder::new_with_ca(Some(&ca))?
         .set_name(&payload.cert_name)?
@@ -525,10 +532,9 @@ pub(crate) async fn get_ca_list(
             _ => "Unknown",
         };
 
-        // Check if self-signed by comparing the DER representations
-        let subject_der = subject_name.to_der()?;
-        let issuer_der = issuer_name.to_der()?;
-        let is_self_signed = subject_der == issuer_der;
+        // Use the creation_source field to determine if CA is self-signed or imported
+        // 0 = self-signed (system generated), 1 = imported (user uploaded)
+        let is_self_signed = ca.creation_source == 0;
 
         // Get certificate name from subject
         let name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
@@ -627,10 +633,9 @@ pub(crate) async fn get_ca_details(
         _ => "Unknown",
     };
 
-    // Check if self-signed by comparing the DER representations
-    let subject_der = subject_name.to_der()?;
-    let issuer_der = issuer_name.to_der()?;
-    let is_self_signed = subject_der == issuer_der;
+    // Use the creation_source field to determine if CA is self-signed or imported
+    // 0 = self-signed (system generated), 1 = imported (user uploaded)
+    let is_self_signed = ca.creation_source == 0;
 
     // Get certificate name from subject
     let name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN

@@ -43,7 +43,7 @@
                 :class="{ active: activeRouteName === 'CA' }"
                 @click.prevent="goToRoute('CA')"
             >
-              View CA
+              CA Tools
             </a>
           </li>
           <li v-if="isAdmin" class="nav-item mb-2">
