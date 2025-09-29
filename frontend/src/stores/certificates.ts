@@ -63,7 +63,11 @@ export const useCertificateStore = defineStore('certificate', {
         async downloadCertificate(id: number): Promise<void> {
             try {
                 this.error = null;
-                await downloadCertificate(id);
+                const certificate = this.certificates.get(id);
+                if (!certificate) {
+                    throw new Error('Certificate not found');
+                }
+                await downloadCertificate(id, certificate.name);
             } catch (err) {
                 this.error = 'Failed to download the certificate.';
                 console.error(err);

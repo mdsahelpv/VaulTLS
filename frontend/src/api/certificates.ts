@@ -11,8 +11,30 @@ export const fetchCertificatePassword = async (id: number): Promise<string> => {
     return await ApiClient.get<string>(`/certificates/${id}/password`);
 };
 
-export const downloadCertificate = async (id: number): Promise<void> => {
-    return await ApiClient.download(`/certificates/${id}/download`);
+export const downloadCertificate = async (id: number, certName: string): Promise<void> => {
+    try {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/certificates/${id}/download`, {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            throw new Error(`Download failed: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `${certName.replace(/[^a-zA-Z0-9]/g, '_')}.crt`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+        console.error('Failed to download certificate:', error);
+        throw error;
+    }
 };
 
 export const createCertificate = async (certReq: CertificateRequirements): Promise<number> => {
