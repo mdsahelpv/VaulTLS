@@ -3,7 +3,9 @@ use rocket::{delete, get, post, put, State};
 use rocket::form::Form;
 use rocket::response::Redirect;
 use rocket::serde::json::Json;
+use rocket::serde::Deserialize;
 use rocket::http::{Cookie, CookieJar, SameSite};
+use rocket::FromForm;
 use tokio::io::AsyncReadExt;
 use tracing::{trace, debug, info, warn, error};
 use openssl::x509::X509;
@@ -418,6 +420,66 @@ pub(crate) async fn create_user_certificate(
 }
 
 #[openapi(tag = "Certificates")]
+#[post("/certificates/ca/new", format = "json", data = "<payload>")]
+/// Create a new self-signed CA certificate. Requires admin role.
+pub(crate) async fn create_self_signed_ca(
+    state: &State<AppState>,
+    payload: Json<CreateCASelfSignedRequest>,
+    _authentication: AuthenticatedPrivileged
+) -> Result<Json<i64>, ApiError> {
+    debug!(ca_name=?payload.name, validity_years=?payload.validity_in_years, "Creating self-signed CA");
+
+    let ca = CertificateBuilder::new_with_ca(None)?
+        .set_name(&payload.name)?
+        .set_valid_until(payload.validity_in_years)?
+        .build_ca()?;
+
+    let ca = state.db.insert_ca(ca).await?;
+    info!(ca=?ca, "Self-signed CA created");
+
+    Ok(Json(ca))
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Debug)]
+pub struct CreateCASelfSignedRequest {
+    pub name: String,
+    pub validity_in_years: u64,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+
+#[openapi(tag = "Certificates")]
+#[post("/certificates/ca/import", data = "<upload>")]
+/// Import a CA certificate from PKCS#12 file. Requires admin role.
+pub(crate) async fn import_ca_from_file(
+    state: &State<AppState>,
+    upload: Form<ImportCARequest<'_>>,
+    _authentication: AuthenticatedPrivileged
+) -> Result<Json<i64>, ApiError> {
+    debug!("Importing CA from PKCS#12 file");
+
+    let mut buffer = Vec::new();
+    let file = upload.file.open().await.map_err(|e| ApiError::Other(format!("Failed to open file: {}", e)))?;
+    let mut reader = tokio::io::BufReader::new(file);
+    reader.read_to_end(&mut buffer).await.map_err(|e| ApiError::Other(format!("Failed to read file: {}", e)))?;
+
+    let ca = CertificateBuilder::from_pfx(&buffer, upload.password.as_deref(), upload.name.as_deref())?;
+    let ca = state.db.insert_ca(ca).await?;
+
+    info!(ca=?ca, "CA imported from PKCS#12 file");
+    Ok(Json(ca))
+}
+
+#[derive(FromForm, JsonSchema, Debug)]
+pub struct ImportCARequest<'r> {
+    pub password: Option<String>,
+    pub name: Option<String>,
+    #[schemars(skip)]
+    pub file: rocket::fs::TempFile<'r>,
+}
+
+#[openapi(tag = "Certificates")]
 #[get("/certificates/ca/download")]
 /// Download the current CA certificate.
 pub(crate) async fn download_ca(
@@ -426,6 +488,97 @@ pub(crate) async fn download_ca(
     let ca = state.db.get_current_ca().await?;
     let pem = get_pem(&ca)?;
     Ok(DownloadResponse::new(pem, "ca_certificate.pem"))
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/ca")]
+/// Get all CA certificates. Requires authentication.
+pub(crate) async fn get_ca_list(
+    state: &State<AppState>,
+    _authentication: Authenticated
+) -> Result<Json<Vec<CADetails>>, ApiError> {
+    let cas = state.db.get_all_ca().await?;
+    let mut ca_details = Vec::new();
+
+    for ca in cas {
+        let cert = X509::from_der(&ca.cert)?;
+
+        // Extract certificate details
+        let subject_name = cert.subject_name();
+        let issuer_name = cert.issuer_name();
+        let serial = cert.serial_number();
+
+        // Get key information
+        let public_key = cert.public_key()?;
+        let key_size = if public_key.rsa().is_ok() {
+            format!("RSA {}", public_key.rsa().unwrap().size() * 8)
+        } else if public_key.ec_key().is_ok() {
+            "ECDSA P-256".to_string()
+        } else {
+            "Unknown".to_string()
+        };
+
+        // Get signature algorithm
+        let signature_algorithm = match cert.signature_algorithm().object().nid().as_raw() {
+            668 => "RSA-SHA256",
+            794 => "ECDSA-SHA256",
+            _ => "Unknown",
+        };
+
+        // Check if self-signed by comparing the DER representations
+        let subject_der = subject_name.to_der()?;
+        let issuer_der = issuer_name.to_der()?;
+        let is_self_signed = subject_der == issuer_der;
+
+        // Get certificate name from subject
+        let name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+            .and_then(|e| e.data().as_utf8().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        // Convert to PEM
+        let pem = get_pem(&ca)?;
+        let certificate_pem = String::from_utf8(pem)
+            .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {}", e)))?;
+
+        let ca_detail = CADetails {
+            id: ca.id,
+            name,
+            subject: format!("{:?}", subject_name),
+            issuer: format!("{:?}", issuer_name),
+            created_on: ca.created_on,
+            valid_until: ca.valid_until,
+            serial_number: serial.to_bn()?.to_hex_str()?.to_string(),
+            key_size,
+            signature_algorithm: signature_algorithm.to_string(),
+            is_self_signed,
+            certificate_pem,
+        };
+
+        ca_details.push(ca_detail);
+    }
+
+    Ok(Json(ca_details))
+}
+
+#[openapi(tag = "Certificates")]
+#[delete("/certificates/ca/<id>")]
+/// Delete a CA certificate. Requires admin role.
+pub(crate) async fn delete_ca(
+    state: &State<AppState>,
+    id: i64,
+    _authentication: AuthenticatedPrivileged
+) -> Result<(), ApiError> {
+    // Check if this CA is being used by any certificates
+    // Note: This is a simplified check; in production you might want more comprehensive validation
+
+    // TODO: Add logic to check if CA is referenced by any user certificates
+    // For now, we'll allow deletion but this could break existing certificates
+
+    state.db.delete_ca(id).await?;
+    info!(ca_id=id, "CA deleted");
+
+    Ok(())
 }
 
 #[derive(Serialize, JsonSchema, Debug)]

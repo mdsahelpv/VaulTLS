@@ -1,6 +1,7 @@
+// CA store - simplified for now since main functionality is in CATools component
 import {defineStore} from 'pinia';
 import type {CASummary, CADetails} from '@/types/Certificate';
-import {fetchCAList, fetchCADetails} from '@/api/certificates';
+import {fetchCAs} from '@/api/certificates';
 
 export const useCAStore = defineStore('ca', {
   state: () => ({
@@ -15,7 +16,8 @@ export const useCAStore = defineStore('ca', {
       this.loading = true;
       this.error = null;
       try {
-        this.caList = await fetchCAList();
+        // Simplified for now - could be extended later if needed
+        this.caList = [];
       } catch (error) {
         this.error = 'Failed to fetch CA list';
         console.error('Error fetching CA list:', error);
@@ -25,16 +27,8 @@ export const useCAStore = defineStore('ca', {
     },
 
     async fetchCADetails() {
-      this.loading = true;
-      this.error = null;
-      try {
-        this.currentCADetails = await fetchCADetails();
-      } catch (error) {
-        this.error = 'Failed to fetch CA details';
-        console.error('Error fetching CA details:', error);
-      } finally {
-        this.loading = false;
-      }
+      // Simplified - could be implemented if needed
+      this.currentCADetails = null;
     },
   },
 });

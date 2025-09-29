@@ -1,5 +1,5 @@
 <template>
-  <div class="ca-details-container">
+  <div class="ca-tools-container">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h2 class="mb-0">Certificate Authority Details</h2>
       <button

@@ -204,6 +204,51 @@ impl VaulTLSDB {
         })
     }
 
+    /// Retrieve all CA certificates from the database
+    pub(crate) async fn get_all_ca(&self) -> Result<Vec<CA>> {
+        db_do!(self.pool, |conn: &Connection| {
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key FROM ca_certificates ORDER BY id DESC")?;
+            let rows = stmt.query([])?;
+            Ok(rows.map(|row| {
+                Ok(CA {
+                    id: row.get(0)?,
+                    created_on: row.get(1)?,
+                    valid_until: row.get(2)?,
+                    cert: row.get(3)?,
+                    key: row.get(4)?
+                })
+            })
+            .collect()?)
+        })
+    }
+
+    /// Retrieve a specific CA by ID from the database
+    pub(crate) async fn get_ca(&self, id: i64) -> Result<CA> {
+        db_do!(self.pool, |conn: &Connection| {
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key FROM ca_certificates WHERE id = ?1")?;
+
+            stmt.query_row(params![id], |row| {
+                Ok(CA{
+                    id: row.get(0)?,
+                    created_on: row.get(1)?,
+                    valid_until: row.get(2)?,
+                    cert: row.get(3)?,
+                    key: row.get(4)?
+                })
+            }).map_err(|e| anyhow!("CA with id {} not found: {}", id, e))
+        })
+    }
+
+    /// Delete a CA from the database
+    pub(crate) async fn delete_ca(&self, id: i64) -> Result<()> {
+        db_do!(self.pool, |conn: &Connection| {
+            Ok(conn.execute(
+                "DELETE FROM ca_certificates WHERE id=?1",
+                params![id]
+            ).map(|_| ())?)
+        })
+    }
+
     /// Retrieve all user certificates from the database
     /// If user_id is Some, only certificates for that user are returned
     /// If user_id is None, all certificates are returned

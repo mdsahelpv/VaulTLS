@@ -21,3 +21,24 @@ export interface Certificate {
     user_id: number;                      // User ID who owns the certificate
     renew_method: CertificateRenewMethod; // Method on what to do when the certificate is about to expire
 }
+
+export interface CASummary {
+    id: number;
+    name: string;
+    is_self_signed: boolean;
+    valid_until: number;
+}
+
+export interface CADetails {
+    id: number;
+    name: string;
+    subject: string;
+    issuer: string;
+    created_on: number;
+    valid_until: number;
+    serial_number: string;
+    key_size: string;
+    signature_algorithm: string;
+    is_self_signed: boolean;
+    certificate_pem: string;
+}

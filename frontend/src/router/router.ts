@@ -9,7 +9,7 @@ import MainLayout from '@/layouts/MainLayout.vue';
 import OverviewTab from '@/components/OverviewTab.vue';
 import SettingsTab from '@/components/SettingsTab.vue';
 import UserTab from "@/components/UserTab.vue";
-import CADetails from '@/components/CADetails.vue';
+import CATools from '@/components/CATools.vue';
 
 const router = createRouter({
     history: createWebHistory(),
@@ -41,7 +41,7 @@ const router = createRouter({
                 {
                     path: 'ca',
                     name: 'CA',
-                    component: CADetails,
+                    component: CATools,
                 },
                 {
                     path: 'users',

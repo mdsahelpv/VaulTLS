@@ -70,9 +70,9 @@ class ApiClient {
     }
 
 
-    async post<T>(url: string, data: Record<string, any> = {}): Promise<T> {
+    async post<T>(url: string, data: Record<string, any> | FormData = {}, config: AxiosRequestConfig = {}): Promise<T> {
         try {
-            const response: AxiosResponse<T> = await this.client.post(url, data);
+            const response: AxiosResponse<T> = await this.client.post(url, data, config);
             return response.data;
         } catch (error) {
             console.error(`POST ${url} failed:`, error);
