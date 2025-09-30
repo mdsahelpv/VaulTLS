@@ -567,9 +567,9 @@ pub(crate) fn certificate_pkcs12_to_der(cert: &Certificate) -> Result<Vec<u8>, A
 }
 
 /// Convert a CA certificate to DER format.
-pub(crate) fn get_der(ca: &CA) -> Result<Vec<u8>, ErrorStack> {
-    Ok(ca.cert.clone())
-}
+// pub(crate) fn get_der(ca: &CA) -> Result<Vec<u8>, ErrorStack> {
+//     Ok(ca.cert.clone())
+// }
 
 #[derive(Serialize, JsonSchema, Debug)]
 pub struct CertificateDetails {

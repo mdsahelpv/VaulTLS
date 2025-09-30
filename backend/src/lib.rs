@@ -133,7 +133,11 @@ pub async fn create_rocket() -> Rocket<Build> {
     trace!("App State: {:?}", app_state);
 
     let cors = CorsOptions::default()
-        .allowed_origins(AllowedOrigins::all())
+        .allowed_origins(AllowedOrigins::some::<&str, &str>(&[
+            "http://localhost:4000",
+            "http://127.0.0.1:4000",
+            "http://192.168.202.209:4000",
+        ], &[]))
         .allowed_headers(rocket_cors::AllowedHeaders::all())
         .allow_credentials(true)
         .allowed_methods(
