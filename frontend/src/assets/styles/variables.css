@@ -1,29 +1,50 @@
 :root {
-    /* Base Colors */
-    --color-background: #e5eef4;    /* Sidebar background */
-    --color-card: #c4d4dc;         /* ProfileCard background */
-    --color-hover: #ebe7f0;        /* Sidebar nav-link hover */
-    --color-active: #ccc4dc;       /* Sidebar active state */
-    --color-page-background: #f8f9fa; /* Main page background - light gray */
+    /* Modern Apple-like Color Palette */
+    --color-background: #ffffff;     /* Pure white for clean look */
+    --color-card: #f5f5f7;          /* Off-white for cards */
+    --color-hover: #f2f2f2;         /* Subtle light gray hover */
+    --color-active: #e5e5e7;        /* Soft gray active state */
+    --color-page-background: #fafafc; /* Very light background */
 
-    /* Avatar Colors (from ProfileCard) */
-    --color-avatar-1: #264653;     /* Dark blue */
-    --color-avatar-2: #2a9d8f;     /* Teal */
-    --color-avatar-3: #e9c46a;     /* Yellow */
-    --color-avatar-4: #f4a261;     /* Orange */
-    --color-avatar-5: #e76f51;     /* Coral */
+    /* Subtle Light Avatar Colors */
+    --color-avatar-1: #e0f7fa;     /* Light cyan */
+    --color-avatar-2: #f3e5f5;     /* Light purple */
+    --color-avatar-3: #e8f5e8;     /* Light green */
+    --color-avatar-4: #fff8e1;     /* Light yellow */
+    --color-avatar-5: #fce4ec;     /* Light pink */
 
     /* Text Colors */
-    --color-text-primary: #000000; /* Sidebar nav-link color */
+    --color-text-primary: #1d1d1f; /* Deep dark gray for primary text */
 
     /* Effects */
-    --shadow-color: rgba(0, 0, 0, 0.05); /* ProfileCard shadow */
+    --shadow-color: rgba(0, 0, 0, 0.1); /* Subtle shadow */
 
-    /* Semantic Colors */
-    --primary: var(--color-avatar-1);
-    --secondary: var(--color-avatar-2);
-    --accent: var(--color-avatar-3);
-    --warning: var(--color-avatar-4);
-    --danger: var(--color-avatar-5);
+    /* Typography (Modern & Simple) */
+    --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', sans-serif;
+    --font-weight-normal: 300;
+    --font-weight-medium: 400;
+    --font-weight-semibold: 500;
 
+    /* Spacing */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+
+    /* Border Radius */
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    /* Transitions */
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.3s ease;
+
+    /* Semantic Colors (with light accent) */
+    --primary: #4285F4; /* Light blue for active states */
+    --secondary: var(--color-avatar-3);
+    --accent: var(--color-avatar-4);
+    --warning: #f5c105;
+    --danger: #ff3b30;
 }

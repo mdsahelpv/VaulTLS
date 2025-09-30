@@ -23,11 +23,11 @@ const formatEmail = (email?: string) => {
 };
 
 const avatarColors = [
-  '#264653', // Dark blue
-  '#2a9d8f', // Teal
-  '#e9c46a', // Yellow
-  '#f4a261', // Orange
-  '#e76f51'  // Coral
+  'var(--color-avatar-1)',
+  'var(--color-avatar-2)',
+  'var(--color-avatar-3)',
+  'var(--color-avatar-4)',
+  'var(--color-avatar-5)'
 ];
 
 const authStore = useAuthStore();
@@ -35,12 +35,17 @@ const authStore = useAuthStore();
 
 <style scoped>
 .card {
-  max-width: 300px;
-  margin: 3%;
-  background-color: #c4d4dc;
+  max-width: 220px;
+  margin: var(--spacing-md);
+  background-color: var(--color-card);
   border: none;
-  border-radius: 12px;
-  padding: 1.5rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);;
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 10px var(--shadow-color);
+  transition: box-shadow var(--transition-fast);
+}
+
+.card:hover {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 4px 16px var(--shadow-color);
 }
 </style>

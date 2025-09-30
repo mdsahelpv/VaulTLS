@@ -45,28 +45,31 @@ watch(() => window.innerWidth, (width) => {
 <style scoped>
 .d-flex {
   min-height: 100vh;
-  background-color: var(--color-page-background, #f8f9fa);
+  background-color: var(--color-page-background);
+  font-family: var(--font-family);
 }
 
 .container-fluid {
-  margin-left: 250px;
-  transition: margin-left 0.3s ease;
+  margin-left: 240px;
+  padding: var(--spacing-xl);
+  transition: margin-left var(--transition-normal);
   background-color: transparent;
 }
 
 .content-shifted {
-  margin-left: 250px !important;
+  margin-left: 240px !important;
 }
 
 @media (max-width: 991.98px) {
   .container-fluid {
     margin-left: 0;
+    padding: var(--spacing-lg);
   }
 }
 
 @media (min-width: 992px) {
   .container-fluid {
-    max-width: 70%;
+    max-width: 100%;
   }
 }
 

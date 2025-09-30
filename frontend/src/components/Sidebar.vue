@@ -71,13 +71,13 @@
       <div class="p-3">
         <a
             href="#"
-            class="nav-link d-flex align-items-center gap-2"
+            class="nav-link logout-link d-flex align-items-center gap-2"
             @click="handleLogout"
         >
           Logout
         </a>
       </div>
-      <div class="text-center text-muted small p-2">
+      <div class="text-center text-muted small p-2 version-info">
         {{ "Version: " + setupStore.version }}
       </div>
     </div>
@@ -137,24 +137,36 @@ onMounted(async () => {
   top: 0;
   left: 0;
   bottom: 0;
-  width: 250px;
+  width: 240px;
   height: 100vh;
   overflow-y: auto;
   z-index: 1000;
   background-color: var(--color-background);
-  transition: transform 0.3s ease;
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  font-family: var(--font-family);
+  transition: transform var(--transition-normal);
 }
 
 .sidebar-toggle {
   position: fixed;
-  bottom: 10px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  bottom: 20px;
+  left: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
+  background-color: var(--color-card);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: var(--color-text-primary);
   z-index: 1001;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 12px var(--shadow-color);
+}
+
+.sidebar-toggle:hover {
+  transform: scale(1.05);
 }
 
 .sidebar-visible {
@@ -172,8 +184,10 @@ onMounted(async () => {
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(4px);
   z-index: 999;
+  transition: opacity var(--transition-normal);
 }
 
 @media (min-width: 992px) {
@@ -186,8 +200,27 @@ onMounted(async () => {
 }
 
 .nav-link {
-  color: #000;
+  color: var(--color-text-primary);
   text-decoration: none;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-weight: var(--font-weight-normal);
+  font-size: 14px;
+  letter-spacing: -0.025em;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.nav-link::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background-color: var(--primary);
+  border-radius: var(--radius-md);
+  transition: width var(--transition-fast);
 }
 
 .nav-link:hover {
@@ -195,13 +228,29 @@ onMounted(async () => {
 }
 
 .nav-link.active {
-  font-weight: bold;
   background-color: var(--color-active);
-  border-radius: 4px;
 }
 
-button.nav-link {
-  background: none;
-  cursor: pointer;
+.nav-link.active::before {
+  width: 3px;
+}
+
+.logout-link {
+  color: var(--danger);
+  font-weight: var(--font-weight-medium);
+}
+
+.version-info {
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  opacity: 0.6;
+}
+
+.flex-grow-1 {
+  padding: var(--spacing-lg) var(--spacing-md);
+}
+
+.p-3 {
+  padding: var(--spacing-md);
 }
 </style>
