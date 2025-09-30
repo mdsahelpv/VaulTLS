@@ -518,6 +518,59 @@ pub(crate) fn get_dns_names(cert: &Certificate) -> Result<Vec<String>, anyhow::E
     Ok(san.iter().filter_map(|name| name.dnsname().map(|s| s.to_string())).collect())
 }
 
+/// Convert a user certificate from PKCS#12 to PEM format.
+pub(crate) fn certificate_pkcs12_to_pem(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
+    let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
+
+    let parsed = if cert.pkcs12_password.is_empty() {
+        // Try without password first
+        match encrypted_p12.parse2("") {
+            Ok(parsed) => parsed,
+            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {}", e))),
+        }
+    } else {
+        // Try with provided password
+        encrypted_p12.parse2(&cert.pkcs12_password)
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {}", e)))?
+    };
+
+    let x509_cert = parsed.cert
+        .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;
+
+    x509_cert.to_pem()
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))
+}
+
+/// Convert a user certificate from PKCS#12 to DER format.
+pub(crate) fn certificate_pkcs12_to_der(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
+    let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
+
+    let parsed = if cert.pkcs12_password.is_empty() {
+        // Try without password first
+        match encrypted_p12.parse2("") {
+            Ok(parsed) => parsed,
+            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {}", e))),
+        }
+    } else {
+        // Try with provided password
+        encrypted_p12.parse2(&cert.pkcs12_password)
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {}", e)))?
+    };
+
+    let x509_cert = parsed.cert
+        .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;
+
+    x509_cert.to_der()
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to DER: {}", e)))
+}
+
+/// Convert a CA certificate to DER format.
+pub(crate) fn get_der(ca: &CA) -> Result<Vec<u8>, ErrorStack> {
+    Ok(ca.cert.clone())
+}
+
 #[derive(Serialize, JsonSchema, Debug)]
 pub struct CertificateDetails {
     pub id: i64,
@@ -540,8 +593,17 @@ pub(crate) fn get_certificate_details(cert: &Certificate) -> Result<CertificateD
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
         .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
 
-    let parsed = encrypted_p12.parse2(&cert.pkcs12_password)
-        .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12: {}", e)))?;
+    let parsed = if cert.pkcs12_password.is_empty() {
+        // Try without password first
+        match encrypted_p12.parse2("") {
+            Ok(parsed) => parsed,
+            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {}", e))),
+        }
+    } else {
+        // Try with provided password
+        encrypted_p12.parse2(&cert.pkcs12_password)
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {}", e)))?
+    };
 
     let x509_cert = parsed.cert
         .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;

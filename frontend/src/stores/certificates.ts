@@ -59,15 +59,15 @@ export const useCertificateStore = defineStore('certificate', {
             }
         },
 
-        // Trigger the download of a certificate by ID
-        async downloadCertificate(id: number): Promise<void> {
+        // Trigger the download of a certificate by ID with optional format
+        async downloadCertificate(id: number, format: string = 'pkcs12'): Promise<void> {
             try {
                 this.error = null;
                 const certificate = this.certificates.get(id);
                 if (!certificate) {
                     throw new Error('Certificate not found');
                 }
-                await downloadCertificate(id, certificate.name);
+                await downloadCertificate(id, certificate.name, format);
             } catch (err) {
                 this.error = 'Failed to download the certificate.';
                 console.error(err);

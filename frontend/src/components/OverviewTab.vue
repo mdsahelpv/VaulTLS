@@ -75,7 +75,7 @@
                     <button
                         :id="'DownloadButton-' + cert.id"
                         class="btn btn-primary btn-sm flex-grow-1"
-                        @click="downloadCertificate(cert.id)"
+                        @click="handleDownload({id: cert.id, name: cert.name})"
                         title="Download Certificate"
                     >
                       Download
@@ -449,7 +449,7 @@
                     <i class="bi bi-clipboard me-1"></i>
                     Copy
                   </button>
-                  <button class="btn btn-outline-primary" @click="downloadCertificate(certificateDetails.id)">
+                  <button class="btn btn-outline-primary" @click="handleDownload({id: certificateDetails.id, name: certificateDetails.name})">
                     <i class="bi bi-download me-1"></i>
                     Download
                   </button>
@@ -463,6 +463,90 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" @click="closeCertificateDetailsModal">Close</button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Download Format Selection Modal -->
+  <div
+      v-if="showDownloadModal"
+      class="modal show d-block"
+      tabindex="-1"
+      style="background: rgba(0, 0, 0, 0.5)"
+  >
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Select Download Format</h5>
+          <button type="button" class="btn-close" @click="showDownloadModal = false"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted mb-3">
+            Choose the format for downloading the certificate:
+          </p>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input
+                  class="form-check-input"
+                  type="radio"
+                  v-model="selectedFormat"
+                  id="formatPkcs12"
+                  value="pkcs12"
+              />
+              <label class="form-check-label fw-bold" for="formatPkcs12">
+                PKCS#12 (.p12)
+              </label>
+              <div class="form-text">
+                Full bundle with certificate, private key, CA chain, and password protection
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input
+                  class="form-check-input"
+                  type="radio"
+                  v-model="selectedFormat"
+                  id="formatPem"
+                  value="pem"
+              />
+              <label class="form-check-label fw-bold" for="formatPem">
+                PEM (.pem)
+              </label>
+              <div class="form-text">
+                Certificate only in text format
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input
+                  class="form-check-input"
+                  type="radio"
+                  v-model="selectedFormat"
+                  id="formatDer"
+                  value="der"
+              />
+              <label class="form-check-label fw-bold" for="formatDer">
+                DER (.der)
+              </label>
+              <div class="form-text">
+                Certificate only in binary format
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" @click="showDownloadModal = false">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" @click="confirmDownload">
+            Download
+          </button>
         </div>
       </div>
     </div>
@@ -499,6 +583,12 @@ const isDeleteModalVisible = ref(false);
 const isGenerateModalVisible = ref(false);
 const isCertificateDetailsModalVisible = ref(false);
 const certToDelete = ref<Certificate | null>(null);
+
+// Modal state for download format selection
+const showDownloadModal = ref(false);
+const downloadCertificateRef = ref<{id: number, name: string} | null>(null);
+const selectedFormat = ref<string>('pkcs12');
+
 const certificateDetails = ref<CertificateDetails | null>(null);
 
 const passwordRule = computed(() => {
@@ -571,9 +661,26 @@ const closeDeleteModal = () => {
   isDeleteModalVisible.value = false;
 };
 
-const downloadCertificate = async (certId: number) => {
-  await certificateStore.downloadCertificate(certId);
-}
+const handleDownload = (certificate: {id: number, name: string}) => {
+  downloadCertificateRef.value = certificate;
+  selectedFormat.value = 'pkcs12';
+  showDownloadModal.value = true;
+};
+
+const confirmDownload = async () => {
+  if (!downloadCertificateRef.value) return;
+
+  try {
+    await certificateStore.downloadCertificate(
+      downloadCertificateRef.value.id,
+      selectedFormat.value
+    );
+    showDownloadModal.value = false;
+    downloadCertificateRef.value = null;
+  } catch (error) {
+    console.error('Failed to download certificate:', error);
+  }
+};
 
 const deleteCertificate = async () => {
   if (certToDelete.value) {

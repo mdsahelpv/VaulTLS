@@ -14,10 +14,10 @@ use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
-use crate::cert::{get_password, get_pem, save_ca, Certificate, CertificateBuilder, CertificateDetails};
+use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_pem, get_password, get_pem, save_ca, Certificate, CertificateBuilder, CertificateDetails};
 use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
-use crate::data::enums::{CertificateType, PasswordRule, UserRole};
+use crate::data::enums::{CertificateFormat, CertificateType, PasswordRule, UserRole};
 use crate::data::error::ApiError;
 use crate::data::objects::{AppState, User};
 use crate::notification::mail::{MailMessage, Mailer};
@@ -666,16 +666,39 @@ pub(crate) async fn get_ca_details(
 }
 
 #[openapi(tag = "Certificates")]
-#[get("/certificates/<id>/download")]
+#[get("/certificates/<id>/download?<format>")]
 /// Download a user-owned certificate. Requires authentication.
+/// Query parameters:
+/// * format: Certificate format (pkcs12, pem, der). Default: pkcs12
 pub(crate) async fn download_certificate(
     state: &State<AppState>,
     id: i64,
+    format: Option<&str>,
     authentication: Authenticated
 ) -> Result<DownloadResponse, ApiError> {
     let (user_id, name, pkcs12) = state.db.get_user_cert_pkcs12(id).await?;
     if user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin { return Err(ApiError::Forbidden(None)) }
-    Ok(DownloadResponse::new(pkcs12, &format!("{name}.p12")))
+
+    let cert_format = match format {
+        Some(fmt) => CertificateFormat::from_str(fmt).map_err(|_| ApiError::BadRequest("Invalid format parameter. Supported formats: pkcs12, pem, der".to_string()))?,
+        None => CertificateFormat::PKCS12,
+    };
+
+    let (content, filename) = match cert_format {
+        CertificateFormat::PKCS12 => (pkcs12, format!("{}.{}", name, cert_format.extension())),
+        CertificateFormat::PEM => {
+            let cert = state.db.get_user_cert_by_id(id).await?;
+            let pem = certificate_pkcs12_to_pem(&cert)?;
+            (pem, format!("{}.{}", name, cert_format.extension()))
+        },
+        CertificateFormat::DER => {
+            let cert = state.db.get_user_cert_by_id(id).await?;
+            let der = certificate_pkcs12_to_der(&cert)?;
+            (der, format!("{}.{}", name, cert_format.extension()))
+        },
+    };
+
+    Ok(DownloadResponse::new(content, &filename))
 }
 
 #[openapi(tag = "Certificates")]

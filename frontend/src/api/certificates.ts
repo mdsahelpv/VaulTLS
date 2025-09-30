@@ -11,9 +11,9 @@ export const fetchCertificatePassword = async (id: number): Promise<string> => {
     return await ApiClient.get<string>(`/certificates/${id}/password`);
 };
 
-export const downloadCertificate = async (id: number, certName: string): Promise<void> => {
+export const downloadCertificate = async (id: number, certName: string, format: string = 'pkcs12'): Promise<void> => {
     try {
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/certificates/${id}/download`, {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/certificates/${id}/download?format=${format}`, {
             method: 'GET',
             credentials: 'include'
         });
@@ -26,7 +26,7 @@ export const downloadCertificate = async (id: number, certName: string): Promise
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
-        link.download = `${certName.replace(/[^a-zA-Z0-9]/g, '_')}.crt`;
+        link.download = `${certName.replace(/[^a-zA-Z0-9]/g, '_')}.${getExtension(format)}`;
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -34,6 +34,15 @@ export const downloadCertificate = async (id: number, certName: string): Promise
     } catch (error) {
         console.error('Failed to download certificate:', error);
         throw error;
+    }
+};
+
+const getExtension = (format: string): string => {
+    switch (format) {
+        case 'pkcs12': return 'p12';
+        case 'pem': return 'pem';
+        case 'der': return 'der';
+        default: return 'crt';
     }
 };
 

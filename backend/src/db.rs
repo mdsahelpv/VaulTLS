@@ -321,6 +321,28 @@ impl VaulTLSDB {
         })
     }
 
+    /// Retrieve a single user certificate as a Certificate struct
+    pub(crate) async fn get_user_cert_by_id(&self, id: i64) -> Result<Certificate> {
+        db_do!(self.pool, |conn: &Connection| {
+            let mut stmt = conn.prepare("SELECT id, name, created_on, valid_until, pkcs12, pkcs12_password, user_id, type, renew_method, ca_id FROM user_certificates WHERE id = ?1")?;
+
+            stmt.query_row(params![id], |row| {
+                Ok(Certificate {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    created_on: row.get(2)?,
+                    valid_until: row.get(3)?,
+                    pkcs12: row.get(4)?,
+                    pkcs12_password: row.get(5).unwrap_or_default(),
+                    user_id: row.get(6)?,
+                    certificate_type: row.get(7)?,
+                    renew_method: row.get(8)?,
+                    ca_id: row.get(9)?
+                })
+            }).map_err(|e| anyhow!("Certificate with id {} not found: {}", id, e))
+        })
+    }
+
     /// Retrieve the certificate's PKCS12 data with id from the database
     /// Returns the id of the user the certificate belongs to and the PKCS12 password
     pub(crate) async fn get_user_cert_pkcs12_password(&self, id: i64) -> Result<(i64, String)> {

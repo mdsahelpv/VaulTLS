@@ -96,3 +96,31 @@ impl FromSql for CertificateRenewMethod {
         }
     }
 }
+
+#[derive(Serialize_repr, Deserialize_repr, JsonSchema, Clone, Debug, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum CertificateFormat {
+    #[default]
+    PKCS12 = 0,
+    PEM = 1,
+    DER = 2
+}
+
+impl CertificateFormat {
+    pub fn extension(&self) -> &'static str {
+        match self {
+            CertificateFormat::PKCS12 => "p12",
+            CertificateFormat::PEM => "pem",
+            CertificateFormat::DER => "der",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "pkcs12" => Ok(CertificateFormat::PKCS12),
+            "pem" => Ok(CertificateFormat::PEM),
+            "der" => Ok(CertificateFormat::DER),
+            _ => Err(format!("Invalid certificate format: {}", s)),
+        }
+    }
+}
