@@ -443,7 +443,7 @@ We welcome contributions to VaulTLS! Please see our contributing guidelines:
 
 ## 📋 Roadmap
 
-### ✅ Completed Features (v0.9.2)
+### ✅ Completed Features (v0.9.3)
 - ✅ Comprehensive test suite with 25+ test scenarios
 - ✅ Automated startup script for development
 - ✅ Database encryption support
@@ -472,7 +472,7 @@ We welcome contributions to VaulTLS! Please see our contributing guidelines:
 
 ### 📊 Version History
 
-- **v0.9.2** - Comprehensive testing, startup script, advanced SAN support
+- **v0.9.3** - Comprehensive testing, startup script, advanced SAN support
 - **v0.9.1** - Database encryption, bulk operations
 - **v0.9.0** - Certificate renewal, concurrent creation handling
 - **v0.8.0** - PFX import, error handling improvements
