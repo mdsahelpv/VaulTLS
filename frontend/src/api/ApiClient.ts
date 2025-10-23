@@ -1,8 +1,8 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import {useAuthStore} from "@/stores/auth.ts";
-// const API_URL = `${(globalThis as any).__API_BASE_URL__ || 'http://localhost:8000'}/api`;
-const API_URL = 'http://192.168.202.209:8000/api';
+//const API_URL = `${(globalThis as any).__API_BASE_URL__ || 'http://localhost:8000'}/api`;
+const API_URL = '/api';
 
 class ApiClient {
     private client: AxiosInstance;

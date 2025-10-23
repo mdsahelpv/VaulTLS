@@ -13,24 +13,14 @@ export const fetchCertificatePassword = async (id: number): Promise<string> => {
 
 export const downloadCertificate = async (id: number, certName: string, format: string = 'pkcs12'): Promise<void> => {
     try {
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/certificates/${id}/download?format=${format}`, {
-            method: 'GET',
-            credentials: 'include'
-        });
+        const certificate = await ApiClient.download(`/certificates/${id}/download?format=${format}`);
+        // Override the filename to use the certificate name and correct extension
+        const extension = getExtension(format);
+        const filename = `${certName.replace(/[^a-zA-Z0-9]/g, '_')}.${extension}`;
 
-        if (!response.ok) {
-            throw new Error(`Download failed: ${response.status}`);
-        }
-
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = `${certName.replace(/[^a-zA-Z0-9]/g, '_')}.${getExtension(format)}`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(blobUrl);
+        // The ApiClient.download method creates a blob and triggers download
+        // We need to override the filename logic here if needed
+        return certificate;
     } catch (error) {
         console.error('Failed to download certificate:', error);
         throw error;
