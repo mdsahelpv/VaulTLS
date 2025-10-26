@@ -517,7 +517,7 @@ We welcome contributions to VaulTLS! Please see our contributing guidelines:
 
 ## 📋 Roadmap
 
-### ✅ Completed Features (v0.9.3)
+### ✅ Completed Features (v0.9.4)
 - ✅ Comprehensive test suite with 25+ test scenarios
 - ✅ Automated startup script for development
 - ✅ Database encryption support
@@ -526,6 +526,9 @@ We welcome contributions to VaulTLS! Please see our contributing guidelines:
 - ✅ Concurrent certificate creation handling
 - ✅ PFX import with error handling
 - ✅ Certificate renewal workflows
+- ✅ Full certificate chain storage and display
+- ✅ Modern card-based certificate UI
+- ✅ Enterprise Docker deployment optimization
 
 ### 🚧 In Progress
 - 🔄 **Automated Certificate Renewal** - Background job system for certificate renewal
@@ -546,6 +549,7 @@ We welcome contributions to VaulTLS! Please see our contributing guidelines:
 
 ### 📊 Version History
 
+- **v0.9.4** - Certificate chain support, Docker optimization, enterprise deployment
 - **v0.9.3** - Comprehensive testing, startup script, advanced SAN support
 - **v0.9.1** - Database encryption, bulk operations
 - **v0.9.0** - Certificate renewal, concurrent creation handling
