@@ -416,10 +416,8 @@ main() {
             start_backend "$backend_mode"
             start_frontend "$frontend_mode"
             show_status
-            print_success "VaulTLS application started successfully!"
-            print_status "Press Ctrl+C to stop all services"
-            trap stop_services INT TERM
-            wait
+            print_success "VaulTLS application started successfully in background!"
+            print_status "Use '$0 stop' to stop all services"
             ;;
         clean-start)
             print_status "Performing clean start - removing all remnants..."
@@ -443,10 +441,8 @@ main() {
             start_backend "$backend_mode"
             start_frontend "$frontend_mode"
             show_status
-            print_success "VaulTLS application started fresh!"
-            print_status "Press Ctrl+C to stop all services"
-            trap stop_services INT TERM
-            wait
+            print_success "VaulTLS application started fresh in background!"
+            print_status "Use '$0 stop' to stop all services"
             ;;
         stop)
             stop_services
@@ -475,17 +471,15 @@ main() {
             check_requirements
             setup_backend "$backend_mode"
             start_backend "$backend_mode"
-            print_success "Backend started. Press Ctrl+C to stop."
-            trap stop_services INT TERM
-            wait
+            print_success "Backend started successfully in background!"
+            print_status "Use '$0 stop' to stop backend"
             ;;
         frontend)
             check_requirements
             setup_frontend "$frontend_mode"
             start_frontend "$frontend_mode"
-            print_success "Frontend started. Press Ctrl+C to stop."
-            trap stop_services INT TERM
-            wait
+            print_success "Frontend started successfully in background!"
+            print_status "Use '$0 stop' to stop frontend"
             ;;
         logs)
             show_logs

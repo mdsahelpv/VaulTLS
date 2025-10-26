@@ -547,6 +547,77 @@ pub(crate) async fn get_ca_list(
         let certificate_pem = String::from_utf8(pem)
             .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {}", e)))?;
 
+        // Extract chain information
+        let chain_length = ca.cert_chain.len();
+        let mut chain_certificates = Vec::new();
+
+        for (index, cert_der) in ca.cert_chain.iter().enumerate() {
+            match X509::from_der(cert_der) {
+                Ok(chain_cert) => {
+                    let chain_subject = chain_cert.subject_name();
+                    let chain_issuer = chain_cert.issuer_name();
+                    match chain_cert.serial_number().to_bn() {
+                        Ok(serial_bn) => {
+                            let serial_number = serial_bn.to_hex_str()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|_| "Invalid".to_string());
+
+                            chain_certificates.push(CertificateChainInfo {
+                                subject: format!("{:?}", chain_subject),
+                                issuer: format!("{:?}", chain_issuer),
+                                serial_number,
+                                is_end_entity: index == 0, // First certificate in chain is end-entity
+                            });
+                        }
+                        Err(e) => {
+                            warn!("Failed to get serial number for certificate {} in chain: {}", index + 1, e);
+                            // Add entry with invalid serial
+                            chain_certificates.push(CertificateChainInfo {
+                                subject: format!("{:?}", chain_subject),
+                                issuer: format!("{:?}", chain_issuer),
+                                serial_number: "Invalid".to_string(),
+                                is_end_entity: index == 0,
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to parse certificate {} in chain: {}", index + 1, e);
+                    // Add placeholder entry for failed certificate
+                    chain_certificates.push(CertificateChainInfo {
+                        subject: format!("Certificate {}: Failed to parse - {:?}", index + 1, e),
+                        issuer: "Unknown".to_string(),
+                        serial_number: "Unknown".to_string(),
+                        is_end_entity: index == 0,
+                    });
+                }
+            }
+        }
+
+        // If no certificates were successfully parsed, but we have a raw cert, add the main CA info as fallback
+        if chain_certificates.is_empty() && chain_length > 0 {
+            warn!("All certificates failed to parse, adding fallback info for main CA certificate");
+            // Try to parse the main certificate
+            if let Ok(main_cert) = X509::from_der(&ca.cert) {
+                let main_subject = main_cert.subject_name();
+                let main_issuer = main_cert.issuer_name();
+                match main_cert.serial_number().to_bn() {
+                    Ok(serial_bn) => {
+                        let serial_number = serial_bn.to_hex_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|_| "Invalid".to_string());
+                        chain_certificates.push(CertificateChainInfo {
+                            subject: format!("{:?}", main_subject),
+                            issuer: format!("{:?}", main_issuer),
+                            serial_number,
+                            is_end_entity: true,
+                        });
+                    }
+                    Err(e) => warn!("Failed to parse main CA certificate: {}", e),
+                }
+            }
+        }
+
         let ca_detail = CADetails {
             id: ca.id,
             name,
@@ -559,6 +630,8 @@ pub(crate) async fn get_ca_list(
             signature_algorithm: signature_algorithm.to_string(),
             is_self_signed,
             certificate_pem,
+            chain_length,
+            chain_certificates,
         };
 
         ca_details.push(ca_detail);
@@ -588,6 +661,14 @@ pub(crate) async fn delete_ca(
 }
 
 #[derive(Serialize, JsonSchema, Debug)]
+pub struct CertificateChainInfo {
+    pub subject: String,
+    pub issuer: String,
+    pub serial_number: String,
+    pub is_end_entity: bool,
+}
+
+#[derive(Serialize, JsonSchema, Debug)]
 pub struct CADetails {
     pub id: i64,
     pub name: String,
@@ -600,6 +681,8 @@ pub struct CADetails {
     pub signature_algorithm: String,
     pub is_self_signed: bool,
     pub certificate_pem: String,
+    pub chain_length: usize,
+    pub chain_certificates: Vec<CertificateChainInfo>,
 }
 
 #[openapi(tag = "Certificates")]
@@ -648,6 +731,53 @@ pub(crate) async fn get_ca_details(
     let certificate_pem = String::from_utf8(pem)
         .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {}", e)))?;
 
+        // Extract chain information
+        let chain_length = ca.cert_chain.len();
+        let mut chain_certificates = Vec::new();
+
+        for (index, cert_der) in ca.cert_chain.iter().enumerate() {
+            match X509::from_der(cert_der) {
+                Ok(chain_cert) => {
+                    let chain_subject = chain_cert.subject_name();
+                    let chain_issuer = chain_cert.issuer_name();
+                    match chain_cert.serial_number().to_bn() {
+                        Ok(serial_bn) => {
+                            let serial_number = serial_bn.to_hex_str()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|_| "Invalid".to_string());
+
+                            chain_certificates.push(CertificateChainInfo {
+                                subject: format!("{:?}", chain_subject),
+                                issuer: format!("{:?}", chain_issuer),
+                                serial_number,
+                                is_end_entity: index == 0, // First certificate in chain is end-entity
+                            });
+                        }
+                        Err(e) => {
+                            warn!("Failed to get serial number for certificate {} in chain: {}", index + 1, e);
+                            // Add entry with invalid serial
+                            chain_certificates.push(CertificateChainInfo {
+                                subject: format!("{:?}", chain_subject),
+                                issuer: format!("{:?}", chain_issuer),
+                                serial_number: "Invalid".to_string(),
+                                is_end_entity: index == 0,
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to parse certificate {} in chain: {}", index + 1, e);
+                    // Add placeholder entry for failed certificate
+                    chain_certificates.push(CertificateChainInfo {
+                        subject: format!("Certificate {}: Failed to parse - {:?}", index + 1, e),
+                        issuer: "Unknown".to_string(),
+                        serial_number: "Unknown".to_string(),
+                        is_end_entity: index == 0,
+                    });
+                }
+            }
+        }
+
     let ca_details = CADetails {
         id: ca.id,
         name,
@@ -660,6 +790,8 @@ pub(crate) async fn get_ca_details(
         signature_algorithm: signature_algorithm.to_string(),
         is_self_signed,
         certificate_pem,
+        chain_length,
+        chain_certificates,
     };
 
     Ok(Json(ca_details))

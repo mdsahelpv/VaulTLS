@@ -50,6 +50,8 @@ pub struct CA {
     #[serde(skip)]
     pub cert: Vec<u8>,
     #[serde(skip)]
+    pub cert_chain: Vec<Vec<u8>>, // Full certificate chain in DER format: [end_entity, intermediate1, intermediate2, ..., root]
+    #[serde(skip)]
     pub key: Vec<u8>,
 }
 
@@ -60,7 +62,7 @@ pub struct CertificateBuilder {
     valid_until: Option<i64>,
     name: Option<String>,
     pkcs12_password: String,
-    ca: Option<(i64, X509, PKey<Private>)>,
+    ca: Option<CA>,
     user_id: Option<i64>,
     renew_method: CertificateRenewMethod
 }
@@ -126,6 +128,33 @@ impl CertificateBuilder {
             })?;
 
         debug!("Certificate extracted from PKCS#12: subject={:?}", cert.subject_name());
+
+        // Extract the full certificate chain (including intermediate certificates if present)
+        let mut cert_chain = Vec::new();
+
+        // Start with the end-entity certificate
+        cert_chain.push(cert.to_der().map_err(|e| {
+            error!("Failed to encode end-entity certificate to DER: {}", e);
+            anyhow!("Failed to process end-entity certificate: {}", e)
+        })?);
+
+        // Add any intermediate certificates from the PFX chain
+        if let Some(chain) = parsed.ca {
+            debug!("Found {} certificate(s) in PFX chain", chain.len());
+            for (idx, intermediate_cert) in chain.iter().enumerate() {
+                debug!("Processing intermediate certificate {}: subject={:?}",
+                       idx + 1, intermediate_cert.subject_name());
+                cert_chain.push(intermediate_cert.to_der().map_err(|e| {
+                    error!("Failed to encode intermediate certificate {} to DER: {}", idx + 1, e);
+                    anyhow!("Failed to process intermediate certificate {}: {}", idx + 1, e)
+                })?);
+                debug!("Successfully added intermediate certificate {} to chain", idx + 1);
+            }
+            debug!("Final chain length: {} certificates (1 end-entity + {} intermediates)",
+                   cert_chain.len(), chain.len());
+        } else {
+            debug!("No intermediate certificates found in PFX (single certificate chain)");
+        }
 
         // Extract the private key
         let pkey = parsed.pkey
@@ -209,6 +238,7 @@ impl CertificateBuilder {
             valid_until,
             creation_source: 1, // 1 = imported
             cert: ca_cert_der,
+            cert_chain,
             key: ca_key_der,
         })
     }
@@ -314,9 +344,7 @@ impl CertificateBuilder {
     }
 
     pub fn set_ca(mut self, ca: &CA) -> Result<Self, anyhow::Error> {
-        let ca_cert = X509::from_der(&ca.cert)?;
-        let ca_key = PKey::private_key_from_der(&ca.key)?;
-        self.ca = Some((ca.id, ca_cert, ca_key));
+        self.ca = Some(ca.clone());
         Ok(self)
     }
 
@@ -354,12 +382,14 @@ impl CertificateBuilder {
         self.x509.sign(&self.private_key, MessageDigest::sha256())?;
         let cert = self.x509.build();
 
+        let cert_der = cert.to_der()?;
         Ok(CA{
             id: -1,
             created_on: self.created_on,
             valid_until,
             creation_source: 0, // 0 = self-signed
-            cert: cert.to_der()?,
+            cert: cert_der.clone(),
+            cert_chain: vec![cert_der], // Self-signed CA has single certificate in chain
             key: self.private_key.private_key_to_der()?,
         })
     }
@@ -386,7 +416,10 @@ impl CertificateBuilder {
         let name = self.name.ok_or(anyhow!("X509: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("X509: valid_until not set"))?;
         let user_id = self.user_id.ok_or(anyhow!("X509: user_id not set"))?;
-        let (ca_id, ca_cert, ca_key) = self.ca.ok_or(anyhow!("X509: CA not set"))?;
+        let ca = self.ca.ok_or(anyhow!("X509: CA not set"))?;
+
+        let ca_cert = X509::from_der(&ca.cert)?;
+        let ca_key = PKey::private_key_from_der(&ca.key)?;
 
         let basic_constraints = BasicConstraints::new().build()?;
         self.x509.append_extension(basic_constraints)?;
@@ -402,8 +435,23 @@ impl CertificateBuilder {
         self.x509.sign(&ca_key, MessageDigest::sha256())?;
         let cert = self.x509.build();
 
+        // Build the certificate chain for the PKCS#12 including all intermediate certificates
+        // This ensures that certificates can be properly validated by client applications
         let mut ca_stack = Stack::new()?;
-        ca_stack.push(ca_cert.clone())?;
+
+        // Include all certificates from the CA's certificate chain (except the end-entity which is the same as ca.cert)
+        for chain_cert_der in &ca.cert_chain {
+            // Only include chain certificates that are different from the main CA cert to avoid duplicates
+            if chain_cert_der != &ca.cert {
+                let chain_cert = X509::from_der(chain_cert_der)?;
+                ca_stack.push(chain_cert)?;
+            }
+        }
+
+        // If no chain certificates were added, add the CA cert itself for backward compatibility
+        if ca_stack.len() == 0 {
+            ca_stack.push(ca_cert.clone())?;
+        }
 
         let pkcs12 = Pkcs12::builder()
             .name(&name)
@@ -420,7 +468,7 @@ impl CertificateBuilder {
             certificate_type,
             pkcs12: pkcs12.to_der()?,
             pkcs12_password: self.pkcs12_password,
-            ca_id,
+            ca_id: ca.id,
             user_id,
             renew_method: self.renew_method
         })
@@ -498,10 +546,24 @@ fn get_short_lifetime() -> Result<(i64, Asn1Time), ErrorStack> {
     Ok((time_unix, time_openssl))
 }
 
-/// Convert a CA certificate to PEM format.
+/// Convert a CA certificate chain to PEM format.
 pub(crate) fn get_pem(ca: &CA) -> Result<Vec<u8>, ErrorStack> {
-    let cert = X509::from_der(&ca.cert)?;
-    cert.to_pem()
+    let mut pem_chain = Vec::new();
+
+    // Convert each certificate in the chain to PEM and concatenate
+    for cert_der in &ca.cert_chain {
+        let cert = X509::from_der(cert_der)?;
+        let cert_pem = cert.to_pem()?;
+        pem_chain.extend(cert_pem);
+
+        // RFC 7468 specifies that PEM-encoded certificates should be separated by newlines
+        // and that extra trailing whitespace is allowed, so we add a newline for readability
+        if !pem_chain.is_empty() && *pem_chain.last().unwrap() != b'\n' {
+            pem_chain.push(b'\n');
+        }
+    }
+
+    Ok(pem_chain)
 }
 
 /// Saves the CA certificate to a file for filesystem access.

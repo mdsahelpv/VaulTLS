@@ -3,6 +3,13 @@ export enum CAType {
     Imported = 1
 }
 
+export interface CertificateChainInfo {
+    subject: string;              // Certificate subject
+    issuer: string;               // Certificate issuer
+    serial_number: string;        // Certificate serial number
+    is_end_entity: boolean;       // Whether this is the end-entity certificate
+}
+
 export interface CA {
     id: number;                    // Unique identifier for the CA
     name: string;                  // CA certificate name
@@ -15,6 +22,8 @@ export interface CA {
     signature_algorithm: string;   // Signature algorithm (e.g., "RSA-SHA256")
     is_self_signed: boolean;       // Whether this is a self-signed CA
     certificate_pem: string;       // PEM-encoded certificate data
+    chain_length: number;          // Total number of certificates in the chain
+    chain_certificates: CertificateChainInfo[]; // Details of each certificate in the chain
 }
 
 export interface CAAndCertificate extends CA {

@@ -372,6 +372,58 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Certificate Chain Information -->
+              <div class="col-12 mb-4">
+                <div class="card">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">
+                      <i class="bi bi-diagram-3 me-2"></i>
+                      Certificate Chain
+                    </h6>
+                    <small class="text-muted">{{ viewingCA.chain_length || 0 }} certificate{{ viewingCA.chain_length !== 1 ? 's' : '' }}</small>
+                  </div>
+                  <div class="card-body">
+                    <!-- Certificates List -->
+                    <div v-if="viewingCA.chain_certificates?.length > 0" class="row g-3">
+                      <div
+                        v-for="(cert, index) in viewingCA.chain_certificates"
+                        :key="index"
+                        class="col-md-6"
+                      >
+                        <div class="certificate-card shadow-sm border rounded p-3">
+                          <div class="d-flex align-items-center gap-3 mb-2">
+                            <div class="certificate-number">{{ index + 1 }}</div>
+                            <span class="badge small" :class="cert.is_end_entity ? 'bg-primary' : 'bg-info'">
+                              {{ cert.is_end_entity ? 'End Entity' : 'Intermediate' }}
+                            </span>
+                          </div>
+                          <div class="certificate-info">
+                            <div class="mb-1">
+                              <strong class="text-dark">Subject:</strong>
+                              <br />
+                              <small class="text-muted">{{ formatCertificateName(cert.subject) }}</small>
+                            </div>
+                            <div>
+                              <strong class="text-dark">Serial:</strong>
+                              <code class="ms-2 small">{{ formatSerialNumber(cert.serial_number) }}</code>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <!-- No Chain Information -->
+                    <div v-else-if="viewingCA.chain_length > 0" class="alert alert-warning mb-0">
+                      <i class="bi bi-exclamation-triangle me-2"></i>
+                      Certificate chain contains {{ viewingCA.chain_length }} certificate{{ viewingCA.chain_length !== 1 ? 's' : '' }}, but detailed information could not be parsed. The full PEM certificate is available for download.
+                    </div>
+                    <div v-else class="text-center text-muted py-4">
+                      <i class="bi bi-info-circle fs-1 mb-2 opacity-50"></i>
+                      <p class="mb-0">Certificate chain information is not available for this CA.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Certificate PEM -->
@@ -665,6 +717,34 @@ const getStatusClass = (ca: CA): string => {
   }
 };
 
+const formatSerialNumber = (serial: string): string => {
+  // Format long serial numbers by inserting spaces every few characters for readability
+  if (serial.length <= 12) {
+    return serial;
+  }
+  return serial.match(/.{1,4}/g)?.join(' ') || serial;
+};
+
+const formatCertificateName = (subject: string): string => {
+  // Extract common name (CN) from subject string
+  if (!subject) return '';
+
+  // Look for CN= value in the subject
+  const cnMatch = subject.match(/CN\s*=\s*([^,\n]+)/i);
+  if (cnMatch && cnMatch[1]) {
+    return cnMatch[1].trim();
+  }
+
+  // If no CN found, return a truncated version of the subject
+  const colonIndex = subject.indexOf(':');
+  if (colonIndex !== -1 && colonIndex < subject.length - 1) {
+    const name = subject.substring(colonIndex + 1).trim();
+    return name.length > 50 ? name.substring(0, 50) + '...' : name;
+  }
+
+  return subject.length > 50 ? subject.substring(0, 50) + '...' : subject;
+};
+
 onMounted(() => {
   loadCAs();
 });
@@ -769,6 +849,63 @@ onMounted(() => {
 
   .modal-xl {
     max-width: 1140px;
+  }
+}
+
+/* Certificate Chain Card Styles */
+.certificate-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-left: 4px solid #007bff;
+}
+
+.certificate-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.certificate-card .certificate-number {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #007bff, #0056b3);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.875rem;
+}
+
+.certificate-info .badge.bg-primary {
+  background-color: #007bff !important;
+  /* border: 1px solid rgba(0, 123, 255, 0.2); */
+}
+
+.certificate-info .badge.bg-info {
+  background-color: #6c757d !important;
+}
+
+/* Responsive adjustments for certificate cards */
+@media (max-width: 992px) {
+  .certificate-card .d-flex.align-items-center {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 0.5rem !important;
+  }
+
+  .certificate-card .certificate-number {
+    align-self: flex-start;
+  }
+}
+
+@media (max-width: 576px) {
+  .certificate-card .certificate-info div {
+    margin-bottom: 0.75rem !important;
+  }
+
+  .certificate-card .certificate-info div:last-child {
+    margin-bottom: 0 !important;
   }
 }
 </style>

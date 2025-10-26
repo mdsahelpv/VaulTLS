@@ -178,9 +178,12 @@ impl VaulTLSDB {
         ca: CA
     ) -> Result<i64> {
         db_do!(self.pool, |conn: &Connection| {
+            // Serialize certificate chain as JSON (base64 encoded DER certificates)
+            let cert_chain_json = serde_json::to_string(&ca.cert_chain)?;
+
             conn.execute(
-                "INSERT INTO ca_certificates (created_on, valid_until, certificate, key, creation_source) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![ca.created_on, ca.valid_until, ca.cert, ca.key, ca.creation_source],
+                "INSERT INTO ca_certificates (created_on, valid_until, certificate, key, creation_source, cert_chain) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![ca.created_on, ca.valid_until, ca.cert, ca.key, ca.creation_source, cert_chain_json],
             )?;
 
             Ok(conn.last_insert_rowid())
@@ -190,16 +193,25 @@ impl VaulTLSDB {
     /// Retrieve the most recent CA entry from the database
     pub(crate) async fn get_current_ca(&self) -> Result<CA> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source FROM ca_certificates ORDER BY id DESC LIMIT 1")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain FROM ca_certificates ORDER BY id DESC LIMIT 1")?;
 
             stmt.query_row([], |row| {
+                let cert_chain: Option<String> = row.get(6)?;
+                let cert_chain = if let Some(chain_json) = cert_chain {
+                    serde_json::from_str(&chain_json).unwrap_or_else(|_| vec![])
+                } else {
+                    // Backward compatibility: if cert_chain is null, use single cert
+                    vec![row.get::<_, Vec<u8>>(3)?]
+                };
+
                 Ok(CA{
                     id: row.get(0)?,
                     created_on: row.get(1)?,
                     valid_until: row.get(2)?,
                     cert: row.get(3)?,
                     key: row.get(4)?,
-                    creation_source: row.get(5)?
+                    creation_source: row.get(5)?,
+                    cert_chain,
                 })
             }).map_err(|_| anyhow!("VaulTLS has not been set-up yet"))
         })
@@ -208,16 +220,25 @@ impl VaulTLSDB {
     /// Retrieve all CA certificates from the database
     pub(crate) async fn get_all_ca(&self) -> Result<Vec<CA>> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source FROM ca_certificates ORDER BY id DESC")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain FROM ca_certificates ORDER BY id DESC")?;
             let rows = stmt.query([])?;
             Ok(rows.map(|row| {
+                let cert_chain: Option<String> = row.get(6)?;
+                let cert_chain = if let Some(chain_json) = cert_chain {
+                    serde_json::from_str(&chain_json).unwrap_or_else(|_| vec![])
+                } else {
+                    // Backward compatibility: if cert_chain is null, use single cert
+                    vec![row.get::<_, Vec<u8>>(3)?]
+                };
+
                 Ok(CA {
                     id: row.get(0)?,
                     created_on: row.get(1)?,
                     valid_until: row.get(2)?,
                     cert: row.get(3)?,
                     key: row.get(4)?,
-                    creation_source: row.get(5)?
+                    creation_source: row.get(5)?,
+                    cert_chain,
                 })
             })
             .collect()?)
@@ -228,16 +249,25 @@ impl VaulTLSDB {
     #[allow(dead_code)]
     pub(crate) async fn get_ca(&self, id: i64) -> Result<CA> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source FROM ca_certificates WHERE id = ?1")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain FROM ca_certificates WHERE id = ?1")?;
 
             stmt.query_row(params![id], |row| {
+                let cert_chain: Option<String> = row.get(6)?;
+                let cert_chain = if let Some(chain_json) = cert_chain {
+                    serde_json::from_str(&chain_json).unwrap_or_else(|_| vec![])
+                } else {
+                    // Backward compatibility: if cert_chain is null, use single cert
+                    vec![row.get::<_, Vec<u8>>(3)?]
+                };
+
                 Ok(CA{
                     id: row.get(0)?,
                     created_on: row.get(1)?,
                     valid_until: row.get(2)?,
                     cert: row.get(3)?,
                     key: row.get(4)?,
-                    creation_source: row.get(5)?
+                    creation_source: row.get(5)?,
+                    cert_chain,
                 })
             }).map_err(|e| anyhow!("CA with id {} not found: {}", id, e))
         })

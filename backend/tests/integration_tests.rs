@@ -15,7 +15,7 @@ mod ca_setup_and_certificate_tests {
     async fn test_ca_setup_from_pfx() {
         // Create test rocket instance
         let rocket = create_test_rocket().await;
-        let client = Client::tracked(rocket).await.expect("Failed to create test client");
+        let _client = Client::tracked(rocket).await.expect("Failed to create test client");
 
         // Check if yawal-ca.pfx exists (from backend directory, need to go up one level)
         let pfx_path = Path::new("../yawal-ca.pfx");
