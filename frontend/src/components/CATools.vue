@@ -257,9 +257,15 @@
     </div>
 
     <!-- CA Details Modal -->
-    <div class="modal fade" :class="{ show: showCADetailsModal }" :style="{ display: showCADetailsModal ? 'block' : 'none' }" tabindex="-1">
+    <div
+      class="modal fade"
+      :class="{ show: showCADetailsModal }"
+      :style="{ display: showCADetailsModal ? 'block' : 'none' }"
+      tabindex="-1"
+      @click.self="showCADetailsModal = false"
+    >
       <div class="modal-dialog modal-xl">
-        <div class="modal-content">
+        <div class="modal-content" @click.stop>
           <div class="modal-header">
             <h5 class="modal-title">
               <i class="bi bi-shield-check me-2"></i>
