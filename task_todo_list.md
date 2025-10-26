@@ -1,8 +1,0 @@
-- [x] Analyze CATools.vue to understand CA certificate view implementation
-- [x] Examine OverviewTab.vue to understand user certificates section
-- [ ] Add backend API endpoint for user certificate details (similar to CA details)
-- [ ] Identify components and API calls needed for certificate viewing
-- [ ] Create frontend API function to fetch certificate details
-- [ ] Implement view button for user certificates in OverviewTab.vue
-- [ ] Add certificate details modal in OverviewTab.vue
-- [ ] Test the view functionality for user certificates
