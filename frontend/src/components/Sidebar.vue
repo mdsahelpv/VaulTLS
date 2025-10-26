@@ -24,6 +24,11 @@
     >
       <ProfileCard />
 
+      <!-- Theme Toggle -->
+      <div class="theme-toggle-container py-2">
+        <ThemeToggle />
+      </div>
+
       <div class="flex-grow-1 overflow-auto mt-4">
         <ul class="nav flex-column flex-grow-1">
           <li class="nav-item mb-2">
@@ -88,6 +93,7 @@
 import { computed, ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ProfileCard from './ProfileCard.vue';
+import ThemeToggle from './ThemeToggle.vue';
 import { UserRole } from "@/types/User.ts";
 import { useAuthStore } from "@/stores/auth.ts";
 import {useSettingsStore} from "@/stores/settings.ts";
@@ -252,5 +258,11 @@ onMounted(async () => {
 
 .p-3 {
   padding: var(--spacing-md);
+}
+
+.theme-toggle-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 </style>

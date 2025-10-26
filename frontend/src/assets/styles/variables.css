@@ -1,3 +1,5 @@
+/* Light Theme (Default) */
+[data-theme="light"],
 :root {
     /* Modern Apple-like Color Palette */
     --color-background: #ffffff;     /* Pure white for clean look */
@@ -6,7 +8,7 @@
     --color-active: #e5e5e7;        /* Soft gray active state */
     --color-page-background: #fafafc; /* Very light background */
 
-    /* Subtle Light Avatar Colors */
+    /* Avatar Colors */
     --color-avatar-1: #e0f7fa;     /* Light cyan */
     --color-avatar-2: #f3e5f5;     /* Light purple */
     --color-avatar-3: #e8f5e8;     /* Light green */
@@ -19,6 +21,56 @@
     /* Effects */
     --shadow-color: rgba(0, 0, 0, 0.1); /* Subtle shadow */
 
+    /* Semantic Colors */
+    --primary: #4285F4; /* Light blue for active states */
+    --secondary: var(--color-avatar-3);
+    --accent: var(--color-avatar-4);
+    --warning: #f5c105;
+    --danger: #ff3b30;
+
+    /* Toggle Button */
+    --toggle-bg: #f5f5f7;
+    --toggle-thumb: #ffffff;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+    /* Dark Modern Color Palette */
+    --color-background: #1a1a1a;        /* Deep dark background */
+    --color-card: #2c2c2c;             /* Dark gray for cards */
+    --color-hover: #3a3a3a;            /* Dark hover state */
+    --color-active: #404040;           /* Active state */
+    --color-page-background: #121212;   /* Very dark background */
+
+    /* Dark Avatar Colors */
+    --color-avatar-1: #1e3a5f;     /* Dark blue */
+    --color-avatar-2: #4a148c;     /* Dark purple */
+    --color-avatar-3: #1b5e20;     /* Dark green */
+    --color-avatar-4: #f57f17;     /* Dark orange */
+    --color-avatar-5: #880e4f;     /* Dark pink */
+
+    /* Text Colors */
+    --color-text-primary: #ffffff; /* Pure white text */
+
+    /* Effects */
+    --shadow-color: rgba(0, 0, 0, 0.3); /* Stronger shadow for dark */
+
+    /* Semantic Colors (adjusted for dark) */
+    --primary: #6fa8dc; /* Lighter blue for better contrast */
+    --secondary: var(--color-avatar-3);
+    --accent: #ffb74d; /* Lighter accent */
+    --warning: #ffeb3b;
+    --danger: #f44336;
+
+    /* Toggle Button */
+    --toggle-bg: #404040;
+    --toggle-thumb: #ffffff;
+}
+
+/* Common Variables (Shared between themes) */
+:root,
+[data-theme="light"],
+[data-theme="dark"] {
     /* Typography (Modern & Simple) */
     --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', sans-serif;
     --font-weight-normal: 300;
@@ -41,10 +93,92 @@
     --transition-fast: 0.15s ease;
     --transition-normal: 0.3s ease;
 
-    /* Semantic Colors (with light accent) */
-    --primary: #4285F4; /* Light blue for active states */
-    --secondary: var(--color-avatar-3);
-    --accent: var(--color-avatar-4);
-    --warning: #f5c105;
-    --danger: #ff3b30;
+    /* Sidebar */
+    --sidebar-border: rgba(255, 255, 255, 0.1);
+}
+
+/* Global Heading Styles */
+[data-theme="light"] h1,
+[data-theme="light"] h2,
+[data-theme="light"] h3,
+[data-theme="light"] h4,
+[data-theme="light"] h5,
+[data-theme="light"] h6,
+[data-theme="light"] .h1,
+[data-theme="light"] .h2,
+[data-theme="light"] .h3,
+[data-theme="light"] .h4,
+[data-theme="light"] .h5,
+[data-theme="light"] .h6 {
+    color: #1d1d1f !important;
+}
+
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] h4,
+[data-theme="dark"] h5,
+[data-theme="dark"] h6,
+[data-theme="dark"] .h1,
+[data-theme="dark"] .h2,
+[data-theme="dark"] .h3,
+[data-theme="dark"] .h4,
+[data-theme="dark"] .h5,
+[data-theme="dark"] .h6 {
+    color: #ffffff !important;
+}
+
+/* Table Styles for Dark Mode */
+[data-theme="dark"] .table {
+    background-color: var(--color-active) !important;
+    --bs-table-bg: var(--color-active);
+    --bs-table-color: var(--color-text-primary);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-primary) !important;
+}
+
+[data-theme="dark"] .table thead th {
+    background-color: var(--color-hover) !important;
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-primary) !important;
+}
+
+[data-theme="dark"] .table tbody td {
+    color: var(--color-text-primary) !important;
+}
+
+[data-theme="dark"] .table tbody th {
+    color: var(--color-text-primary) !important;
+}
+
+[data-theme="dark"] .table tbody tr:hover {
+    background-color: var(--color-hover) !important;
+    color: var(--color-text-primary) !important;
+}
+
+[data-theme="dark"] .table tbody tr:hover td,
+[data-theme="dark"] .table tbody tr:hover th {
+    color: var(--color-text-primary) !important;
+}
+
+/* Card styles for dark mode */
+[data-theme="dark"] .card-header {
+    background-color: var(--color-card) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    color: var(--color-text-primary) !important;
+}
+
+/* Code elements for dark mode - high specificity to override scoped styles */
+[data-theme="dark"] code,
+[data-theme="dark"] pre,
+[data-theme="dark"] .certificate-pem,
+[data-theme="dark"] .card .certificate-pem {
+    background-color: var(--color-hover) !important;
+    color: var(--color-text-primary) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Text utilities for dark mode */
+[data-theme="dark"] .text-muted {
+    color: #adb5bd !important; /* Lighter gray for muted text in dark mode */
 }

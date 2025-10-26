@@ -788,6 +788,7 @@ onMounted(() => {
 
 .certificate-pem {
   background-color: #f8f9fa;
+  color: #212529;
   padding: 15px;
   border-radius: 4px;
   font-family: 'Courier New', monospace;
@@ -797,6 +798,13 @@ onMounted(() => {
   word-break: break-all;
   max-height: 400px;
   overflow-y: auto;
+}
+
+/* Dark mode overrides */
+[data-theme="dark"] .certificate-pem {
+  background-color: var(--color-hover) !important;
+  color: var(--color-text-primary) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .btn-group-sm .btn {

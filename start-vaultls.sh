@@ -300,7 +300,6 @@ show_help() {
     echo "  start          Start both backend and frontend (default)"
     echo "  clean-start    Clean all remnants and start fresh"
     echo "  stop           Stop both services"
-    echo "  restart        Restart both services"
     echo "  status         Show status of services"
     echo "  setup          Setup both backend and frontend without starting"
     echo "  backend        Start only backend"
@@ -375,7 +374,7 @@ main() {
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            start|clean-start|stop|restart|status|setup|backend|frontend|logs|clean)
+            start|clean-start|stop|status|setup|backend|frontend|logs|clean)
                 command="$1"
                 shift
                 ;;
@@ -446,17 +445,6 @@ main() {
             ;;
         stop)
             stop_services
-            ;;
-        restart)
-            print_status "Restarting VaulTLS application..."
-            stop_services
-            sleep 2
-            check_requirements
-            setup_backend "$backend_mode"
-            setup_frontend "$frontend_mode"
-            start_backend "$backend_mode"
-            start_frontend "$frontend_mode"
-            show_status
             ;;
         status)
             show_status

@@ -8,6 +8,7 @@ import router from './router/router';
 import App from './App.vue'
 import {useSetupStore} from "@/stores/setup.ts";
 import {useAuthStore} from "@/stores/auth.ts";
+import {useThemeStore} from "@/stores/theme.ts";
 
 
 async function initApp() {
@@ -17,12 +18,15 @@ async function initApp() {
     // Initialize Pinia before mounting
     app.use(pinia);
 
-    // Initialize the store
+    // Initialize the stores
     const setupStore = useSetupStore();
     await setupStore.init()
 
     const authStore = useAuthStore();
     await authStore.init();
+
+    const themeStore = useThemeStore();
+    themeStore.init();
 
     app.use(router);
 
