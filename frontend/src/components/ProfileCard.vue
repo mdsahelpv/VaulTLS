@@ -62,9 +62,8 @@ const avatarStyle = computed(() => {
     backgroundClip: 'content-box',
     content: 'close-quote',
     lineHeight: '1',
-    position: 'relative',
     transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-  };
+  } as any;
 });
 </script>
 
