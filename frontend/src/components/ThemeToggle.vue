@@ -1,6 +1,7 @@
 <template>
   <div
     class="theme-toggle-slide"
+    :class="{ 'dark-mode': isDark }"
     @click="toggleTheme"
     :title="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
     tabindex="0"
@@ -41,9 +42,9 @@ const toggleTheme = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 28px;
-  border-radius: 14px;
+  width: 70px;
+  height: 35px;
+  border-radius: 17.5px;
   background: var(--color-card);
   border: 1px solid var(--sidebar-border);
   box-shadow: 0 1px 3px var(--shadow-color);
@@ -60,6 +61,14 @@ const toggleTheme = () => {
   box-shadow: 0 0 0 2px var(--primary);
 }
 
+.theme-toggle-slide.dark-mode {
+  background: #000000;
+}
+
+.theme-toggle-slide.dark-mode:hover {
+  background: #1a1a1a;
+}
+
 .toggle-track {
   position: relative;
   width: 100%;
@@ -72,31 +81,33 @@ const toggleTheme = () => {
 
 .toggle-thumb {
   position: absolute;
-  width: 20px;
-  height: 20px;
-  background: var(--primary);
+  width: 27px;
+  height: 27px;
+  background: #ffffff;
   border-radius: 50%;
   transition: all var(--transition-normal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   left: 4px;
+  top: 4px;
 }
 
 .toggle-thumb.dark {
-  left: 32px;
+  left: 39px;
   background: var(--color-card);
 }
 
 .toggle-icon {
-  font-size: 10px;
-  color: white;
+  font-size: 13px;
+  color: #333333;
   transition: all var(--transition-normal);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) translateX(3px);
 }
 
 .toggle-thumb.dark .toggle-icon {
-  color: var(--color-text-primary);
+  color: #ffffff;
 }
 
 .toggle-labels {

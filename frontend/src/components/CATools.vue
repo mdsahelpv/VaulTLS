@@ -786,6 +786,11 @@ onMounted(() => {
   background-color: rgba(0, 0, 123, 0.075);
 }
 
+.table-responsive {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  overflow: hidden;
+}
+
 .certificate-pem {
   background-color: #f8f9fa;
   color: #212529;

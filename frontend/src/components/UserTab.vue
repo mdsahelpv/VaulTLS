@@ -263,6 +263,11 @@ const deleteUser = async () => {
   background-color: rgba(0, 0, 123, 0.075);
 }
 
+.table-responsive {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
 :deep(.modal.show) {
   background-color: rgba(0, 0, 0, 0.5);
 }

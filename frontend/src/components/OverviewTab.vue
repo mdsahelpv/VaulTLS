@@ -807,6 +807,11 @@ const copyToClipboard = async (text: string) => {
   background-color: rgba(0, 0, 123, 0.075);
 }
 
+.table-responsive {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
 .modal {
   z-index: 1050;
   display: flex;
