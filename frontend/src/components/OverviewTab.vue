@@ -2,15 +2,62 @@
   <div class="overview-container">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h1 class="mb-0">Certificates</h1>
-      <div class="d-flex gap-2">
+      <div class="d-flex gap-2 align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <label for="statusFilter" class="form-label mb-0 fw-bold">Filter:</label>
+          <select
+              id="statusFilter"
+              v-model="statusFilter"
+              class="form-select form-select-sm"
+              style="width: auto; min-width: 140px;"
+          >
+            <option value="all">All Certificates</option>
+            <option value="active">Active Only</option>
+            <option value="revoked">Revoked Only</option>
+            <option value="expired">Expired Only</option>
+          </select>
+        </div>
         <button
             id="CreateCertificateButton"
             v-if="authStore.isAdmin"
-            class="btn btn-primary"
+            class="btn btn-primary me-2"
             @click="showGenerateModal"
         >
           Create New Certificate
         </button>
+        <button
+            v-if="authStore.isAdmin"
+            class="btn btn-outline-secondary"
+            @click="showRevocationHistory = true"
+            title="View Certificate Revocation History"
+        >
+          <i class="bi bi-clock-history me-1"></i>
+          Revocation History
+        </button>
+      </div>
+    </div>
+
+    <!-- Bulk Actions Toolbar -->
+    <div v-if="authStore.isAdmin && selectedCertificates.size > 0" class="mb-3 p-3 bg-light rounded">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <strong>{{ selectedCertificates.size }} certificate{{ selectedCertificates.size > 1 ? 's' : '' }} selected</strong>
+        </div>
+        <div class="d-flex gap-2">
+          <button
+              class="btn btn-warning btn-sm"
+              @click="confirmBulkRevocation"
+          >
+            <i class="bi bi-x-circle me-1"></i>
+            Revoke Selected ({{ selectedCertificates.size }})
+          </button>
+          <button
+              class="btn btn-secondary btn-sm"
+              @click="clearSelection"
+          >
+            Clear Selection
+          </button>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -19,23 +66,47 @@
           <table class="table table-hover mb-0">
             <thead class="table-light">
               <tr>
+                <th v-if="authStore.isAdmin" class="text-center">
+                  <input
+                      type="checkbox"
+                      :checked="selectedCertificates.size > 0 && selectedCertificates.size === selectableCertificates.length"
+                      :indeterminate="selectedCertificates.size > 0 && selectedCertificates.size < selectableCertificates.length"
+                      @change="toggleSelectAll"
+                      class="form-check-input"
+                  />
+                </th>
                 <th v-if="authStore.isAdmin">User</th>
                 <th>Name</th>
                 <th class="d-none d-sm-table-cell">Type</th>
                 <th class="d-none d-sm-table-cell">Created on</th>
                 <th>Valid until</th>
+                <th>Status</th>
                 <th>Password</th>
                 <th class="d-none d-sm-table-cell">Renew Method</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="cert in certificates.values()" :key="cert.id">
+              <tr v-for="cert in filteredCertificates" :key="cert.id">
+                <td v-if="authStore.isAdmin" class="text-center">
+                  <input
+                      type="checkbox"
+                      :checked="selectedCertificates.has(cert.id)"
+                      :disabled="cert.is_revoked"
+                      @change="toggleCertificateSelection(cert.id)"
+                      class="form-check-input"
+                  />
+                </td>
                 <td :id="'UserId-' + cert.id" v-if="authStore.isAdmin">{{ userStore.idToName(cert.user_id) }}</td>
                 <td :id="'CertName-' + cert.id" >{{ cert.name }}</td>
                 <td :id="'CertType-' + cert.id" class="d-none d-sm-table-cell">{{ CertificateType[cert.certificate_type] }}</td>
                 <td :id="'CreatedOn-' + cert.id" class="d-none d-sm-table-cell">{{ new Date(cert.created_on).toLocaleDateString() }}</td>
                 <td :id="'ValidUntil-' + cert.id" >{{ new Date(cert.valid_until).toLocaleDateString() }}</td>
+                <td :id="'Status-' + cert.id">
+                  <span class="badge" :class="getCertificateStatusClass(cert)">
+                    {{ getCertificateStatusText(cert) }}
+                  </span>
+                </td>
                 <td :id="'Password-' + cert.id"  class="password-cell">
                   <div class="d-flex align-items-center">
                     <template v-if="shownCerts.has(cert.id)">
@@ -79,6 +150,15 @@
                         title="Download Certificate"
                     >
                       Download
+                    </button>
+                    <button
+                        :id="'RevokeButton-' + cert.id"
+                        v-if="authStore.isAdmin && !cert.is_revoked"
+                        class="btn btn-warning btn-sm flex-grow-1"
+                        @click="confirmRevocation(cert)"
+                        title="Revoke Certificate"
+                    >
+                      <i class="bi bi-x-circle"></i> Revoke
                     </button>
                     <button
                         :id="'DeleteButton-' + cert.id"
@@ -272,6 +352,78 @@
       </div>
     </div>
 
+    <!-- Revoke Confirmation Modal -->
+    <div
+        v-if="isRevokeModalVisible"
+        class="modal show d-block"
+        tabindex="-1"
+        style="background: rgba(0, 0, 0, 0.5)"
+    >
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Revoke Certificate</h5>
+            <button type="button" class="btn-close" @click="closeRevokeModal"></button>
+          </div>
+          <div class="modal-body">
+            <p v-if="selectedCertificates.size > 0">
+              Are you sure you want to revoke
+              <strong>{{ selectedCertificates.size }} certificate{{ selectedCertificates.size > 1 ? 's' : '' }}</strong>?
+            </p>
+            <p v-else>
+              Are you sure you want to revoke the certificate
+              <strong>{{ certToRevoke?.name }}</strong>?
+            </p>
+            <p class="text-warning">
+              <strong>Warning:</strong> Revoking {{ selectedCertificates.size > 0 ? 'these certificates' : 'a certificate' }} will immediately invalidate {{ selectedCertificates.size > 0 ? 'them' : 'it' }}.
+              Any systems using {{ selectedCertificates.size > 0 ? 'these certificates' : 'this certificate' }} will no longer trust {{ selectedCertificates.size > 0 ? 'them' : 'it' }}.
+            </p>
+            <div class="mb-3">
+              <label for="revocationReason" class="form-label">Revocation Reason</label>
+              <select
+                  id="revocationReason"
+                  v-model="revocationReason"
+                  class="form-select"
+                  required
+              >
+                <option value="0">Unspecified</option>
+                <option value="1">Key Compromise</option>
+                <option value="2">CA Compromise</option>
+                <option value="3">Affiliation Changed</option>
+                <option value="4">Superseded</option>
+                <option value="5">Cessation of Operation</option>
+                <option value="6">Certificate Hold</option>
+                <option value="8">Remove from CRL</option>
+                <option value="9">Privilege Withdrawn</option>
+                <option value="10">AA Compromise</option>
+              </select>
+            </div>
+            <div v-if="isMailValid" class="mb-3 form-check form-switch">
+              <input
+                  type="checkbox"
+                  class="form-check-input"
+                  id="notify-user-revoke"
+                  v-model="notifyUserOnRevoke"
+                  role="switch"
+              />
+              <label class="form-check-label" for="notify-user-revoke">
+                Notify Certificate Owner
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeRevokeModal">
+              Cancel
+            </button>
+            <button type="button" class="btn btn-warning" @click="revokeCertificate">
+              <i class="bi bi-x-circle me-1"></i>
+              Revoke Certificate
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Delete Confirmation Modal -->
     <div
         v-if="isDeleteModalVisible"
@@ -402,6 +554,26 @@
                         </span>
                       </div>
                     </div>
+                    <!-- Revocation Information -->
+                    <template v-if="certificateDetails.is_revoked">
+                      <hr>
+                      <div class="row">
+                        <div class="col-sm-4"><strong>Revoked:</strong></div>
+                        <div class="col-sm-8">{{ formatDate(certificateDetails.revoked_on!) }}</div>
+                      </div>
+                      <hr>
+                      <div class="row">
+                        <div class="col-sm-4"><strong>Revocation Reason:</strong></div>
+                        <div class="col-sm-8">
+                          <span class="badge bg-secondary">{{ getRevocationReasonText(certificateDetails.revoked_reason!) }}</span>
+                        </div>
+                      </div>
+                      <hr>
+                      <div class="row">
+                        <div class="col-sm-4"><strong>Revoked By:</strong></div>
+                        <div class="col-sm-8">{{ userStore.idToName(certificateDetails.revoked_by!) }}</div>
+                      </div>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -461,14 +633,28 @@
             </div>
           </div>
           <div class="modal-footer">
+            <button
+                v-if="authStore.isAdmin && certificateDetails && !certificateDetails.is_revoked"
+                type="button"
+                class="btn btn-warning me-auto"
+                @click="confirmRevocation(certificateDetails)"
+            >
+              <i class="bi bi-x-circle me-1"></i>
+              Revoke Certificate
+            </button>
             <button type="button" class="btn btn-secondary" @click="closeCertificateDetailsModal">Close</button>
           </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Download Format Selection Modal -->
+    <!-- Revocation History Modal -->
+    <RevocationHistoryModal
+        :isVisible="showRevocationHistory"
+        @close="showRevocationHistory = false"
+    />
+
+    <!-- Download Format Selection Modal -->
   <div
       v-if="showDownloadModal"
       class="modal show d-block"
@@ -581,6 +767,7 @@ import {useUserStore} from "@/stores/users.ts";
 import {useSettingsStore} from "@/stores/settings.ts";
 import {PasswordRule} from "@/types/Settings.ts";
 import {downloadCA, fetchCAs, getCertificateDetails} from "@/api/certificates.ts";
+import RevocationHistoryModal from "@/components/RevocationHistoryModal.vue";
 
 // stores
 const certificateStore = useCertificateStore();
@@ -593,6 +780,21 @@ const shownCerts = ref(new Set<number>());
 const availableCAs = ref<CAAndCertificate[]>([]);
 
 const certificates = computed(() => certificateStore.certificates);
+const filteredCertificates = computed(() => {
+  const allCerts = Array.from(certificates.value.values());
+
+  switch (statusFilter.value) {
+    case 'active':
+      return allCerts.filter(cert => !cert.is_revoked && parseInt(cert.valid_until) > Date.now());
+    case 'revoked':
+      return allCerts.filter(cert => cert.is_revoked);
+    case 'expired':
+      return allCerts.filter(cert => !cert.is_revoked && parseInt(cert.valid_until) <= Date.now());
+    case 'all':
+    default:
+      return allCerts;
+  }
+});
 const settings = computed(() => settingStore.settings);
 const loading = computed(() => certificateStore.loading);
 const error = computed(() => certificateStore.error);
@@ -600,12 +802,30 @@ const error = computed(() => certificateStore.error);
 const isDeleteModalVisible = ref(false);
 const isGenerateModalVisible = ref(false);
 const isCertificateDetailsModalVisible = ref(false);
+const isRevokeModalVisible = ref(false);
 const certToDelete = ref<Certificate | null>(null);
+const certToRevoke = ref<Certificate | null>(null);
 
 // Modal state for download format selection
 const showDownloadModal = ref(false);
 const downloadCertificateRef = ref<{id: number, name: string} | null>(null);
 const selectedFormat = ref<string>('pkcs12');
+
+// Revocation modal state
+const revocationReason = ref<number>(0);
+const notifyUserOnRevoke = ref<boolean>(false);
+
+// Filter state
+const statusFilter = ref<string>('all');
+
+// Bulk selection state
+const selectedCertificates = ref(new Set<number>());
+const selectableCertificates = computed(() => {
+  return filteredCertificates.value.filter(cert => !cert.is_revoked);
+});
+
+// Revocation history modal state
+const showRevocationHistory = ref(false);
 
 const certificateDetails = ref<CertificateDetails | null>(null);
 
@@ -707,6 +927,73 @@ const deleteCertificate = async () => {
   }
 };
 
+const confirmRevocation = (cert: Certificate | CertificateDetails) => {
+  // Convert CertificateDetails to Certificate format if needed
+  if ('pkcs12_password' in cert) {
+    certToRevoke.value = cert;
+  } else {
+    // Convert CertificateDetails to Certificate format
+    certToRevoke.value = {
+      id: cert.id,
+      name: cert.name,
+      created_on: cert.created_on.toString(),
+      pkcs12_password: '', // Will be fetched if needed
+      valid_until: cert.valid_until.toString(),
+      certificate_type: cert.certificate_type,
+      user_id: cert.user_id,
+      renew_method: cert.renew_method,
+      is_revoked: cert.is_revoked,
+      revoked_on: cert.revoked_on,
+      revoked_reason: cert.revoked_reason?.toString(),
+      revoked_by: cert.revoked_by
+    };
+  }
+  revocationReason.value = 0; // Default to "Unspecified"
+  notifyUserOnRevoke.value = false;
+  isRevokeModalVisible.value = true;
+};
+
+const closeRevokeModal = () => {
+  certToRevoke.value = null;
+  isRevokeModalVisible.value = false;
+  revocationReason.value = 0;
+  notifyUserOnRevoke.value = false;
+};
+
+const revokeCertificate = async () => {
+  // Handle bulk revocation
+  if (selectedCertificates.value.size > 0) {
+    try {
+      const revokePromises = Array.from(selectedCertificates.value).map(certId =>
+        certificateStore.revokeCertificate(certId, revocationReason.value, notifyUserOnRevoke.value)
+      );
+
+      await Promise.all(revokePromises);
+      selectedCertificates.value.clear(); // Clear selection after successful bulk revocation
+      closeRevokeModal();
+    } catch (error) {
+      console.error('Failed to revoke certificates:', error);
+      alert('Failed to revoke some certificates. Please try again.');
+    }
+    return;
+  }
+
+  // Handle single certificate revocation
+  if (!certToRevoke.value) return;
+
+  try {
+    await certificateStore.revokeCertificate(
+      certToRevoke.value.id,
+      revocationReason.value,
+      notifyUserOnRevoke.value
+    );
+    closeRevokeModal();
+  } catch (error) {
+    console.error('Failed to revoke certificate:', error);
+    alert('Failed to revoke certificate. Please try again.');
+  }
+};
+
 const togglePasswordShown = async (cert: Certificate) => {
   if (!cert.pkcs12_password) {
     await certificateStore.fetchCertificatePassword(cert.id);
@@ -746,6 +1033,40 @@ const formatDate = (timestamp: number): string => {
   return new Date(timestamp).toLocaleDateString();
 };
 
+const getCertificateStatusText = (cert: Certificate): string => {
+  // Check revocation first
+  if (cert.is_revoked) {
+    return 'Revoked';
+  }
+
+  const now = Date.now();
+  const validUntil = parseInt(cert.valid_until);
+
+  if (validUntil < now) {
+    return 'Expired';
+  } else if (validUntil < now + (30 * 24 * 60 * 60 * 1000)) { // 30 days
+    return 'Expiring Soon';
+  } else {
+    return 'Active';
+  }
+};
+
+const getCertificateStatusClass = (cert: Certificate): string => {
+  const status = getCertificateStatusText(cert);
+  switch (status) {
+    case 'Revoked':
+      return 'bg-dark';
+    case 'Expired':
+      return 'bg-danger';
+    case 'Expiring Soon':
+      return 'bg-warning text-dark';
+    case 'Active':
+      return 'bg-success';
+    default:
+      return 'bg-secondary';
+  }
+};
+
 const getStatusText = (cert: CertificateDetails): string => {
   const now = Date.now();
   const validUntil = cert.valid_until;
@@ -773,6 +1094,22 @@ const getStatusClass = (cert: CertificateDetails): string => {
   }
 };
 
+const getRevocationReasonText = (reason: number): string => {
+  switch (reason) {
+    case 0: return 'Unspecified';
+    case 1: return 'Key Compromise';
+    case 2: return 'CA Compromise';
+    case 3: return 'Affiliation Changed';
+    case 4: return 'Superseded';
+    case 5: return 'Cessation of Operation';
+    case 6: return 'Certificate Hold';
+    case 8: return 'Remove from CRL';
+    case 9: return 'Privilege Withdrawn';
+    case 10: return 'AA Compromise';
+    default: return 'Unknown';
+  }
+};
+
 const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text);
@@ -793,6 +1130,43 @@ const copyToClipboard = async (text: string) => {
     document.execCommand('copy');
     document.body.removeChild(textArea);
   }
+};
+
+// Bulk selection functions
+const toggleCertificateSelection = (certId: number) => {
+  if (selectedCertificates.value.has(certId)) {
+    selectedCertificates.value.delete(certId);
+  } else {
+    selectedCertificates.value.add(certId);
+  }
+};
+
+const toggleSelectAll = () => {
+  const allSelected = selectedCertificates.value.size === selectableCertificates.value.length;
+  if (allSelected) {
+    // Deselect all
+    selectedCertificates.value.clear();
+  } else {
+    // Select all selectable certificates
+    selectedCertificates.value.clear();
+    selectableCertificates.value.forEach(cert => {
+      selectedCertificates.value.add(cert.id);
+    });
+  }
+};
+
+const clearSelection = () => {
+  selectedCertificates.value.clear();
+};
+
+const confirmBulkRevocation = () => {
+  if (selectedCertificates.value.size === 0) return;
+
+  // Set up bulk revocation modal
+  certToRevoke.value = null; // Clear individual cert
+  revocationReason.value = 0; // Default to "Unspecified"
+  notifyUserOnRevoke.value = false;
+  isRevokeModalVisible.value = true;
 };
 </script>
 

@@ -127,3 +127,32 @@ impl CertificateFormat {
         }
     }
 }
+
+#[derive(Serialize_repr, Deserialize_repr, JsonSchema, TryFromPrimitive, Clone, Debug, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum CertificateRevocationReason {
+    #[default]
+    Unspecified = 0,
+    KeyCompromise = 1,
+    CACompromise = 2,
+    AffiliationChanged = 3,
+    Superseded = 4,
+    CessationOfOperation = 5,
+    CertificateHold = 6,
+    RemoveFromCRL = 8,
+    PrivilegeWithdrawn = 9,
+    AACompromise = 10,
+}
+
+impl FromSql for CertificateRevocationReason {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        match value {
+            ValueRef::Integer(i) => {
+                let value = i as u8;
+                CertificateRevocationReason::try_from(value)
+                    .map_err(|_| FromSqlError::InvalidType)
+            },
+            _ => Err(FromSqlError::InvalidType),
+        }
+    }
+}

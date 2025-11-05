@@ -14,10 +14,10 @@ use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
-use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, get_password, get_pem, save_ca, Certificate, CertificateBuilder, CertificateDetails};
+use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRL, CRLEntry};
 use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
-use crate::data::enums::{CertificateFormat, CertificateType, PasswordRule, UserRole};
+use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
 use crate::data::error::ApiError;
 use crate::data::objects::{AppState, User};
 use crate::notification::mail::{MailMessage, Mailer};
@@ -378,6 +378,23 @@ pub(crate) async fn create_user_certificate(
     };
 
     let pkcs12_password = get_password(use_random_password, &payload.pkcs12_password);
+
+    // Get CRL and OCSP settings
+    let crl_settings = state.settings.get_crl();
+    let ocsp_settings = state.settings.get_ocsp();
+
+    let crl_url = if crl_settings.enabled {
+        crl_settings.distribution_url.as_deref()
+    } else {
+        None
+    };
+
+    let ocsp_url = if ocsp_settings.enabled {
+        ocsp_settings.responder_url.as_deref()
+    } else {
+        None
+    };
+
     let cert_builder = CertificateBuilder::new_with_ca(Some(&ca))?
         .set_name(&payload.cert_name)?
         .set_valid_until(payload.validity_in_years.unwrap_or(1))?
@@ -390,13 +407,13 @@ pub(crate) async fn create_user_certificate(
             let user = state.db.get_user(payload.user_id).await?;
             cert_builder
                 .set_email_san(&user.email)?
-                .build_client()?
+                .build_common_with_extensions(Client, crl_url, ocsp_url)?
         }
         CertificateType::Server => {
             let dns = payload.dns_names.clone().unwrap_or_default();
             cert_builder
                 .set_dns_san(&dns)?
-                .build_server()?
+                .build_common_with_extensions(Server, crl_url, ocsp_url)?
         }
     };
 
@@ -1053,4 +1070,167 @@ pub(crate) async fn delete_user(
     info!(user=?id, "User deleted.");
 
     Ok(())
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Debug)]
+pub struct RevokeCertificateRequest {
+    pub reason: crate::data::enums::CertificateRevocationReason,
+    pub notify_user: Option<bool>,
+}
+
+#[openapi(tag = "Certificates")]
+#[post("/certificates/<id>/revoke", format = "json", data = "<payload>")]
+/// Revoke a certificate. Requires admin role.
+pub(crate) async fn revoke_certificate(
+    state: &State<AppState>,
+    id: i64,
+    payload: Json<RevokeCertificateRequest>,
+    authentication: AuthenticatedPrivileged
+) -> Result<(), ApiError> {
+    debug!(cert_id=id, reason=?payload.reason, "Revoking certificate");
+
+    // Check if certificate exists and get its details
+    let cert = state.db.get_user_cert_by_id(id).await
+        .map_err(|_| ApiError::NotFound(Some("Certificate not found".to_string())))?;
+
+    // Check if certificate is already revoked
+    if state.db.is_certificate_revoked(id).await? {
+        return Err(ApiError::BadRequest("Certificate is already revoked".to_string()));
+    }
+
+    // Revoke the certificate
+    state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id)).await?;
+
+    info!(cert_id=id, cert_name=?cert.name, admin_id=?authentication._claims.id, "Certificate revoked successfully");
+
+    // Optionally notify the user
+    if payload.notify_user.unwrap_or(false) {
+        let user = state.db.get_user(cert.user_id).await?;
+        // TODO: Implement revocation notification
+        debug!(cert_id=id, user_email=?user.email, "Revocation notification requested but not yet implemented");
+    }
+
+    Ok(())
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/<id>/revocation-status")]
+/// Get revocation status of a certificate. Requires authentication.
+pub(crate) async fn get_revocation_status(
+    state: &State<AppState>,
+    id: i64,
+    authentication: Authenticated
+) -> Result<Json<Option<crate::data::objects::CertificateRevocation>>, ApiError> {
+    // Check if user owns the certificate or is admin
+    let (user_id, _, _, _, _, _, _, _, _) = state.db.get_user_cert(id).await
+        .map_err(|_| ApiError::NotFound(Some("Certificate not found".to_string())))?;
+
+    if user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin {
+        return Err(ApiError::Forbidden(None));
+    }
+
+    let revocation = state.db.get_certificate_revocation(id).await?;
+    Ok(Json(revocation))
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/revocation-history")]
+/// Get all certificate revocation history. Requires admin role.
+pub(crate) async fn get_revocation_history(
+    state: &State<AppState>,
+    _authentication: AuthenticatedPrivileged
+) -> Result<Json<Vec<crate::data::objects::CertificateRevocation>>, ApiError> {
+    let history = state.db.get_all_revocation_records().await?;
+    Ok(Json(history))
+}
+
+#[openapi(tag = "Certificates")]
+#[delete("/certificates/<id>/revoke")]
+/// Unrevoke a certificate (remove from revocation list). Requires admin role.
+pub(crate) async fn unrevoke_certificate(
+    state: &State<AppState>,
+    id: i64,
+    _authentication: AuthenticatedPrivileged
+) -> Result<(), ApiError> {
+    debug!(cert_id=id, "Unrevoking certificate");
+
+    // Check if certificate exists
+    let _cert = state.db.get_user_cert_by_id(id).await
+        .map_err(|_| ApiError::NotFound(Some("Certificate not found".to_string())))?;
+
+    // Check if certificate is actually revoked
+    if !state.db.is_certificate_revoked(id).await? {
+        return Err(ApiError::BadRequest("Certificate is not revoked".to_string()));
+    }
+
+    // Unrevoke the certificate
+    state.db.unrevoke_certificate(id).await?;
+
+    info!(cert_id=id, "Certificate unrevoked successfully");
+
+    Ok(())
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/crl")]
+/// Download the current Certificate Revocation List (CRL). Requires authentication.
+pub(crate) async fn download_crl(
+    state: &State<AppState>,
+    _authentication: Authenticated
+) -> Result<DownloadResponse, ApiError> {
+    debug!("CRL download requested");
+
+    // Get current CA
+    let ca = state.db.get_current_ca().await?;
+
+    // Get all revoked certificates
+    let revoked_records = state.db.get_all_revocation_records().await?;
+
+    // Convert to CRLEntry format
+    let revoked_entries: Vec<CRLEntry> = revoked_records.into_iter()
+        .map(|record| {
+            // Get certificate serial number from the certificate
+            // This is a simplified approach - in production you'd store serial in revocation table
+            // For now, we'll need to parse the certificate to get the serial
+            // TODO: Optimize by storing serial number in revocation table
+            CRLEntry {
+                serial_number: Vec::new(), // Placeholder - needs proper implementation
+                revocation_date: record.revocation_date,
+                reason: record.revocation_reason,
+            }
+        })
+        .collect();
+
+    // Generate CRL
+    let crl_der = generate_crl(&ca, &revoked_entries)?;
+
+    // Convert to PEM for download
+    let crl_pem = crate::cert::crl_to_pem(&crl_der)?;
+
+    Ok(DownloadResponse::new(crl_pem, "certificate_revocation_list.crl"))
+}
+
+#[openapi(tag = "Certificates")]
+#[post("/ocsp", data = "<request_data>")]
+/// OCSP responder endpoint for real-time certificate status checking.
+/// Accepts DER-encoded OCSP requests and returns DER-encoded OCSP responses.
+/// Requires authentication.
+pub(crate) async fn ocsp_responder(
+    state: &State<AppState>,
+    request_data: Vec<u8>,
+    _authentication: Authenticated
+) -> Result<Vec<u8>, ApiError> {
+    debug!("OCSP request received ({} bytes)", request_data.len());
+
+    // Parse the OCSP request
+    let ocsp_request = parse_ocsp_request(&request_data)?;
+
+    // Get current CA for signing responses
+    let ca = state.db.get_current_ca().await?;
+
+    // Generate OCSP response
+    let response_der = generate_ocsp_response(&ocsp_request, &ca, &state.db).await?;
+
+    debug!("OCSP response generated ({} bytes)", response_der.len());
+    Ok(response_der)
 }

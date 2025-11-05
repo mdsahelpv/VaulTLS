@@ -66,7 +66,11 @@ pub(crate) struct InnerSettings {
     #[serde(default)]
     oidc: OIDC,
     #[serde(default)]
-    logic: Logic
+    logic: Logic,
+    #[serde(default)]
+    crl: CRLSettings,
+    #[serde(default)]
+    ocsp: OCSPSettings
 }
 
 /// Wrapper for the settings to make them serializable for the frontend.
@@ -84,6 +88,8 @@ impl Serialize for FrontendSettings {
         state.serialize_field("common", &settings.common)?;
         state.serialize_field("mail", &settings.mail)?;
         state.serialize_field("oidc", &settings.oidc)?;
+        state.serialize_field("crl", &settings.crl)?;
+        state.serialize_field("ocsp", &settings.ocsp)?;
         state.end()
     }
 }
@@ -110,6 +116,14 @@ impl JsonSchema for FrontendSettings {
             "oidc".to_string(),
             generator.subschema_for::<OIDC>(),
         );
+        props.insert(
+            "crl".to_string(),
+            generator.subschema_for::<CRLSettings>(),
+        );
+        props.insert(
+            "ocsp".to_string(),
+            generator.subschema_for::<OCSPSettings>(),
+        );
 
         Schema::Object(SchemaObject {
             instance_type: Some(SingleOrVec::Single(Box::new(schemars::schema::InstanceType::Object))),
@@ -119,6 +133,8 @@ impl JsonSchema for FrontendSettings {
                     "common".to_string(),
                     "mail".to_string(),
                     "oidc".to_string(),
+                    "crl".to_string(),
+                    "ocsp".to_string(),
                 ]),
                 ..Default::default()
             })),
@@ -240,6 +256,55 @@ pub(crate) struct Logic {
     pub(crate) db_encrypted: bool,
 }
 
+/// Certificate Revocation List settings.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub(crate) struct CRLSettings {
+    /// CRL validity period in days (default: 7)
+    pub(crate) validity_days: u32,
+    /// CRL refresh interval in hours (default: 24)
+    pub(crate) refresh_interval_hours: u32,
+    /// CRL distribution URL (optional)
+    pub(crate) distribution_url: Option<String>,
+    /// Whether CRL is enabled
+    pub(crate) enabled: bool,
+}
+
+impl Default for CRLSettings {
+    fn default() -> Self {
+        Self {
+            validity_days: 7,
+            refresh_interval_hours: 24,
+            distribution_url: None,
+            enabled: true,
+        }
+    }
+}
+
+/// Online Certificate Status Protocol settings.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+#[allow(clippy::upper_case_acronyms)]
+pub(crate) struct OCSPSettings {
+    /// OCSP responder URL (optional, will be auto-generated if not set)
+    pub(crate) responder_url: Option<String>,
+    /// OCSP response validity period in hours (default: 24)
+    pub(crate) validity_hours: u32,
+    /// OCSP signing certificate path (optional)
+    pub(crate) signing_cert_path: Option<String>,
+    /// Whether OCSP is enabled
+    pub(crate) enabled: bool,
+}
+
+impl Default for OCSPSettings {
+    fn default() -> Self {
+        Self {
+            responder_url: None,
+            validity_hours: 24,
+            signing_cert_path: None,
+            enabled: true,
+        }
+    }
+}
+
 
 /// Generates a new JWT key.
 fn generate_jwt_key() -> String {
@@ -275,6 +340,8 @@ impl InnerSettings {
         self.common = settings.common.clone();
         self.mail = settings.mail.clone();
         self.oidc = settings.oidc.clone();
+        self.crl = settings.crl.clone();
+        self.ocsp = settings.ocsp.clone();
 
         self.save_to_file(None)
     }
@@ -305,6 +372,9 @@ impl InnerSettings {
     fn get_password_rule(&self) -> PasswordRule {
         self.common.password_rule
     }
+
+    fn get_crl(&self) -> &CRLSettings { &self.crl }
+    fn get_ocsp(&self) -> &OCSPSettings { &self.ocsp }
 }
 
 impl Settings {
@@ -367,5 +437,15 @@ impl Settings {
     pub(crate) fn get_password_rule(&self) -> PasswordRule {
         let settings = self.0.read();
         settings.get_password_rule()
+    }
+
+    pub(crate) fn get_crl(&self) -> CRLSettings {
+        let settings = self.0.read();
+        settings.get_crl().clone()
+    }
+
+    pub(crate) fn get_ocsp(&self) -> OCSPSettings {
+        let settings = self.0.read();
+        settings.get_ocsp().clone()
     }
 }

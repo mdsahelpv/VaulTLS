@@ -45,6 +45,13 @@ export const deleteCertificate = async (id: number): Promise<void> => {
     await ApiClient.delete<void>(`/certificates/${id}`);
 };
 
+export const revokeCertificate = async (id: number, reason: number, notifyUser: boolean): Promise<void> => {
+    await ApiClient.post<void>(`/certificates/${id}/revoke`, {
+        revocation_reason: reason,
+        notify_user: notifyUser
+    });
+};
+
 export const getCertificateDetails = async (id: number): Promise<CertificateDetails> => {
     return await ApiClient.get<CertificateDetails>(`/certificates/${id}/details`);
 };
@@ -75,4 +82,8 @@ export const importCAFromFile = async (formData: FormData): Promise<number> => {
 
 export const deleteCA = async (id: number): Promise<void> => {
     await ApiClient.delete<void>(`/certificates/ca/${id}`);
+};
+
+export const getRevocationHistory = async (): Promise<any[]> => {
+    return await ApiClient.get<any[]>('/certificates/revocation-history');
 };

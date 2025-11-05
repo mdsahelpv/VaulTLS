@@ -6,6 +6,7 @@ import {
     downloadCertificate,
     createCertificate,
     deleteCertificate,
+    revokeCertificate as revokeCertificateApi,
 } from '../api/certificates';
 import type {CertificateRequirements} from "@/types/CertificateRequirements.ts";
 
@@ -99,6 +100,22 @@ export const useCertificateStore = defineStore('certificate', {
             } catch (err) {
                 this.error = 'Failed to delete the certificate.';
                 console.error(err);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        // Revoke a certificate by ID and fetch the updated list
+        async revokeCertificate(id: number, reason: number, notifyUser: boolean): Promise<void> {
+            this.loading = true;
+            this.error = null;
+            try {
+                await revokeCertificateApi(id, reason, notifyUser);
+                await this.fetchCertificates();
+            } catch (err) {
+                this.error = 'Failed to revoke the certificate.';
+                console.error(err);
+                throw err;
             } finally {
                 this.loading = false;
             }

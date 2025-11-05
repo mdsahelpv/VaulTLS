@@ -1,7 +1,7 @@
 use crate::cert::{Certificate, CA};
 use crate::constants::{DB_FILE_PATH, TEMP_DB_FILE_PATH};
-use crate::data::enums::{CertificateRenewMethod, CertificateType, UserRole};
-use crate::data::objects::User;
+use crate::data::enums::{CertificateRenewMethod, CertificateType, UserRole, CertificateRevocationReason};
+use crate::data::objects::{User, CertificateRevocation};
 use crate::helper::get_secret;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -286,11 +286,12 @@ impl VaulTLSDB {
     /// Retrieve all user certificates from the database
     /// If user_id is Some, only certificates for that user are returned
     /// If user_id is None, all certificates are returned
+    /// Certificates are marked as revoked if they exist in the revocation table
     pub(crate) async fn get_all_user_cert(&self, user_id: Option<i64>) -> Result<Vec<Certificate>> {
         db_do!(self.pool, |conn: &Connection| {
             let query = match user_id {
-                Some(_) => "SELECT id, name, created_on, valid_until, pkcs12, pkcs12_password, user_id, type, renew_method FROM user_certificates WHERE user_id = ?1",
-                None => "SELECT id, name, created_on, valid_until, pkcs12, pkcs12_password, user_id, type, renew_method FROM user_certificates"
+                Some(_) => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, cr.revocation_date IS NOT NULL as is_revoked FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.user_id = ?1",
+                None => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, cr.revocation_date IS NOT NULL as is_revoked FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id"
             };
             let mut stmt = conn.prepare(query)?;
             let rows = match user_id {
@@ -308,7 +309,7 @@ impl VaulTLSDB {
                     user_id: row.get(6)?,
                     certificate_type: row.get(7)?,
                     renew_method: row.get(8)?,
-                    ..Default::default()
+                    ca_id: 0, // Will be set by calling code if needed
                 })
             })
             .collect()?)
@@ -604,6 +605,95 @@ impl VaulTLSDB {
                 [],
                 |_| Ok(())
             )?)
+        })
+    }
+
+    /// Revoke a certificate by adding it to the revocation table
+    pub(crate) async fn revoke_certificate(&self, certificate_id: i64, revocation_reason: CertificateRevocationReason, revoked_by_user_id: Option<i64>) -> Result<i64> {
+        db_do!(self.pool, |conn: &Connection| {
+            let revocation_date = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+
+            conn.execute(
+                "INSERT INTO certificate_revocation (certificate_id, revocation_date, revocation_reason, revoked_by_user_id) VALUES (?1, ?2, ?3, ?4)",
+                params![certificate_id, revocation_date, revocation_reason as u8, revoked_by_user_id],
+            )?;
+
+            let revocation_id = conn.last_insert_rowid();
+
+            info!("Certificate {} revoked by user {:?} with reason {:?}", certificate_id, revoked_by_user_id, revocation_reason);
+
+            Ok(revocation_id)
+        })
+    }
+
+    /// Check if a certificate is revoked
+    pub(crate) async fn is_certificate_revoked(&self, certificate_id: i64) -> Result<bool> {
+        db_do!(self.pool, |conn: &Connection| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM certificate_revocation WHERE certificate_id = ?1",
+                params![certificate_id],
+                |row| row.get(0),
+            )?;
+            Ok(count > 0)
+        })
+    }
+
+    /// Get revocation details for a certificate
+    pub(crate) async fn get_certificate_revocation(&self, certificate_id: i64) -> Result<Option<CertificateRevocation>> {
+        db_do!(self.pool, |conn: &Connection| {
+            let result = conn.query_row(
+                "SELECT id, certificate_id, revocation_date, revocation_reason, revoked_by_user_id FROM certificate_revocation WHERE certificate_id = ?1",
+                params![certificate_id],
+                |row| {
+                    let reason_value: u8 = row.get(3)?;
+                    Ok(CertificateRevocation {
+                        id: row.get(0)?,
+                        certificate_id: row.get(1)?,
+                        revocation_date: row.get(2)?,
+                        revocation_reason: CertificateRevocationReason::try_from(reason_value).unwrap_or(CertificateRevocationReason::Unspecified),
+                        revoked_by_user_id: row.get(4)?,
+                    })
+                }
+            );
+
+            match result {
+                Ok(revocation) => Ok(Some(revocation)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(anyhow!("Database error: {}", e)),
+            }
+        })
+    }
+
+    /// Get all revocation records (for audit purposes)
+    pub(crate) async fn get_all_revocation_records(&self) -> Result<Vec<CertificateRevocation>> {
+        db_do!(self.pool, |conn: &Connection| {
+            let mut stmt = conn.prepare("SELECT id, certificate_id, revocation_date, revocation_reason, revoked_by_user_id FROM certificate_revocation ORDER BY revocation_date DESC")?;
+            let rows = stmt.query([])?;
+            Ok(rows.map(|row| {
+                let reason_value: u8 = row.get(3)?;
+                Ok(CertificateRevocation {
+                    id: row.get(0)?,
+                    certificate_id: row.get(1)?,
+                    revocation_date: row.get(2)?,
+                    revocation_reason: CertificateRevocationReason::try_from(reason_value).unwrap_or(CertificateRevocationReason::Unspecified),
+                    revoked_by_user_id: row.get(4)?,
+                })
+            })
+            .collect()?)
+        })
+    }
+
+    /// Unrevoke a certificate (remove from revocation table)
+    pub(crate) async fn unrevoke_certificate(&self, certificate_id: i64) -> Result<()> {
+        db_do!(self.pool, |conn: &Connection| {
+            conn.execute(
+                "DELETE FROM certificate_revocation WHERE certificate_id = ?1",
+                params![certificate_id],
+            )?;
+            Ok(())
         })
     }
 }

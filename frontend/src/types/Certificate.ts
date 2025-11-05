@@ -20,6 +20,10 @@ export interface Certificate {
     certificate_type: CertificateType;    // Type of the certificate
     user_id: number;                      // User ID who owns the certificate
     renew_method: CertificateRenewMethod; // Method on what to do when the certificate is about to expire
+    is_revoked?: boolean;                 // Whether the certificate has been revoked
+    revoked_on?: number;                  // Date when the certificate was revoked (UNIX timestamp in ms)
+    revoked_reason?: string;              // Reason for revocation
+    revoked_by?: number;                  // User ID who revoked the certificate
 }
 
 export interface CASummary {
@@ -57,4 +61,8 @@ export interface CertificateDetails {
     user_id: number;
     renew_method: CertificateRenewMethod;
     certificate_pem: string;
+    is_revoked?: boolean;
+    revoked_on?: number;
+    revoked_reason?: number;
+    revoked_by?: number;
 }

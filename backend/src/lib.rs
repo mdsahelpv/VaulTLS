@@ -177,6 +177,10 @@ pub async fn create_rocket() -> Rocket<Build> {
                 delete_user_cert,
                 fetch_certificate_password,
                 get_certificate_details,
+                revoke_certificate,
+                get_revocation_status,
+                unrevoke_certificate,
+                download_crl,
                 fetch_settings,
                 update_settings,
                 is_setup,
@@ -193,7 +197,7 @@ pub async fn create_rocket() -> Rocket<Build> {
                 update_user
             ],
         )
-        .mount("/api", routes![setup_form, import_ca_from_file])
+        .mount("/api", routes![setup_form, import_ca_from_file, ocsp_responder])
         .mount(
             "/api",
             make_rapidoc(&RapiDocConfig {

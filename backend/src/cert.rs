@@ -55,6 +55,81 @@ pub struct CA {
     pub key: Vec<u8>,
 }
 
+#[derive(Clone, Debug)]
+pub struct CRL {
+    pub version: i32,
+    pub this_update: i64,
+    pub next_update: i64,
+    pub revoked_certificates: Vec<CRLEntry>,
+    pub ca_cert: Vec<u8>,
+    pub ca_key: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CRLEntry {
+    pub serial_number: Vec<u8>,
+    pub revocation_date: i64,
+    pub reason: crate::data::enums::CertificateRevocationReason,
+}
+
+#[derive(Clone, Debug)]
+pub struct OCSPRequest {
+    pub version: i32,
+    pub requestor_name: Option<String>,
+    pub certificate_id: OCSP_CERTID,
+    pub extensions: Vec<OCSPExtension>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OCSP_CERTID {
+    pub hash_algorithm: String, // e.g., "sha1", "sha256"
+    pub issuer_name_hash: Vec<u8>,
+    pub issuer_key_hash: Vec<u8>,
+    pub serial_number: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OCSPExtension {
+    pub extn_id: String,
+    pub critical: bool,
+    pub value: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OCSPResponse {
+    pub version: i32,
+    pub response_status: OCSPResponseStatus,
+    pub response_bytes: Option<OCSPSingleResponse>,
+    pub produced_at: i64,
+    pub extensions: Vec<OCSPExtension>,
+}
+
+#[derive(Clone, Debug)]
+pub enum OCSPResponseStatus {
+    Successful = 0,
+    MalformedRequest = 1,
+    InternalError = 2,
+    TryLater = 3,
+    SigRequired = 5,
+    Unauthorized = 6,
+}
+
+#[derive(Clone, Debug)]
+pub struct OCSPSingleResponse {
+    pub cert_id: OCSP_CERTID,
+    pub cert_status: OCSPCertStatus,
+    pub this_update: i64,
+    pub next_update: Option<i64>,
+    pub extensions: Vec<OCSPExtension>,
+}
+
+#[derive(Clone, Debug)]
+pub enum OCSPCertStatus {
+    Good,
+    Revoked { revocation_time: i64, revocation_reason: Option<crate::data::enums::CertificateRevocationReason> },
+    Unknown,
+}
+
 pub struct CertificateBuilder {
     x509: X509Builder,
     private_key: PKey<Private>,
@@ -400,7 +475,7 @@ impl CertificateBuilder {
             .build()?;
         self.x509.append_extension(ext_key_usage)?;
 
-        self.build_common(Client)
+        self.build_common_with_extensions(Client, None, None)
     }
 
     pub fn build_server(mut self) -> Result<Certificate, anyhow::Error> {
@@ -409,10 +484,10 @@ impl CertificateBuilder {
             .build()?;
         self.x509.append_extension(ext_key_usage)?;
 
-        self.build_common(Server)
+        self.build_common_with_extensions(Server, None, None)
     }
 
-    pub fn build_common(mut self, certificate_type: CertificateType) -> Result<Certificate, anyhow::Error> {
+    pub fn build_common_with_extensions(mut self, certificate_type: CertificateType, crl_url: Option<&str>, ocsp_url: Option<&str>) -> Result<Certificate, anyhow::Error> {
         let name = self.name.ok_or(anyhow!("X509: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("X509: valid_until not set"))?;
         let user_id = self.user_id.ok_or(anyhow!("X509: user_id not set"))?;
@@ -431,6 +506,18 @@ impl CertificateBuilder {
         self.x509.append_extension(key_usage)?;
 
         self.x509.set_issuer_name(ca_cert.subject_name())?;
+
+        // TODO: Add CRL Distribution Points extension if CRL URL is provided
+        // NOTE: CrlDistributionPoints not available in current OpenSSL version
+        if crl_url.is_some() {
+            debug!("CRL Distribution Points extension requested but not implemented (OpenSSL version limitation)");
+        }
+
+        // TODO: Add Authority Information Access (OCSP) extension if OCSP URL is provided
+        // NOTE: AuthorityInformationAccess not available in current OpenSSL version
+        if ocsp_url.is_some() {
+            debug!("Authority Information Access (OCSP) extension requested but not implemented (OpenSSL version limitation)");
+        }
 
         self.x509.sign(&ca_key, MessageDigest::sha256())?;
         let cert = self.x509.build();
@@ -742,5 +829,141 @@ pub(crate) fn get_certificate_details(cert: &Certificate) -> Result<CertificateD
         user_id: cert.user_id,
         renew_method: cert.renew_method,
         certificate_pem,
+    })
+}
+
+/// Generate a Certificate Revocation List (CRL) for the given CA
+/// NOTE: This is a placeholder implementation. Full CRL generation requires
+/// OpenSSL version that supports CRL functionality, or external CRL generation.
+/// For now, this returns an empty CRL structure.
+pub(crate) fn generate_crl(_ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8>, ApiError> {
+    debug!("CRL generation requested for {} revoked certificates", revoked_certificates.len());
+    debug!("NOTE: Full CRL generation not yet implemented with current OpenSSL version");
+
+    // TODO: Implement full CRL generation when OpenSSL version supports it
+    // For now, return a placeholder error
+    Err(ApiError::Other("CRL generation not yet implemented. Requires OpenSSL upgrade or external CRL tool.".to_string()))
+}
+
+/// Convert CRL to PEM format
+/// NOTE: Placeholder implementation
+pub(crate) fn crl_to_pem(_crl_der: &[u8]) -> Result<Vec<u8>, ApiError> {
+    Err(ApiError::Other("CRL conversion not yet implemented.".to_string()))
+}
+
+/// Parse an OCSP request from DER-encoded bytes
+/// NOTE: This is a simplified implementation. Full OCSP parsing would require
+/// proper ASN.1 parsing of OCSP request structures.
+pub(crate) fn parse_ocsp_request(_request_der: &[u8]) -> Result<OCSPRequest, ApiError> {
+    debug!("OCSP request parsing requested ({} bytes)", _request_der.len());
+    debug!("NOTE: Full OCSP request parsing not yet implemented");
+
+    // TODO: Implement proper OCSP request parsing
+    // For now, return a placeholder error
+    Err(ApiError::Other("OCSP request parsing not yet implemented.".to_string()))
+}
+
+/// Generate an OCSP response for a given certificate status
+pub(crate) async fn generate_ocsp_response(
+    request: &OCSPRequest,
+    ca: &CA,
+    db: &crate::db::VaulTLSDB,
+) -> Result<Vec<u8>, ApiError> {
+    debug!("Generating OCSP response for certificate ID: {:?}", request.certificate_id.serial_number);
+
+    // Check if the certificate is revoked
+    let cert_id = extract_certificate_id_from_ocsp_request(request)?;
+    let is_revoked = db.is_certificate_revoked(cert_id).await
+        .map_err(|e| ApiError::Other(format!("Database error checking revocation status: {}", e)))?;
+
+    // Get revocation details if revoked
+    let revocation_info = if is_revoked {
+        db.get_certificate_revocation(cert_id).await
+            .map_err(|e| ApiError::Other(format!("Database error getting revocation details: {}", e)))?
+    } else {
+        None
+    };
+
+    // Determine certificate status
+    let cert_status = if is_revoked {
+        if let Some(revocation) = revocation_info {
+            OCSPCertStatus::Revoked {
+                revocation_time: revocation.revocation_date,
+                revocation_reason: Some(revocation.revocation_reason),
+            }
+        } else {
+            OCSPCertStatus::Revoked {
+                revocation_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
+                revocation_reason: None,
+            }
+        }
+    } else {
+        OCSPCertStatus::Good
+    };
+
+    // Create single response
+    let single_response = OCSPSingleResponse {
+        cert_id: request.certificate_id.clone(),
+        cert_status,
+        this_update: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
+        next_update: Some((SystemTime::now() + std::time::Duration::from_secs(3600)).duration_since(UNIX_EPOCH).unwrap().as_millis() as i64), // 1 hour validity
+        extensions: Vec::new(),
+    };
+
+    // Create response
+    let response = OCSPResponse {
+        version: 1,
+        response_status: OCSPResponseStatus::Successful,
+        response_bytes: Some(single_response),
+        produced_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
+        extensions: Vec::new(),
+    };
+
+    // TODO: Sign the response with CA certificate
+    // For now, return a placeholder
+    debug!("OCSP response generated (placeholder - signing not implemented)");
+    Err(ApiError::Other("OCSP response generation not yet fully implemented. Requires proper ASN.1 encoding and signing.".to_string()))
+}
+
+/// Extract certificate ID from OCSP request
+/// This is a simplified implementation
+fn extract_certificate_id_from_ocsp_request(_request: &OCSPRequest) -> Result<i64, ApiError> {
+    // TODO: Implement proper certificate ID extraction from OCSP_CERTID
+    // For now, this is a placeholder
+    Err(ApiError::Other("Certificate ID extraction from OCSP request not yet implemented.".to_string()))
+}
+
+/// Generate OCSP_CERTID from certificate serial number and issuer
+pub(crate) fn generate_ocsp_cert_id(
+    serial_number: &[u8],
+    issuer_cert: &X509,
+    hash_algorithm: &str,
+) -> Result<OCSP_CERTID, ApiError> {
+    use openssl::hash::hash;
+
+    let digest = match hash_algorithm {
+        "sha1" => MessageDigest::sha1(),
+        "sha256" => MessageDigest::sha256(),
+        _ => return Err(ApiError::Other(format!("Unsupported hash algorithm: {}", hash_algorithm))),
+    };
+
+    // Hash the issuer name
+    let issuer_name_der = issuer_cert.subject_name().to_der()
+        .map_err(|e| ApiError::Other(format!("Failed to encode issuer name: {}", e)))?;
+    let issuer_name_hash = hash(digest, &issuer_name_der)
+        .map_err(|e| ApiError::Other(format!("Failed to hash issuer name: {}", e)))?;
+
+    // Hash the issuer public key
+    let issuer_key_der = issuer_cert.public_key()
+        .and_then(|key| key.public_key_to_der())
+        .map_err(|e| ApiError::Other(format!("Failed to get issuer public key: {}", e)))?;
+    let issuer_key_hash = hash(digest, &issuer_key_der)
+        .map_err(|e| ApiError::Other(format!("Failed to hash issuer key: {}", e)))?;
+
+    Ok(OCSP_CERTID {
+        hash_algorithm: hash_algorithm.to_string(),
+        issuer_name_hash: issuer_name_hash.to_vec(),
+        issuer_key_hash: issuer_key_hash.to_vec(),
+        serial_number: serial_number.to_vec(),
     })
 }
