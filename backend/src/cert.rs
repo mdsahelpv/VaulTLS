@@ -604,6 +604,30 @@ pub(crate) fn certificate_pkcs12_to_pem(cert: &Certificate) -> Result<Vec<u8>, A
         .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))
 }
 
+/// Convert a user certificate's private key from PKCS#12 to PEM format.
+pub(crate) fn certificate_pkcs12_to_key(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
+    let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
+
+    let parsed = if cert.pkcs12_password.is_empty() {
+        // Try without password first
+        match encrypted_p12.parse2("") {
+            Ok(parsed) => parsed,
+            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {}", e))),
+        }
+    } else {
+        // Try with provided password
+        encrypted_p12.parse2(&cert.pkcs12_password)
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {}", e)))?
+    };
+
+    let private_key = parsed.pkey
+        .ok_or_else(|| ApiError::Other("No private key found in PKCS#12".to_string()))?;
+
+    private_key.private_key_to_pem_pkcs8()
+        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {}", e)))
+}
+
 /// Convert a user certificate from PKCS#12 to DER format.
 pub(crate) fn certificate_pkcs12_to_der(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)

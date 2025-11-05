@@ -103,7 +103,8 @@ pub enum CertificateFormat {
     #[default]
     PKCS12 = 0,
     PEM = 1,
-    DER = 2
+    DER = 2,
+    PemKey = 3
 }
 
 impl CertificateFormat {
@@ -112,6 +113,7 @@ impl CertificateFormat {
             CertificateFormat::PKCS12 => "p12",
             CertificateFormat::PEM => "pem",
             CertificateFormat::DER => "der",
+            CertificateFormat::PemKey => "zip",
         }
     }
 
@@ -120,6 +122,7 @@ impl CertificateFormat {
             "pkcs12" => Ok(CertificateFormat::PKCS12),
             "pem" => Ok(CertificateFormat::PEM),
             "der" => Ok(CertificateFormat::DER),
+            "pem_key" => Ok(CertificateFormat::PemKey),
             _ => Err(format!("Invalid certificate format: {}", s)),
         }
     }

@@ -510,6 +510,24 @@
                   class="form-check-input"
                   type="radio"
                   v-model="selectedFormat"
+                  id="formatPemKey"
+                  value="pem_key"
+              />
+              <label class="form-check-label fw-bold" for="formatPemKey">
+                PEM + Key (.zip)
+              </label>
+              <div class="form-text">
+                Separate files: certificate.pem + private_key.key in a ZIP archive
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input
+                  class="form-check-input"
+                  type="radio"
+                  v-model="selectedFormat"
                   id="formatPem"
                   value="pem"
               />

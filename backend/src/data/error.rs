@@ -121,4 +121,16 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
+impl From<std::io::Error> for ApiError {
+    fn from(error: std::io::Error) -> Self {
+        ApiError::Other(error.to_string())
+    }
+}
+
+impl From<zip::result::ZipError> for ApiError {
+    fn from(error: zip::result::ZipError) -> Self {
+        ApiError::Other(format!("ZIP error: {}", error))
+    }
+}
+
 impl Error for ApiError {}

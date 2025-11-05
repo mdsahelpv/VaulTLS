@@ -14,7 +14,7 @@ use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
-use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_pem, get_password, get_pem, save_ca, Certificate, CertificateBuilder, CertificateDetails};
+use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, get_password, get_pem, save_ca, Certificate, CertificateBuilder, CertificateDetails};
 use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateFormat, CertificateType, PasswordRule, UserRole};
@@ -801,7 +801,7 @@ pub(crate) async fn get_ca_details(
 #[get("/certificates/<id>/download?<format>")]
 /// Download a user-owned certificate. Requires authentication.
 /// Query parameters:
-/// * format: Certificate format (pkcs12, pem, der). Default: pkcs12
+/// * format: Certificate format (pkcs12, pem, der, pem_key). Default: pkcs12
 pub(crate) async fn download_certificate(
     state: &State<AppState>,
     id: i64,
@@ -812,7 +812,7 @@ pub(crate) async fn download_certificate(
     if user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin { return Err(ApiError::Forbidden(None)) }
 
     let cert_format = match format {
-        Some(fmt) => CertificateFormat::from_str(fmt).map_err(|_| ApiError::BadRequest("Invalid format parameter. Supported formats: pkcs12, pem, der".to_string()))?,
+        Some(fmt) => CertificateFormat::from_str(fmt).map_err(|_| ApiError::BadRequest("Invalid format parameter. Supported formats: pkcs12, pem, der, pem_key".to_string()))?,
         None => CertificateFormat::PKCS12,
     };
 
@@ -827,6 +827,28 @@ pub(crate) async fn download_certificate(
             let cert = state.db.get_user_cert_by_id(id).await?;
             let der = certificate_pkcs12_to_der(&cert)?;
             (der, format!("{}.{}", name, cert_format.extension()))
+        },
+        CertificateFormat::PemKey => {
+            let cert = state.db.get_user_cert_by_id(id).await?;
+            let cert_pem = certificate_pkcs12_to_pem(&cert)?;
+            let cert_key = certificate_pkcs12_to_key(&cert)?;
+
+            // Create ZIP file containing both certificate and key
+            use std::io::Write;
+            let mut zip_buffer = Vec::new();
+            {
+                let mut zip_writer = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buffer));
+
+                // Add certificate file
+                zip_writer.start_file::<_, ()>(format!("{}.pem", name), Default::default())?;
+                zip_writer.write_all(&cert_pem)?;
+
+                // Add private key file
+                zip_writer.start_file::<_, ()>(format!("{}.key", name), Default::default())?;
+                zip_writer.write_all(&cert_key)?;
+            }
+
+            (zip_buffer, format!("{}.{}", name, cert_format.extension()))
         },
     };
 
