@@ -1082,6 +1082,16 @@ pub struct RevokeCertificateRequest {
     pub notify_user: Option<bool>,
 }
 
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct RevocationHistoryEntry {
+    pub id: i64,
+    pub certificate_id: i64,
+    pub certificate_name: String,
+    pub revocation_date: i64,
+    pub revocation_reason: crate::data::enums::CertificateRevocationReason,
+    pub revoked_by_user_id: Option<i64>,
+}
+
 #[openapi(tag = "Certificates")]
 #[post("/certificates/cert/<id>/revoke", format = "json", data = "<payload>")]
 /// Revoke a certificate. Requires admin role.
@@ -1193,9 +1203,28 @@ pub(crate) async fn get_revocation_status(
 pub(crate) async fn get_revocation_history(
     state: &State<AppState>,
     _authentication: AuthenticatedPrivileged
-) -> Result<Json<Vec<crate::data::objects::CertificateRevocation>>, ApiError> {
-    let history = state.db.get_all_revocation_records().await?;
-    Ok(Json(history))
+) -> Result<Json<Vec<RevocationHistoryEntry>>, ApiError> {
+    let revocation_records = state.db.get_all_revocation_records().await?;
+
+    let mut history_entries = Vec::new();
+    for record in revocation_records {
+        // Try to get the certificate name, but handle the case where the certificate might have been deleted
+        let certificate_name = match state.db.get_user_cert_by_id(record.certificate_id).await {
+            Ok(cert) => cert.name,
+            Err(_) => format!("Certificate {}", record.certificate_id), // Certificate was deleted
+        };
+
+        history_entries.push(RevocationHistoryEntry {
+            id: record.id,
+            certificate_id: record.certificate_id,
+            certificate_name,
+            revocation_date: record.revocation_date,
+            revocation_reason: record.revocation_reason,
+            revoked_by_user_id: record.revoked_by_user_id,
+        });
+    }
+
+    Ok(Json(history_entries))
 }
 
 #[openapi(tag = "Certificates")]

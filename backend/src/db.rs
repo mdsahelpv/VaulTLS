@@ -704,4 +704,12 @@ impl VaulTLSDB {
             Ok(())
         })
     }
+
+    /// Clear all revocation records (for administrative purposes)
+    pub(crate) async fn clear_all_revocation_records(&self) -> Result<()> {
+        db_do!(self.pool, |conn: &Connection| {
+            conn.execute("DELETE FROM certificate_revocation", [])?;
+            Ok(())
+        })
+    }
 }

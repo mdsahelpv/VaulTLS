@@ -59,7 +59,7 @@
                   <tr v-for="record in revocationHistory" :key="record.id">
                     <td>
                       <div>
-                        <strong>{{ getCertificateName(record.certificate_id) }}</strong>
+                        <strong>{{ record.certificate_name }}</strong>
                         <br>
                         <small class="text-muted">ID: {{ record.certificate_id }}</small>
                       </div>
@@ -148,6 +148,7 @@ import {getRevocationHistory, clearRevocationHistory} from '@/api/certificates';
 interface RevocationRecord {
   id: number;
   certificate_id: number;
+  certificate_name: string;
   revocation_date: number;
   revocation_reason: number;
   revoked_by_user_id?: number;
