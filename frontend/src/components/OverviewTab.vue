@@ -4,17 +4,18 @@
       <h1 class="mb-0">Certificates</h1>
       <div class="d-flex gap-2 align-items-center">
         <div class="d-flex align-items-center gap-2">
-          <label for="statusFilter" class="form-label mb-0 fw-bold">Filter:</label>
+          <label for="statusFilter" class="form-label mb-0 fw-bold" title="Filter certificates by their current status">Filter:</label>
           <select
               id="statusFilter"
               v-model="statusFilter"
               class="form-select form-select-sm"
               style="width: auto; min-width: 140px;"
+              title="Choose which certificates to display: All, Active (valid), Revoked, or Expired"
           >
-            <option value="all">All Certificates</option>
-            <option value="active">Active Only</option>
-            <option value="revoked">Revoked Only</option>
-            <option value="expired">Expired Only</option>
+            <option value="all" title="Show all certificates regardless of status">All Certificates</option>
+            <option value="active" title="Show only valid, non-expired certificates">Active Only</option>
+            <option value="revoked" title="Show only revoked certificates">Revoked Only</option>
+            <option value="expired" title="Show only expired certificates">Expired Only</option>
           </select>
         </div>
         <button
@@ -47,6 +48,7 @@
           <button
               class="btn btn-warning btn-sm"
               @click="confirmBulkRevocation"
+              title="Revoke all selected certificates with a single operation"
           >
             <i class="bi bi-x-circle me-1"></i>
             Revoke Selected ({{ selectedCertificates.size }})
@@ -54,6 +56,7 @@
           <button
               class="btn btn-secondary btn-sm"
               @click="clearSelection"
+              title="Clear all certificate selections"
           >
             Clear Selection
           </button>
@@ -66,13 +69,14 @@
           <table class="table table-hover mb-0">
             <thead class="table-light">
               <tr>
-                <th v-if="authStore.isAdmin" class="text-center">
+                <th v-if="authStore.isAdmin" class="text-center" title="Select certificates for bulk operations">
                   <input
                       type="checkbox"
                       :checked="selectedCertificates.size > 0 && selectedCertificates.size === selectableCertificates.length"
                       :indeterminate="selectedCertificates.size > 0 && selectedCertificates.size < selectableCertificates.length"
                       @change="toggleSelectAll"
                       class="form-check-input"
+                      title="Select/deselect all active certificates for bulk revocation"
                   />
                 </th>
                 <th v-if="authStore.isAdmin">User</th>
@@ -95,6 +99,7 @@
                       :disabled="cert.is_revoked"
                       @change="toggleCertificateSelection(cert.id)"
                       class="form-check-input"
+                      :title="cert.is_revoked ? 'Revoked certificates cannot be selected for bulk operations' : `Select ${cert.name} for bulk revocation`"
                   />
                 </td>
                 <td :id="'UserId-' + cert.id" v-if="authStore.isAdmin">{{ userStore.idToName(cert.user_id) }}</td>
@@ -103,11 +108,11 @@
                 <td :id="'CreatedOn-' + cert.id" class="d-none d-sm-table-cell">{{ new Date(cert.created_on).toLocaleDateString() }}</td>
                 <td :id="'ValidUntil-' + cert.id" >{{ new Date(cert.valid_until).toLocaleDateString() }}</td>
                 <td :id="'Status-' + cert.id">
-                  <span class="badge" :class="getCertificateStatusClass(cert)">
+                  <span class="badge" :class="getCertificateStatusClass(cert)" :title="getCertificateStatusTooltip(cert)">
                     {{ getCertificateStatusText(cert) }}
                   </span>
                 </td>
-                <td :id="'Password-' + cert.id"  class="password-cell">
+                <td :id="'Password-' + cert.id" class="password-cell">
                   <div class="d-flex align-items-center">
                     <template v-if="shownCerts.has(cert.id)">
                       <input
@@ -128,6 +133,7 @@
                         class="ms-2"
                         style="width: 20px; cursor: pointer;"
                         @click="togglePasswordShown(cert)"
+                        :title="shownCerts.has(cert.id) ? 'Hide password' : 'Show password'"
                         alt="Button to show / hide password"
                     />
                   </div>
@@ -235,29 +241,31 @@
             </div>
             <div class="mb-3" v-if="certReq.cert_type == CertificateType.Server">
               <label class="form-label">DNS Names</label>
-              <div v-for="(_, index) in certReq.dns_names" :key="index" class="input-group mb-2">
-                <input
-                    type="text"
-                    class="form-control"
-                    v-model="certReq.dns_names[index]"
-                    :placeholder="'DNS Name ' + (index + 1)"
-                />
-                <button
-                    v-if="index === certReq.dns_names.length - 1"
-                    type="button"
-                    class="btn btn-outline-secondary"
-                    @click="addDNSField"
-                >
-                  +
-                </button>
-                <button
-                    v-if="certReq.dns_names.length > 1"
-                    type="button"
-                    class="btn btn-outline-danger"
-                    @click="removeDNSField(index)"
-                >
-                  −
-                </button>
+              <div v-for="(_, index) in certReq.dns_names" :key="index" class="mb-2">
+                <div class="input-group">
+                  <input
+                      type="text"
+                      class="form-control"
+                      v-model="certReq.dns_names[index]"
+                      :placeholder="'DNS Name ' + (index + 1)"
+                  />
+                  <button
+                      v-if="index === certReq.dns_names.length - 1"
+                      type="button"
+                      class="btn btn-outline-secondary"
+                      @click="addDNSField"
+                  >
+                    +
+                  </button>
+                  <button
+                      v-if="certReq.dns_names.length > 1"
+                      type="button"
+                      class="btn btn-outline-danger"
+                      @click="removeDNSField(index)"
+                  >
+                    −
+                  </button>
+                </div>
               </div>
             </div>
             <div class="mb-3">
@@ -341,7 +349,7 @@
             <button
                 type="button"
                 class="btn btn-primary"
-                :disabled="loading || ((!certReq.system_generated_password && certReq.pkcs12_password.length == 0) && passwordRule == PasswordRule.Required)"
+                :disabled="loading || (passwordRule == PasswordRule.Required && !certReq.system_generated_password && certReq.pkcs12_password.length == 0)"
                 @click="createCertificate"
             >
               <span v-if="loading">Creating...</span>
@@ -379,23 +387,24 @@
               Any systems using {{ selectedCertificates.size > 0 ? 'these certificates' : 'this certificate' }} will no longer trust {{ selectedCertificates.size > 0 ? 'them' : 'it' }}.
             </p>
             <div class="mb-3">
-              <label for="revocationReason" class="form-label">Revocation Reason</label>
+              <label for="revocationReason" class="form-label" title="Select the reason for revoking this certificate">Revocation Reason</label>
               <select
                   id="revocationReason"
-                  v-model="revocationReason"
+                  v-model.number="revocationReason"
                   class="form-select"
                   required
+                  title="Choose the appropriate RFC 5280 revocation reason code"
               >
-                <option value="0">Unspecified</option>
-                <option value="1">Key Compromise</option>
-                <option value="2">CA Compromise</option>
-                <option value="3">Affiliation Changed</option>
-                <option value="4">Superseded</option>
-                <option value="5">Cessation of Operation</option>
-                <option value="6">Certificate Hold</option>
-                <option value="8">Remove from CRL</option>
-                <option value="9">Privilege Withdrawn</option>
-                <option value="10">AA Compromise</option>
+                <option :value="0" title="No specific reason given">Unspecified</option>
+                <option :value="1" title="The private key has been compromised">Key Compromise</option>
+                <option :value="2" title="The CA's private key has been compromised">CA Compromise</option>
+                <option :value="3" title="The certificate subject has changed affiliation">Affiliation Changed</option>
+                <option :value="4" title="This certificate has been replaced by a newer one">Superseded</option>
+                <option :value="5" title="The certificate is no longer needed">Cessation of Operation</option>
+                <option :value="6" title="Certificate is temporarily suspended">Certificate Hold</option>
+                <option :value="8" title="Remove this certificate from the CRL">Remove from CRL</option>
+                <option :value="9" title="Certificate privileges have been withdrawn">Privilege Withdrawn</option>
+                <option :value="10" title="The AA's private key has been compromised">AA Compromise</option>
               </select>
             </div>
             <div v-if="isMailValid" class="mb-3 form-check form-switch">
@@ -573,10 +582,10 @@
                         <div class="col-sm-4"><strong>Revoked By:</strong></div>
                         <div class="col-sm-8">{{ userStore.idToName(certificateDetails.revoked_by!) }}</div>
                       </div>
-                    </template>
-                  </div>
-                </div>
-              </div>
+                                        </template>
+                                      </div>
+                                    </div>
+                                  </div>              </div>
 
               <!-- Subject -->
               <div class="col-lg-6 mb-4">
@@ -617,18 +626,18 @@
                   Certificate (PEM Format)
                 </h6>
                 <div class="btn-group btn-group-sm">
-                  <button class="btn btn-outline-secondary" @click="copyToClipboard(certificateDetails.certificate_pem)">
+                  <button class="btn btn-outline-secondary" @click="copyToClipboard((certificateDetails as CertificateDetails).certificate_pem)">
                     <i class="bi bi-clipboard me-1"></i>
                     Copy
                   </button>
-                  <button class="btn btn-outline-primary" @click="handleDownload({id: certificateDetails.id, name: certificateDetails.name})">
+                  <button class="btn btn-outline-primary" @click="handleDownload({id: (certificateDetails as CertificateDetails).id, name: (certificateDetails as CertificateDetails).name})">
                     <i class="bi bi-download me-1"></i>
                     Download
                   </button>
                 </div>
               </div>
               <div class="card-body">
-                <pre class="certificate-pem mb-0">{{ certificateDetails.certificate_pem }}</pre>
+                <pre class="certificate-pem mb-0">{{ (certificateDetails as CertificateDetails).certificate_pem }}</pre>
               </div>
             </div>
           </div>
@@ -655,106 +664,106 @@
     />
 
     <!-- Download Format Selection Modal -->
-  <div
-      v-if="showDownloadModal"
-      class="modal show d-block"
-      tabindex="-1"
-      style="background: rgba(0, 0, 0, 0.5)"
-  >
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Select Download Format</h5>
-          <button type="button" class="btn-close" @click="showDownloadModal = false"></button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted mb-3">
-            Choose the format for downloading the certificate:
-          </p>
+    <div
+        v-if="showDownloadModal"
+        class="modal show d-block"
+        tabindex="-1"
+        style="background: rgba(0, 0, 0, 0.5)"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Select Download Format</h5>
+            <button type="button" class="btn-close" @click="showDownloadModal = false"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted mb-3">
+              Choose the format for downloading the certificate:
+            </p>
 
-          <div class="mb-3">
-            <div class="form-check">
-              <input
-                  class="form-check-input"
-                  type="radio"
-                  v-model="selectedFormat"
-                  id="formatPkcs12"
-                  value="pkcs12"
-              />
-              <label class="form-check-label fw-bold" for="formatPkcs12">
-                PKCS#12 (.p12)
-              </label>
-              <div class="form-text">
-                Full bundle with certificate, private key, CA chain, and password protection
+            <div class="mb-3">
+              <div class="form-check">
+                <input
+                    class="form-check-input"
+                    type="radio"
+                    v-model="selectedFormat"
+                    id="formatPkcs12"
+                    value="pkcs12"
+                />
+                <label class="form-check-label fw-bold" for="formatPkcs12">
+                  PKCS#12 (.p12)
+                </label>
+                <div class="form-text">
+                  Full bundle with certificate, private key, CA chain, and password protection
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <div class="form-check">
+                <input
+                    class="form-check-input"
+                    type="radio"
+                    v-model="selectedFormat"
+                    id="formatPemKey"
+                    value="pem_key"
+                />
+                <label class="form-check-label fw-bold" for="formatPemKey">
+                  PEM + Key (.zip)
+                </label>
+                <div class="form-text">
+                  Separate files: certificate.pem + private_key.key in a ZIP archive
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <div class="form-check">
+                <input
+                    class="form-check-input"
+                    type="radio"
+                    v-model="selectedFormat"
+                    id="formatPem"
+                    value="pem"
+                />
+                <label class="form-check-label fw-bold" for="formatPem">
+                  PEM (.pem)
+                </label>
+                <div class="form-text">
+                  Certificate only in text format
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <div class="form-check">
+                <input
+                    class="form-check-input"
+                    type="radio"
+                    v-model="selectedFormat"
+                    id="formatDer"
+                    value="der"
+                />
+                <label class="form-check-label fw-bold" for="formatDer">
+                  DER (.der)
+                </label>
+                <div class="form-text">
+                  Certificate only in binary format
+                </div>
               </div>
             </div>
           </div>
-
-          <div class="mb-3">
-            <div class="form-check">
-              <input
-                  class="form-check-input"
-                  type="radio"
-                  v-model="selectedFormat"
-                  id="formatPemKey"
-                  value="pem_key"
-              />
-              <label class="form-check-label fw-bold" for="formatPemKey">
-                PEM + Key (.zip)
-              </label>
-              <div class="form-text">
-                Separate files: certificate.pem + private_key.key in a ZIP archive
-              </div>
-            </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="showDownloadModal = false">
+              Cancel
+            </button>
+            <button type="button" class="btn btn-primary" @click="confirmDownload">
+              Download
+            </button>
           </div>
-
-          <div class="mb-3">
-            <div class="form-check">
-              <input
-                  class="form-check-input"
-                  type="radio"
-                  v-model="selectedFormat"
-                  id="formatPem"
-                  value="pem"
-              />
-              <label class="form-check-label fw-bold" for="formatPem">
-                PEM (.pem)
-              </label>
-              <div class="form-text">
-                Certificate only in text format
-              </div>
-            </div>
-          </div>
-
-          <div class="mb-3">
-            <div class="form-check">
-              <input
-                  class="form-check-input"
-                  type="radio"
-                  v-model="selectedFormat"
-                  id="formatDer"
-                  value="der"
-              />
-              <label class="form-check-label fw-bold" for="formatDer">
-                DER (.der)
-              </label>
-              <div class="form-text">
-                Certificate only in binary format
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" @click="showDownloadModal = false">
-            Cancel
-          </button>
-          <button type="button" class="btn btn-primary" @click="confirmDownload">
-            Download
-          </button>
         </div>
       </div>
     </div>
-  </div>
 </template>
 <script setup lang="ts">
 import {computed, onMounted, reactive, ref, watch} from 'vue';
@@ -944,7 +953,7 @@ const confirmRevocation = (cert: Certificate | CertificateDetails) => {
       renew_method: cert.renew_method,
       is_revoked: cert.is_revoked,
       revoked_on: cert.revoked_on,
-      revoked_reason: cert.revoked_reason?.toString(),
+      revoked_reason: cert.revoked_reason,
       revoked_by: cert.revoked_by
     };
   }
@@ -1064,6 +1073,26 @@ const getCertificateStatusClass = (cert: Certificate): string => {
       return 'bg-success';
     default:
       return 'bg-secondary';
+  }
+};
+
+const getCertificateStatusTooltip = (cert: Certificate): string => {
+  if (cert.is_revoked) {
+    const reason = getRevocationReasonText(cert.revoked_reason || 0);
+    return `Certificate revoked on ${new Date(cert.revoked_on || 0).toLocaleDateString()} - Reason: ${reason}`;
+  }
+
+  const now = Date.now();
+  const validUntil = parseInt(cert.valid_until);
+
+  if (validUntil < now) {
+    const daysExpired = Math.floor((now - validUntil) / (24 * 60 * 60 * 1000));
+    return `Certificate expired ${daysExpired} days ago`;
+  } else if (validUntil < now + (30 * 24 * 60 * 60 * 1000)) {
+    const daysLeft = Math.floor((validUntil - now) / (24 * 60 * 60 * 1000));
+    return `Certificate expires in ${daysLeft} days - renewal recommended`;
+  } else {
+    return `Certificate is valid and active`;
   }
 };
 

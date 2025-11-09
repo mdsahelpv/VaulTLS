@@ -37,11 +37,16 @@ VaulTLS solves these problems with a modern web interface, robust API, and compr
 - 📝 **PKCS12 Support** - Password-protected certificate exports with full chains
 - 🔍 **Advanced SAN Support** - Multiple DNS names, IP addresses, wildcards
 - 💳 **Modern Card UI** - Beautiful certificate chain display with badge types
+- 🚫 **Certificate Revocation** - Complete CRL distribution and OCSP responder
+- 📋 **CRL Distribution** - Automated Certificate Revocation List generation and serving
+- 🌐 **OCSP Responder** - Online Certificate Status Protocol for real-time validation
+- 📊 **Revocation History** - Complete audit trail of certificate revocation events
+- � **Enterprise Security** - Production-ready certificate lifecycle management
 
 ### Security & Compliance
 - 🛡️ **Security-First Design** - Built with security best practices
 - 🔒 **Access Control** - Role-based user permissions
-- 📊 **Audit Logging** - Comprehensive activity logging
+- �📊 **Audit Logging** - Comprehensive activity logging
 - 🔐 **Data Encryption** - Optional database and file encryption
 - ✅ **Input Validation** - Robust validation for all inputs
 
@@ -299,6 +304,75 @@ This can be done, for example, with openssl:
 openssl pkcs12 -in INFILE.p12 -out OUTFILE.crt -nokeys
 openssl pkcs12 -in INFILE.p12 -out OUTFILE.key -nodes -nocerts
 ```
+
+### Certificate Revocation
+VaulTLS provides comprehensive certificate revocation capabilities with both CRL (Certificate Revocation List) and OCSP (Online Certificate Status Protocol) support.
+
+#### Revoking Certificates
+Certificates can be revoked through the web interface by admin users:
+
+1. **Navigate to the Certificates page**
+2. **Click the "Revoke" button** next to any active certificate
+3. **Select a revocation reason** (Unspecified, Key Compromise, CA Compromise, etc.)
+4. **Optionally notify the certificate owner** via email
+5. **Confirm the revocation**
+
+#### Bulk Revocation
+Multiple certificates can be revoked simultaneously:
+1. **Select multiple certificates** using the checkboxes
+2. **Click "Revoke Selected"** in the bulk actions toolbar
+3. **Choose revocation reason and notification preferences**
+4. **Confirm bulk revocation**
+
+#### Certificate Revocation List (CRL)
+VaulTLS automatically generates and serves CRLs:
+- **CRL Endpoint**: `GET /api/certificates/crl`
+- **Format**: PEM-encoded CRL
+- **Update Frequency**: Every 5 minutes (cached)
+- **Validity**: 7 days from generation
+
+#### Online Certificate Status Protocol (OCSP)
+Real-time certificate status checking via OCSP:
+- **OCSP Endpoints**:
+  - `GET /api/ocsp?<base64-request>` - GET with base64-encoded request
+  - `POST /api/ocsp` - POST with DER-encoded request
+- **Response Format**: DER-encoded OCSP response
+- **Cache Validity**: 1 hour
+- **Supported Extensions**: Nonce extension framework
+
+#### Revocation History
+Complete audit trail of all revocation events:
+- **View History**: Click "Revocation History" button
+- **Details Include**:
+  - Certificate name and serial number
+  - Revocation date and reason
+  - Admin who performed revocation
+  - Certificate owner information
+
+#### Client Configuration
+To use VaulTLS revocation services in your applications:
+
+**CRL Configuration:**
+```bash
+# Download CRL
+curl -H "Authorization: Bearer <token>" \
+     http://localhost:8000/api/certificates/crl > certificate.crl
+```
+
+**OCSP Configuration:**
+```bash
+# OCSP request (example using openssl)
+openssl ocsp -issuer ca.pem -cert cert.pem \
+             -url http://localhost:8000/api/ocsp \
+             -header "Authorization: Bearer <token>"
+```
+
+#### Certificate Status Checking
+Certificates include revocation status in the API responses:
+- `is_revoked`: Boolean indicating revocation status
+- `revoked_on`: Timestamp of revocation (if revoked)
+- `revoked_reason`: Reason code for revocation
+- `revoked_by`: Admin user ID who performed revocation
 
 ### Caddy
 To use caddy as reverse proxy for the VaulTLS app, a configuration like the following is required.

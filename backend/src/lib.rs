@@ -123,7 +123,9 @@ pub async fn create_rocket() -> Rocket<Build> {
         db: db.clone(),
         settings,
         oidc: Arc::new(Mutex::new(oidc)),
-        mailer: mailer.clone()
+        mailer: mailer.clone(),
+        crl_cache: Arc::new(Mutex::new(None)),
+        ocsp_cache: Arc::new(Mutex::new(None)),
     };
 
     tokio::spawn(async move {
@@ -133,11 +135,7 @@ pub async fn create_rocket() -> Rocket<Build> {
     trace!("App State: {:?}", app_state);
 
     let cors = CorsOptions::default()
-        .allowed_origins(AllowedOrigins::some::<&str, &str>(&[
-            "http://localhost:4000",
-            "http://127.0.0.1:4000",
-            "http://192.168.202.209:4000",
-        ], &[]))
+        .allowed_origins(AllowedOrigins::all())
         .allowed_headers(rocket_cors::AllowedHeaders::all())
         .allow_credentials(true)
         .allowed_methods(
@@ -164,12 +162,13 @@ pub async fn create_rocket() -> Rocket<Build> {
         .manage(app_state)
         .mount(
             "/api",
-            openapi_get_routes![
+            routes![
                 version,
                 get_certificates,
                 create_user_certificate,
                 get_ca_list,
                 create_self_signed_ca,
+                import_ca_from_file,
                 download_ca,
                 get_ca_details,
                 download_certificate,
@@ -179,12 +178,15 @@ pub async fn create_rocket() -> Rocket<Build> {
                 get_certificate_details,
                 revoke_certificate,
                 get_revocation_status,
+                get_revocation_history,
+                clear_revocation_history,
                 unrevoke_certificate,
                 download_crl,
                 fetch_settings,
                 update_settings,
                 is_setup,
                 setup_json,
+                setup_form,
                 login,
                 change_password,
                 logout,
@@ -197,33 +199,32 @@ pub async fn create_rocket() -> Rocket<Build> {
                 update_user
             ],
         )
-        .mount("/api", routes![setup_form, import_ca_from_file, ocsp_responder])
-        .mount(
-            "/api",
-            make_rapidoc(&RapiDocConfig {
-                general: GeneralConfig {
-                    spec_urls: vec![UrlObject::new("General", "/api/openapi.json")],
-                    ..Default::default()
-                },
-                layout: LayoutConfig {
-                    layout: Layout::Row,
-                    render_style: RenderStyle::View,
-                    response_area_height: "300px".to_string(),
-                },
-                schema: SchemaConfig {
-                    schema_style: SchemaStyle::Table,
-                    ..Default::default()
-                },
-                hide_show: HideShowConfig {
-                    allow_spec_url_load: false,
-                    allow_spec_file_load: false,
-                    ..Default::default()
-                },
-                ..Default::default()
-            }),
-        )
+        // .mount("/", routes![setup_form])
+        // .mount(
+        //     "/api",
+        //     make_rapidoc(&RapiDocConfig {
+        //         general: GeneralConfig {
+        //             spec_urls: vec![UrlObject::new("General", "/api/openapi.json")],
+        //             ..Default::default()
+        //         },
+        //         layout: LayoutConfig {
+        //             layout: Layout::Row,
+        //             render_style: RenderStyle::View,
+        //             response_area_height: "300px".to_string(),
+        //         },
+        //         schema: SchemaConfig {
+        //             schema_style: SchemaStyle::Table,
+        //             ..Default::default()
+        //         },
+        //         hide_show: HideShowConfig {
+        //             allow_spec_url_load: false,
+        //             allow_spec_file_load: false,
+        //             ..Default::default()
+        //         },
+        //         ..Default::default()
+        //     }),
+        // )
         .attach(cors.to_cors().unwrap())
-        .attach(AdHoc::config::<Settings>())
 }
 
 pub async fn create_test_rocket() -> Rocket<Build> {
@@ -243,7 +244,9 @@ pub async fn create_test_rocket() -> Rocket<Build> {
         db,
         settings,
         oidc: Arc::new(Mutex::new(oidc)),
-        mailer: Arc::new(Mutex::new(mailer))
+        mailer: Arc::new(Mutex::new(mailer)),
+        crl_cache: Arc::new(Mutex::new(None)),
+        ocsp_cache: Arc::new(Mutex::new(None)),
     };
 
 

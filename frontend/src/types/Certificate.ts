@@ -11,6 +11,19 @@ export enum CertificateRenewMethod {
     RenewAndNotify = 3
 }
 
+export enum CertificateRevocationReason {
+    Unspecified = 0,
+    KeyCompromise = 1,
+    CACompromise = 2,
+    AffiliationChanged = 3,
+    Superseded = 4,
+    CessationOfOperation = 5,
+    CertificateHold = 6,
+    RemoveFromCRL = 8,
+    PrivilegeWithdrawn = 9,
+    AACompromise = 10,
+}
+
 export interface Certificate {
     id: number;                           // Unique identifier for the certificate
     name: string;                         // Certificate name
@@ -22,7 +35,7 @@ export interface Certificate {
     renew_method: CertificateRenewMethod; // Method on what to do when the certificate is about to expire
     is_revoked?: boolean;                 // Whether the certificate has been revoked
     revoked_on?: number;                  // Date when the certificate was revoked (UNIX timestamp in ms)
-    revoked_reason?: string;              // Reason for revocation
+    revoked_reason?: CertificateRevocationReason; // Reason for revocation
     revoked_by?: number;                  // User ID who revoked the certificate
 }
 
@@ -63,6 +76,23 @@ export interface CertificateDetails {
     certificate_pem: string;
     is_revoked?: boolean;
     revoked_on?: number;
-    revoked_reason?: number;
+    revoked_reason?: CertificateRevocationReason;
     revoked_by?: number;
+}
+
+export interface RevocationStatus {
+    is_revoked: boolean;
+    revoked_on?: number;
+    revoked_reason?: CertificateRevocationReason;
+    revoked_by?: number;
+}
+
+export interface RevocationHistoryEntry {
+    id: number;
+    certificate_id: number;
+    certificate_name: string;
+    revocation_date: number;
+    revocation_reason: CertificateRevocationReason;
+    revoked_by_user_id: number;
+    revoked_by_username: string;
 }

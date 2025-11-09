@@ -20,6 +20,9 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
+    hmr: {
+      overlay: false
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

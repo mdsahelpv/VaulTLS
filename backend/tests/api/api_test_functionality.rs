@@ -1583,6 +1583,307 @@ async fn test_network_failure_simulation() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_certificate_revocation() -> Result<()> {
+    let client = VaulTLSClient::new_with_cert().await;
+
+    // Get the existing certificate
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(certs.len(), 1);
+    let cert_id = certs[0].id;
+
+    // Revoke the certificate
+    let request = client
+        .post(format!("/certificates/{}/revoke", cert_id))
+        .header(ContentType::JSON)
+        .body(r#"{"revocation_reason": 1, "notify_user": false}"#);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Check revocation status
+    let request = client
+        .get(format!("/certificates/{}/revocation-status", cert_id));
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let status: serde_json::Value = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(status["is_revoked"], true);
+    assert_eq!(status["revoked_reason"], 1);
+
+    // Verify certificate is marked as revoked in list
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(certs.len(), 1);
+    assert_eq!(certs[0].is_revoked, Some(true));
+    assert_eq!(certs[0].revoked_reason, Some(CertificateRevocationReason::KeyCompromise));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_certificate_unrevocation() -> Result<()> {
+    let client = VaulTLSClient::new_with_cert().await;
+
+    // Get the existing certificate
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(certs.len(), 1);
+    let cert_id = certs[0].id;
+
+    // First revoke the certificate
+    let request = client
+        .post(format!("/certificates/{}/revoke", cert_id))
+        .header(ContentType::JSON)
+        .body(r#"{"revocation_reason": 2, "notify_user": false}"#);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify it's revoked
+    let request = client
+        .get(format!("/certificates/{}/revocation-status", cert_id));
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let status: serde_json::Value = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(status["is_revoked"], true);
+
+    // Now unrevoke the certificate
+    let request = client
+        .delete(format!("/certificates/{}/revoke", cert_id));
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify it's no longer revoked
+    let request = client
+        .get(format!("/certificates/{}/revocation-status", cert_id));
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let status: serde_json::Value = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(status["is_revoked"], false);
+
+    // Verify certificate is not marked as revoked in list
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(certs.len(), 1);
+    assert_eq!(certs[0].is_revoked, Some(false));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_revocation_history() -> Result<()> {
+    let client = VaulTLSClient::new_with_cert().await;
+
+    // Get the existing certificate
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(certs.len(), 1);
+    let cert_id = certs[0].id;
+
+    // Revoke the certificate
+    let request = client
+        .post(format!("/certificates/{}/revoke", cert_id))
+        .header(ContentType::JSON)
+        .body(r#"{"revocation_reason": 3, "notify_user": false}"#);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Check revocation history
+    let request = client
+        .get("/certificates/revocation-history");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let history: Vec<serde_json::Value> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(history.len(), 1);
+
+    let entry = &history[0];
+    assert_eq!(entry["certificate_id"], cert_id);
+    assert_eq!(entry["revocation_reason"], 3);
+    assert_eq!(entry["revoked_by_user_id"], 1);
+
+    // Unrevoke and revoke again to test multiple entries
+    let request = client
+        .delete(format!("/certificates/{}/revoke", cert_id));
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let request = client
+        .post(format!("/certificates/{}/revoke", cert_id))
+        .header(ContentType::JSON)
+        .body(r#"{"revocation_reason": 4, "notify_user": false}"#);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Check history again
+    let request = client
+        .get("/certificates/revocation-history");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let history: Vec<serde_json::Value> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(history.len(), 2);
+
+    // Verify both entries
+    let latest_entry = &history[0]; // Should be most recent first
+    assert_eq!(latest_entry["certificate_id"], cert_id);
+    assert_eq!(latest_entry["revocation_reason"], 4);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bulk_certificate_revocation() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Create multiple certificates for bulk revocation testing
+    let cert_names = vec!["bulk-revoke-1", "bulk-revoke-2", "bulk-revoke-3"];
+
+    let mut cert_ids = Vec::new();
+    for cert_name in &cert_names {
+        let cert_req = CreateUserCertificateRequest {
+            cert_name: cert_name.to_string(),
+            validity_in_years: Some(1),
+            user_id: 1,
+            notify_user: None,
+            system_generated_password: false,
+            pkcs12_password: Some(TEST_PASSWORD.to_string()),
+            cert_type: None,
+            dns_names: None,
+            renew_method: Some(CertificateRenewMethod::Renew),
+        };
+
+        let request = client
+            .post("/certificates")
+            .header(ContentType::JSON)
+            .body(serde_json::to_string(&cert_req)?);
+        let response = request.dispatch().await;
+        assert_eq!(response.status(), Status::Ok);
+
+        let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+        cert_ids.push(cert.id);
+    }
+
+    // Bulk revoke certificates
+    for &cert_id in &cert_ids {
+        let request = client
+            .post(format!("/certificates/{}/revoke", cert_id))
+            .header(ContentType::JSON)
+            .body(r#"{"revocation_reason": 1, "notify_user": false}"#);
+        let response = request.dispatch().await;
+        assert_eq!(response.status(), Status::Ok);
+    }
+
+    // Verify all certificates are revoked
+    let request = client
+        .get("/certificates");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let certs: Vec<Certificate> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    let revoked_certs: Vec<&Certificate> = certs.iter()
+        .filter(|c| c.is_revoked == Some(true))
+        .collect();
+
+    assert_eq!(revoked_certs.len(), 3);
+
+    // Check revocation history contains all entries
+    let request = client
+        .get("/certificates/revocation-history");
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let history: Vec<serde_json::Value> = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(history.len(), 3);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_revocation_access_control() -> Result<()> {
+    let client = VaulTLSClient::new_authenticated().await;
+
+    // Create a regular user
+    client.create_user().await?;
+    client.switch_user().await?; // Switch to regular user
+
+    // Create a certificate as regular user
+    let cert_req = CreateUserCertificateRequest {
+        cert_name: "user-cert-for-revocation".to_string(),
+        validity_in_years: Some(1),
+        user_id: 2, // Regular user ID
+        notify_user: None,
+        system_generated_password: false,
+        pkcs12_password: Some(TEST_PASSWORD.to_string()),
+        cert_type: None,
+        dns_names: None,
+        renew_method: Some(CertificateRenewMethod::Renew),
+    };
+
+    let request = client
+        .post("/certificates")
+        .header(ContentType::JSON)
+        .body(serde_json::to_string(&cert_req)?);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
+    let cert_id = cert.id;
+
+    // Regular user should NOT be able to revoke certificates (admin only)
+    let request = client
+        .post(format!("/certificates/{}/revoke", cert_id))
+        .header(ContentType::JSON)
+        .body(r#"{"revocation_reason": 1, "notify_user": false}"#);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Forbidden);
+
+    // Switch back to admin
+    client.logout().await?;
+    client.login(TEST_USER_EMAIL, TEST_PASSWORD).await?;
+
+    // Admin should be able to revoke
+    let request = client
+        .post(format!("/certificates/{}/revoke", cert_id))
+        .header(ContentType::JSON)
+        .body(r#"{"revocation_reason": 1, "notify_user": false}"#);
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify revocation
+    let request = client
+        .get(format!("/certificates/{}/revocation-status", cert_id));
+    let response = request.dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let status: serde_json::Value = serde_json::from_str(&response.into_string().await.unwrap())?;
+    assert_eq!(status["is_revoked"], true);
+
+    Ok(())
+}
+
 async fn establish_tls_connection(
     ca_cert_pem: &[u8],
     client_cert_p12: &[u8],

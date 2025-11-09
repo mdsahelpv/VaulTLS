@@ -19,7 +19,7 @@ use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
 use crate::data::error::ApiError;
-use crate::data::objects::{AppState, User};
+use crate::data::objects::{AppState, User, CRLCache, OCSPResponseCache};
 use crate::notification::mail::{MailMessage, Mailer};
     use crate::settings::{FrontendSettings, InnerSettings};
 
@@ -334,7 +334,7 @@ pub(crate) async fn get_current_user(
 }
 
 #[openapi(tag = "Certificates")]
-#[get("/certificates")]
+#[get("/certificates/cert")]
 /// Get all certificates. If admin all certificates are returned, otherwise only certificates owned by the user. Requires authentication.
 pub(crate) async fn get_certificates(
     state: &State<AppState>,
@@ -349,7 +349,7 @@ pub(crate) async fn get_certificates(
 }
 
 #[openapi(tag = "Certificates")]
-#[post("/certificates", format = "json", data = "<payload>")]
+#[post("/certificates/cert", format = "json", data = "<payload>")]
 /// Create a new certificate. Requires admin role.
 pub(crate) async fn create_user_certificate(
     state: &State<AppState>,
@@ -515,7 +515,7 @@ pub(crate) async fn download_ca(
 }
 
 #[openapi(tag = "Certificates")]
-#[get("/certificates/ca")]
+#[get("/certificates/ca/list")]
 /// Get all CA certificates. Requires authentication.
 pub(crate) async fn get_ca_list(
     state: &State<AppState>,
@@ -815,7 +815,7 @@ pub(crate) async fn get_ca_details(
 }
 
 #[openapi(tag = "Certificates")]
-#[get("/certificates/<id>/download?<format>")]
+#[get("/certificates/cert/<id>/download?<format>")]
 /// Download a user-owned certificate. Requires authentication.
 /// Query parameters:
 /// * format: Certificate format (pkcs12, pem, der, pem_key). Default: pkcs12
@@ -873,7 +873,7 @@ pub(crate) async fn download_certificate(
 }
 
 #[openapi(tag = "Certificates")]
-#[get("/certificates/<id>/password")]
+#[get("/certificates/cert/<id>/password")]
 /// Fetch the password for a user-owned certificate. Requires authentication.
 pub(crate) async fn fetch_certificate_password(
     state: &State<AppState>,
@@ -886,7 +886,7 @@ pub(crate) async fn fetch_certificate_password(
 }
 
 #[openapi(tag = "Certificates")]
-#[get("/certificates/<id>/details")]
+#[get("/certificates/cert/<id>/details")]
 /// Get detailed information about a user certificate. Requires authentication.
 pub(crate) async fn get_certificate_details(
     state: &State<AppState>,
@@ -909,6 +909,10 @@ pub(crate) async fn get_certificate_details(
         pkcs12,
         pkcs12_password,
         ca_id,
+        is_revoked: false, // This will be determined by the database query
+        revoked_on: None,
+        revoked_reason: None,
+        revoked_by: None,
     };
 
     let details = crate::cert::get_certificate_details(&cert)?;
@@ -916,7 +920,7 @@ pub(crate) async fn get_certificate_details(
 }
 
 #[openapi(tag = "Certificates")]
-#[delete("/certificates/<id>")]
+#[delete("/certificates/cert/<id>")]
 /// Delete a user-owned certificate. Requires admin role.
 pub(crate) async fn delete_user_cert(
     state: &State<AppState>,
@@ -1079,8 +1083,30 @@ pub struct RevokeCertificateRequest {
 }
 
 #[openapi(tag = "Certificates")]
-#[post("/certificates/<id>/revoke", format = "json", data = "<payload>")]
+#[post("/certificates/cert/<id>/revoke", format = "json", data = "<payload>")]
 /// Revoke a certificate. Requires admin role.
+/// This will mark the certificate as revoked in the database and update the CRL.
+/// The certificate will be included in future CRL downloads and OCSP responses will show it as revoked.
+///
+/// Example request:
+/// ```json
+/// {
+///   "reason": 1,
+///   "notify_user": true
+/// }
+/// ```
+///
+/// Revocation reasons:
+/// - 0: Unspecified
+/// - 1: Key Compromise
+/// - 2: CA Compromise
+/// - 3: Affiliation Changed
+/// - 4: Superseded
+/// - 5: Cessation of Operation
+/// - 6: Certificate Hold
+/// - 8: Remove from CRL
+/// - 9: Privilege Withdrawn
+/// - 10: AA Compromise
 pub(crate) async fn revoke_certificate(
     state: &State<AppState>,
     id: i64,
@@ -1101,6 +1127,11 @@ pub(crate) async fn revoke_certificate(
     // Revoke the certificate
     state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id)).await?;
 
+    // Clear CRL cache since revocation list has changed
+    let mut cache = state.crl_cache.lock().await;
+    *cache = None;
+    debug!("CRL cache cleared due to certificate revocation");
+
     info!(cert_id=id, cert_name=?cert.name, admin_id=?authentication._claims.id, "Certificate revoked successfully");
 
     // Optionally notify the user
@@ -1114,8 +1145,31 @@ pub(crate) async fn revoke_certificate(
 }
 
 #[openapi(tag = "Certificates")]
-#[get("/certificates/<id>/revocation-status")]
+#[get("/certificates/cert/<id>/revocation-status")]
 /// Get revocation status of a certificate. Requires authentication.
+/// Returns detailed revocation information if the certificate is revoked, or null if not revoked.
+///
+/// Response format:
+/// ```json
+/// {
+///   "certificate_id": 123,
+///   "revocation_date": 1640995200000,
+///   "revocation_reason": 1,
+///   "revoked_by_user_id": 1
+/// }
+/// ```
+///
+/// Revocation reasons:
+/// - 0: Unspecified
+/// - 1: Key Compromise
+/// - 2: CA Compromise
+/// - 3: Affiliation Changed
+/// - 4: Superseded
+/// - 5: Cessation of Operation
+/// - 6: Certificate Hold
+/// - 8: Remove from CRL
+/// - 9: Privilege Withdrawn
+/// - 10: AA Compromise
 pub(crate) async fn get_revocation_status(
     state: &State<AppState>,
     id: i64,
@@ -1145,7 +1199,30 @@ pub(crate) async fn get_revocation_history(
 }
 
 #[openapi(tag = "Certificates")]
-#[delete("/certificates/<id>/revoke")]
+#[delete("/certificates/revocation-history")]
+/// Clear all certificate revocation history. Requires admin role.
+/// This permanently deletes all revocation records from the database.
+/// Use with caution as this action cannot be undone.
+pub(crate) async fn clear_revocation_history(
+    state: &State<AppState>,
+    _authentication: AuthenticatedPrivileged
+) -> Result<(), ApiError> {
+    debug!("Clearing all certificate revocation history");
+
+    state.db.clear_all_revocation_records().await?;
+
+    // Clear CRL cache since revocation list has changed
+    let mut cache = state.crl_cache.lock().await;
+    *cache = None;
+    debug!("CRL cache cleared due to revocation history clearance");
+
+    info!("All certificate revocation history cleared successfully");
+
+    Ok(())
+}
+
+#[openapi(tag = "Certificates")]
+#[delete("/certificates/cert/<id>/revoke")]
 /// Unrevoke a certificate (remove from revocation list). Requires admin role.
 pub(crate) async fn unrevoke_certificate(
     state: &State<AppState>,
@@ -1166,6 +1243,11 @@ pub(crate) async fn unrevoke_certificate(
     // Unrevoke the certificate
     state.db.unrevoke_certificate(id).await?;
 
+    // Clear CRL cache since revocation list has changed
+    let mut cache = state.crl_cache.lock().await;
+    *cache = None;
+    debug!("CRL cache cleared due to certificate unrevocation");
+
     info!(cert_id=id, "Certificate unrevoked successfully");
 
     Ok(())
@@ -1174,63 +1256,182 @@ pub(crate) async fn unrevoke_certificate(
 #[openapi(tag = "Certificates")]
 #[get("/certificates/crl")]
 /// Download the current Certificate Revocation List (CRL). Requires authentication.
+/// Returns a PEM-encoded CRL containing all revoked certificates.
+/// The CRL is cached for 5 minutes and automatically regenerated when certificates are revoked/unrevoked.
+///
+/// Usage in applications:
+/// ```bash
+/// curl -H "Authorization: Bearer <token>" \
+///      http://localhost:8000/api/certificates/crl > certificate.crl
+/// ```
+///
+/// Configure CRL distribution in certificate extensions:
+/// - Authority Information Access (AIA) extension with OCSP URL
+/// - CRL Distribution Points extension with CRL URL
 pub(crate) async fn download_crl(
     state: &State<AppState>,
     _authentication: Authenticated
 ) -> Result<DownloadResponse, ApiError> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     debug!("CRL download requested");
 
-    // Get current CA
-    let ca = state.db.get_current_ca().await?;
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
 
-    // Get all revoked certificates
+    // Check if we have a valid cached CRL
+    let mut cache = state.crl_cache.lock().await;
+    if let Some(cached_crl) = &*cache {
+        // Check if cache is still valid (within 5 minutes)
+        if current_time < cached_crl.valid_until {
+            debug!("Returning cached CRL (valid until {})", cached_crl.valid_until);
+            return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
+        } else {
+            debug!("Cached CRL expired, regenerating");
+        }
+    }
+
+    // Generate new CRL
+    let ca = state.db.get_current_ca().await?;
     let revoked_records = state.db.get_all_revocation_records().await?;
 
-    // Convert to CRLEntry format
-    let revoked_entries: Vec<CRLEntry> = revoked_records.into_iter()
-        .map(|record| {
-            // Get certificate serial number from the certificate
-            // This is a simplified approach - in production you'd store serial in revocation table
-            // For now, we'll need to parse the certificate to get the serial
-            // TODO: Optimize by storing serial number in revocation table
-            CRLEntry {
-                serial_number: Vec::new(), // Placeholder - needs proper implementation
-                revocation_date: record.revocation_date,
-                reason: record.revocation_reason,
-            }
-        })
-        .collect();
+    // Convert to CRLEntry format with proper serial numbers
+    let mut revoked_entries = Vec::new();
+    for record in revoked_records {
+        // Get certificate details to extract serial number
+        let cert = state.db.get_user_cert_by_id(record.certificate_id).await?;
+
+        // Extract serial number from certificate
+        let serial_number = if let Ok(details) = crate::cert::get_certificate_details(&cert) {
+            // Parse the hex serial number back to bytes
+            hex::decode(&details.serial_number.trim_start_matches("0x").trim_start_matches("0X"))
+                .unwrap_or_else(|_| Vec::new())
+        } else {
+            Vec::new()
+        };
+
+        revoked_entries.push(CRLEntry {
+            serial_number,
+            revocation_date: record.revocation_date,
+            reason: record.revocation_reason,
+        });
+    }
 
     // Generate CRL
     let crl_der = generate_crl(&ca, &revoked_entries)?;
-
-    // Convert to PEM for download
     let crl_pem = crate::cert::crl_to_pem(&crl_der)?;
+
+    // Cache the CRL for 5 minutes
+    let valid_until = current_time + (5 * 60 * 1000); // 5 minutes in milliseconds
+    *cache = Some(CRLCache {
+        data: crl_pem.clone(),
+        last_updated: current_time,
+        valid_until,
+    });
+
+    debug!("Generated and cached new CRL (valid until {})", valid_until);
 
     Ok(DownloadResponse::new(crl_pem, "certificate_revocation_list.crl"))
 }
 
-#[openapi(tag = "Certificates")]
-#[post("/ocsp", data = "<request_data>")]
-/// OCSP responder endpoint for real-time certificate status checking.
-/// Accepts DER-encoded OCSP requests and returns DER-encoded OCSP responses.
-/// Requires authentication.
-pub(crate) async fn ocsp_responder(
+// #[get("/ocsp?<request>")]
+// /// OCSP responder endpoint for real-time certificate status checking.
+// /// Accepts base64-encoded OCSP requests via GET and returns DER-encoded OCSP responses.
+// /// Requires authentication.
+// ///
+// /// Usage with OpenSSL:
+// /// ```bash
+// /// openssl ocsp -issuer ca.pem -cert cert.pem \
+// ///              -url http://localhost:8000/api/ocsp \
+// ///              -header "Authorization: Bearer <token>"
+// /// ```
+// ///
+// /// Response status codes:
+// /// - Successful: Certificate status returned
+// /// - MalformedRequest: Invalid OCSP request format
+// /// - InternalError: Server error processing request
+// /// - TryLater: Temporary server unavailability
+// /// - SigRequired: Request must be signed
+// /// - Unauthorized: Authentication required
+// ///
+// /// Certificate status values:
+// /// - Good: Certificate is valid and not revoked
+// /// - Revoked: Certificate has been revoked
+// /// - Unknown: Certificate status cannot be determined
+// pub(crate) async fn ocsp_responder_get(
+//     state: &State<AppState>,
+//     request: &str,
+//     _authentication: Authenticated
+// ) -> Result<Vec<u8>, ApiError> {
+//     debug!("OCSP GET request received (base64 length: {})", request.len());
+//
+//     // Decode base64 request
+//     let request_data = base64::decode(request)
+//         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 encoding in OCSP request: {}", e)))?;
+//
+//     debug!("Decoded OCSP request ({} bytes)", request_data.len());
+//
+//     // Process the request
+//     process_ocsp_request(state, &request_data).await
+// }
+//
+// #[post("/ocsp", data = "<request_data>")]
+// /// OCSP responder endpoint for real-time certificate status checking.
+// /// Accepts DER-encoded OCSP requests and returns DER-encoded OCSP responses.
+// /// Requires authentication.
+// pub(crate) async fn ocsp_responder_post(
+//     state: &State<AppState>,
+//     request_data: Vec<u8>,
+//     _authentication: Authenticated
+// ) -> Result<Vec<u8>, ApiError> {
+//     debug!("OCSP POST request received ({} bytes)", request_data.len());
+//
+//     // Process the request
+//     process_ocsp_request(state, &request_data).await
+// }
+
+async fn process_ocsp_request(
     state: &State<AppState>,
-    request_data: Vec<u8>,
-    _authentication: Authenticated
+    request_data: &[u8]
 ) -> Result<Vec<u8>, ApiError> {
-    debug!("OCSP request received ({} bytes)", request_data.len());
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     // Parse the OCSP request
-    let ocsp_request = parse_ocsp_request(&request_data)?;
+    let ocsp_request = parse_ocsp_request(request_data)?;
 
-    // Get current CA for signing responses
+    // Create cache key from certificate ID
+    let cert_id_hash = format!("{:x}", md5::compute(&ocsp_request.certificate_id.serial_number));
+
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    // Check cache first
+    let mut cache = state.ocsp_cache.lock().await;
+    if let Some(cached_response) = &*cache {
+        if cached_response.cert_id_hash == cert_id_hash && current_time < cached_response.valid_until {
+            debug!("Returning cached OCSP response for cert ID hash: {}", cert_id_hash);
+            return Ok(cached_response.data.clone());
+        }
+    }
+
+    // Generate new OCSP response
     let ca = state.db.get_current_ca().await?;
-
-    // Generate OCSP response
     let response_der = generate_ocsp_response(&ocsp_request, &ca, &state.db).await?;
 
-    debug!("OCSP response generated ({} bytes)", response_der.len());
+    // Cache the response for 1 hour (OCSP responses are typically valid for 1 hour)
+    let valid_until = current_time + (60 * 60 * 1000); // 1 hour in milliseconds
+    *cache = Some(OCSPResponseCache {
+        data: response_der.clone(),
+        cert_id_hash: cert_id_hash.clone(),
+        last_updated: current_time,
+        valid_until,
+    });
+
+    debug!("Generated and cached OCSP response for cert ID hash: {} (valid until {})", cert_id_hash, valid_until);
+
     Ok(response_der)
 }

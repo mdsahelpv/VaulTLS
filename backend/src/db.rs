@@ -290,8 +290,8 @@ impl VaulTLSDB {
     pub(crate) async fn get_all_user_cert(&self, user_id: Option<i64>) -> Result<Vec<Certificate>> {
         db_do!(self.pool, |conn: &Connection| {
             let query = match user_id {
-                Some(_) => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, cr.revocation_date IS NOT NULL as is_revoked FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.user_id = ?1",
-                None => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, cr.revocation_date IS NOT NULL as is_revoked FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id"
+                Some(_) => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, cr.revocation_date IS NOT NULL as is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.user_id = ?1",
+                None => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, cr.revocation_date IS NOT NULL as is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id"
             };
             let mut stmt = conn.prepare(query)?;
             let rows = match user_id {
@@ -309,7 +309,11 @@ impl VaulTLSDB {
                     user_id: row.get(6)?,
                     certificate_type: row.get(7)?,
                     renew_method: row.get(8)?,
-                    ca_id: 0, // Will be set by calling code if needed
+                    ca_id: row.get(9)?,
+                    is_revoked: row.get(10)?,
+                    revoked_on: row.get(11).ok(),
+                    revoked_reason: row.get(12).ok().map(|r: u8| CertificateRevocationReason::try_from(r).unwrap_or(CertificateRevocationReason::Unspecified)),
+                    revoked_by: row.get(13).ok(),
                 })
             })
             .collect()?)
@@ -355,7 +359,7 @@ impl VaulTLSDB {
     /// Retrieve a single user certificate as a Certificate struct
     pub(crate) async fn get_user_cert_by_id(&self, id: i64) -> Result<Certificate> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, name, created_on, valid_until, pkcs12, pkcs12_password, user_id, type, renew_method, ca_id FROM user_certificates WHERE id = ?1")?;
+            let mut stmt = conn.prepare("SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, cr.revocation_date IS NOT NULL as is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.id = ?1")?;
 
             stmt.query_row(params![id], |row| {
                 Ok(Certificate {
@@ -368,7 +372,11 @@ impl VaulTLSDB {
                     user_id: row.get(6)?,
                     certificate_type: row.get(7)?,
                     renew_method: row.get(8)?,
-                    ca_id: row.get(9)?
+                    ca_id: row.get(9)?,
+                    is_revoked: row.get(10)?,
+                    revoked_on: row.get(11).ok(),
+                    revoked_reason: row.get(12).ok().map(|r: u8| CertificateRevocationReason::try_from(r).unwrap_or(CertificateRevocationReason::Unspecified)),
+                    revoked_by: row.get(13).ok(),
                 })
             }).map_err(|e| anyhow!("Certificate with id {} not found: {}", id, e))
         })

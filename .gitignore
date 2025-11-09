@@ -1,4 +1,4 @@
-wo# ===========================================
+# ===========================================
 # VaulTLS - Certificate Management System
 # ===========================================
 
@@ -14,12 +14,22 @@ backend/release/
 
 # Node.js dependencies
 frontend/node_modules/
-# Note: package-lock.json is typically tracked for consistent dependencies
+frontend/package-lock.json
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
 
 # Build outputs
 frontend/dist/
 frontend/build/
+frontend/.next/
+frontend/.nuxt/
+frontend/.output/
 backend/dist/
+
+# Package managers
+.yarn/
+.pnpm/
+.yarn-integrity
 
 # ===========================================
 # Certificate Files (Security Sensitive)
@@ -93,6 +103,15 @@ keys/
 # VS Code
 .vscode/
 *.code-workspace
+
+# Cursor
+.cursor/
+
+# Zed
+.zed/
+
+# Fleet
+.fleet/
 
 # IntelliJ IDEA
 .idea/
@@ -179,6 +198,11 @@ coverage/
 test-results/
 junit.xml
 
+# Testing frameworks
+.jest/
+.cypress/
+.playwright/
+
 # ===========================================
 # Container & Deployment
 # ===========================================
@@ -189,6 +213,12 @@ data/
 
 # Container logs
 docker-compose.override.yml
+
+# Cloud deployment
+.vercel/
+.netlify/
+.terraform/
+.serverless/
 
 # ===========================================
 # Archives & Packages
@@ -388,6 +418,22 @@ Thumbs.db
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# ===========================================
+# Version Managers & Tooling
+# ===========================================
+
+# asdf version manager
+.tool-versions
+.mise.toml
+
+# Rust toolchain
+.cargo/
+rust-toolchain.toml
+
+# Node version managers
+.nvmrc
+.node-version
 
 # ===========================================
 # END OF .GITIGNORE

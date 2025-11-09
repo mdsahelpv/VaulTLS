@@ -25,9 +25,9 @@ export const useCertificateStore = defineStore('certificate', {
             try {
                 const new_certs = await fetchCertificates();
                 for (const cert of new_certs) {
-                    if (!this.certificates.has(cert.id)) {
-                        this.certificates.set(cert.id, cert);
-                    }
+                    // Always update the certificate, even if it already exists
+                    // This ensures revoked status and other fields are updated
+                    this.certificates.set(cert.id, cert);
                 }
 
                 const newIds = new Set<number>(new_certs.map(cert => cert.id));
