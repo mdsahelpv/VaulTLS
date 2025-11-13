@@ -221,6 +221,12 @@
               >
                 <option :value="CertificateType.Client">Client</option>
                 <option :value="CertificateType.Server">Server</option>
+                <option
+                  v-if="selectedCA && selectedCA.can_create_subordinate_ca"
+                  :value="CertificateType.SubordinateCA"
+                >
+                  Subordinate CA
+                </option>
               </select>
             </div>
             <div class="mb-3">
@@ -856,6 +862,10 @@ const certReq = reactive<CertificateRequirements>({
 
 const isMailValid = computed(() => {
   return (settings.value?.mail.smtp_host.length ?? 0) > 0 && (settings.value?.mail.smtp_port ?? 0) > 0;
+});
+
+const selectedCA = computed(() => {
+  return availableCAs.value.find(ca => ca.id === certReq.ca_id);
 });
 
 watch(passwordRule, (newVal) => {

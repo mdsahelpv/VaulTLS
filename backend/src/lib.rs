@@ -3,12 +3,9 @@ use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
 use rocket::{Build, Config, Rocket, routes};
-use rocket::fairing::AdHoc;
 use rocket::http::Method;
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use rocket_okapi::openapi_get_routes;
-use rocket_okapi::rapidoc::{make_rapidoc, GeneralConfig, HideShowConfig, Layout, LayoutConfig, RapiDocConfig, RenderStyle, SchemaConfig, SchemaStyle};
-use rocket_okapi::settings::UrlObject;
 use tokio::sync::Mutex;
 use tracing::{debug, info, trace};
 use tracing_subscriber::EnvFilter;
@@ -170,6 +167,9 @@ pub async fn create_rocket() -> Rocket<Build> {
                 create_self_signed_ca,
                 import_ca_from_file,
                 download_ca,
+                download_ca_by_id,
+                download_ca_key_pair,
+                download_ca_key_pair_by_id,
                 get_ca_details,
                 download_certificate,
                 delete_ca,

@@ -212,6 +212,7 @@ impl VaulTLSDB {
                     key: row.get(4)?,
                     creation_source: row.get(5)?,
                     cert_chain,
+                    can_create_subordinate_ca: false, // Default for existing records
                 })
             }).map_err(|_| anyhow!("VaulTLS has not been set-up yet"))
         })
@@ -239,6 +240,7 @@ impl VaulTLSDB {
                     key: row.get(4)?,
                     creation_source: row.get(5)?,
                     cert_chain,
+                    can_create_subordinate_ca: false, // Default for existing records
                 })
             })
             .collect()?)
@@ -268,6 +270,7 @@ impl VaulTLSDB {
                     key: row.get(4)?,
                     creation_source: row.get(5)?,
                     cert_chain,
+                    can_create_subordinate_ca: false, // Default for existing records
                 })
             }).map_err(|e| anyhow!("CA with id {} not found: {}", id, e))
         })
@@ -286,12 +289,12 @@ impl VaulTLSDB {
     /// Retrieve all user certificates from the database
     /// If user_id is Some, only certificates for that user are returned
     /// If user_id is None, all certificates are returned
-    /// Certificates are marked as revoked if they exist in the revocation table
+    /// Certificates are marked as revoked based on the is_revoked column
     pub(crate) async fn get_all_user_cert(&self, user_id: Option<i64>) -> Result<Vec<Certificate>> {
         db_do!(self.pool, |conn: &Connection| {
             let query = match user_id {
-                Some(_) => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, cr.revocation_date IS NOT NULL as is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.user_id = ?1",
-                None => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, cr.revocation_date IS NOT NULL as is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id"
+                Some(_) => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.user_id = ?1",
+                None => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id"
             };
             let mut stmt = conn.prepare(query)?;
             let rows = match user_id {
@@ -359,7 +362,7 @@ impl VaulTLSDB {
     /// Retrieve a single user certificate as a Certificate struct
     pub(crate) async fn get_user_cert_by_id(&self, id: i64) -> Result<Certificate> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, cr.revocation_date IS NOT NULL as is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.id = ?1")?;
+            let mut stmt = conn.prepare("SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.id = ?1")?;
 
             stmt.query_row(params![id], |row| {
                 Ok(Certificate {
@@ -616,7 +619,7 @@ impl VaulTLSDB {
         })
     }
 
-    /// Revoke a certificate by adding it to the revocation table
+    /// Revoke a certificate by adding it to the revocation table and updating the is_revoked flag
     pub(crate) async fn revoke_certificate(&self, certificate_id: i64, revocation_reason: CertificateRevocationReason, revoked_by_user_id: Option<i64>) -> Result<i64> {
         db_do!(self.pool, |conn: &Connection| {
             let revocation_date = std::time::SystemTime::now()
@@ -624,6 +627,13 @@ impl VaulTLSDB {
                 .unwrap()
                 .as_millis() as i64;
 
+            // First, update the is_revoked flag in user_certificates
+            conn.execute(
+                "UPDATE user_certificates SET is_revoked = 1 WHERE id = ?1",
+                params![certificate_id],
+            )?;
+
+            // Then add the revocation record for audit purposes
             conn.execute(
                 "INSERT INTO certificate_revocation (certificate_id, revocation_date, revocation_reason, revoked_by_user_id) VALUES (?1, ?2, ?3, ?4)",
                 params![certificate_id, revocation_date, revocation_reason as u8, revoked_by_user_id],
@@ -694,9 +704,16 @@ impl VaulTLSDB {
         })
     }
 
-    /// Unrevoke a certificate (remove from revocation table)
+    /// Unrevoke a certificate (remove from revocation table and update is_revoked flag)
     pub(crate) async fn unrevoke_certificate(&self, certificate_id: i64) -> Result<()> {
         db_do!(self.pool, |conn: &Connection| {
+            // First, update the is_revoked flag in user_certificates
+            conn.execute(
+                "UPDATE user_certificates SET is_revoked = 0 WHERE id = ?1",
+                params![certificate_id],
+            )?;
+
+            // Then remove the revocation record
             conn.execute(
                 "DELETE FROM certificate_revocation WHERE certificate_id = ?1",
                 params![certificate_id],

@@ -58,7 +58,8 @@ pub(crate) enum PasswordRule {
 pub enum CertificateType {
     #[default]
     Client = 0,
-    Server = 1
+    Server = 1,
+    SubordinateCA = 2
 }
 
 impl FromSql for CertificateType {

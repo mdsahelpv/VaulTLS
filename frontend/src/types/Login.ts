@@ -5,8 +5,18 @@ export interface SetupReq {
     ca_validity_in_years: number,
     password: string | null;
     ca_type: 'self_signed' | 'upload';
+    key_type?: string;
+    key_size?: string;
+    hash_algorithm?: string;
     pfx_file?: File;
     pfx_password?: string;
+    countryName?: string;
+    stateOrProvinceName?: string;
+    localityName?: string;
+    organizationName?: string;
+    organizationalUnitName?: string;
+    commonName?: string;
+    emailAddress?: string;
 }
 
 export interface IsSetupResponse {

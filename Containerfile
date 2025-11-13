@@ -23,7 +23,7 @@ RUN npm run build
 RUN rm -rf node_modules
 
 # Stage 2: Build the Rust backend binary
-FROM rust:1.87-slim AS backend-builder
+FROM rust:1.85-slim AS backend-builder
 
 ARG RUN_TESTS=false
 
@@ -40,7 +40,6 @@ WORKDIR /app/backend
 
 # Copy dependency files first (optimizes layer caching)
 COPY backend/Cargo.toml backend/Cargo.lock ./
-COPY backend/Rocket.toml ./
 
 # Cache dependencies
 RUN cargo fetch --locked
@@ -54,9 +53,8 @@ RUN set -eux; \
     cargo build --release --frozen; \
     cargo test --release || echo "Tests failed but continuing...";
 
-# Extract binary and keep Rocket.toml
+# Extract binary
 RUN cp target/release/backend /usr/local/bin/backend && \
-    cp Rocket.toml /usr/local/bin/ && \
     strip /usr/local/bin/backend && \
     rm -rf /root/.cargo/registry && \
     rm -rf /root/.cargo/git && \
@@ -112,13 +110,11 @@ RUN set -eux; \
 # Copy built assets from previous stages
 COPY --from=frontend-builder --chown=vaultls:vaultls /app/frontend/dist/ /usr/share/nginx/html/
 COPY --from=backend-builder --chown=vaultls:vaultls /usr/local/bin/backend /app/bin/backend
-COPY --from=backend-builder --chown=vaultls:vaultls /usr/local/bin/Rocket.toml /app/settings/Rocket.toml
 COPY --chown=vaultls:vaultls container/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=vaultls:vaultls container/entrypoint.sh /app/bin/entrypoint.sh
 
 # Set executable permissions
-RUN chmod +x /app/bin/entrypoint.sh /app/bin/backend && \
-    chmod 644 /app/settings/Rocket.toml
+RUN chmod +x /app/bin/entrypoint.sh /app/bin/backend
 
 # Set default working directory in container
 WORKDIR /app/settings

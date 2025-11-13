@@ -1,7 +1,7 @@
 export enum CertificateType {
     Client = 0,
     Server = 1,
-    CA = 2
+    SubordinateCA = 2
 }
 
 export enum CertificateRenewMethod {

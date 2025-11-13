@@ -64,6 +64,16 @@ export const setup = async (setupReq: SetupReq): Promise<void> => {
             ca_validity_in_years: setupReq.ca_validity_in_years,
             ca_type: setupReq.ca_type,
             password: setupReq.password,
+            key_type: setupReq.key_type,
+            key_size: setupReq.key_size,
+            hash_algorithm: setupReq.hash_algorithm,
+            countryName: setupReq.countryName,
+            stateOrProvinceName: setupReq.stateOrProvinceName,
+            localityName: setupReq.localityName,
+            organizationName: setupReq.organizationName,
+            organizationalUnitName: setupReq.organizationalUnitName,
+            commonName: setupReq.commonName,
+            emailAddress: setupReq.emailAddress,
         };
         return await ApiClient.post<void>('/server/setup', jsonData);
     }

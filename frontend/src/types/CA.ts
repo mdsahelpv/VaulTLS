@@ -24,6 +24,7 @@ export interface CA {
     certificate_pem: string;       // PEM-encoded certificate data
     chain_length: number;          // Total number of certificates in the chain
     chain_certificates: CertificateChainInfo[]; // Details of each certificate in the chain
+    can_create_subordinate_ca?: boolean; // Whether this CA can create subordinate CAs
 }
 
 export interface CAAndCertificate extends CA {

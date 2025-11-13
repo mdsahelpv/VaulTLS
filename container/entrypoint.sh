@@ -44,16 +44,25 @@ start_nginx() {
 # Function to start backend
 start_backend() {
     echo "🚀 Starting backend service..."
-    /app/bin/backend &
+    cd /app/settings
+    echo "Current directory: $(pwd)"
+    echo "Files in directory: $(ls -la)"
+    echo "Environment variables:"
+    env | grep -E "(ROCKET|VAULTLS)" | sort
+    echo "Starting backend with full backtrace..."
+    RUST_BACKTRACE=full /app/bin/backend &
     BACKEND_PID=$!
     echo "✅ backend started (PID: $BACKEND_PID)"
 
     # Wait a moment for backend to start
-    sleep 3
+    sleep 5
 
     # Check if backend is still running
     if ! kill -0 $BACKEND_PID 2>/dev/null; then
         echo "❌ backend failed to start"
+        echo "Checking backend logs..."
+        # Try to run backend directly to see error
+        timeout 10 RUST_BACKTRACE=full /app/bin/backend 2>&1 || echo "Backend execution failed"
         exit 1
     fi
 }

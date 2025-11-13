@@ -26,6 +26,18 @@ pub struct SetupRequest {
     pub password: Option<String>,
     pub ca_type: Option<String>,
     pub pfx_password: Option<String>,
+    // Key configuration
+    pub key_type: Option<String>,
+    pub key_size: Option<String>,
+    pub hash_algorithm: Option<String>,
+    // DN fields for self-signed CA
+    pub countryName: Option<String>,
+    pub stateOrProvinceName: Option<String>,
+    pub localityName: Option<String>,
+    pub organizationName: Option<String>,
+    pub organizationalUnitName: Option<String>,
+    pub commonName: Option<String>,
+    pub emailAddress: Option<String>,
 }
 
 #[derive(FromForm)]
@@ -36,6 +48,8 @@ pub struct SetupFormRequest<'a> {
     pub ca_validity_in_years: u64,
     pub password: Option<String>,
     pub ca_type: String,
+    pub key_type: Option<String>,
+    pub key_size: Option<String>,
     pub pfx_file: rocket::fs::TempFile<'a>,
     pub pfx_password: Option<String>,
 }

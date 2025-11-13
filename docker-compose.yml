@@ -3,6 +3,7 @@ version: '3.8'
 services:
   vaultls:
     image: vaultls
+    container_name: vaultls
     build:
       context: .
       dockerfile: Containerfile

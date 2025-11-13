@@ -60,15 +60,55 @@ export const downloadCA = async (): Promise<void> => {
     return await ApiClient.download('/certificates/ca/download');
 };
 
+export const downloadCAKeyPair = async (): Promise<void> => {
+    return await ApiClient.download('/certificates/ca/download_key');
+};
+
+export const downloadCAById = async (id: number): Promise<void> => {
+    return await ApiClient.download(`/certificates/ca/${id}/download`);
+};
+
+export const downloadCAKeyPairById = async (id: number): Promise<void> => {
+    return await ApiClient.download(`/certificates/ca/${id}/download_key`);
+};
+
 export const fetchCAs = async (): Promise<CAAndCertificate[]> => {
     return await ApiClient.get<CAAndCertificate[]>('/certificates/ca/list');
 };
 
-export const createSelfSignedCA = async (name: string, validityInYears: number, caPassword?: string): Promise<number> => {
+export const createSelfSignedCA = async (
+    name: string,
+    validityInYears: number,
+    caPassword?: string,
+    countryName?: string,
+    stateOrProvinceName?: string,
+    localityName?: string,
+    organizationName?: string,
+    organizationalUnitName?: string,
+    commonName?: string,
+    emailAddress?: string,
+    canCreateSubordinateCA?: boolean,
+    keySize?: number,
+    certificatePoliciesOID?: string,
+    certificatePoliciesCPS?: string,
+    keyType?: string
+): Promise<number> => {
     return await ApiClient.post<number>('/certificates/ca/new', {
         name,
         validity_in_years: validityInYears,
-        password: caPassword
+        key_type: keyType,
+        key_size: keySize,
+        password: caPassword,
+        country_name: countryName,
+        state_or_province_name: stateOrProvinceName,
+        locality_name: localityName,
+        organization_name: organizationName,
+        organizational_unit_name: organizationalUnitName,
+        common_name: commonName,
+        email_address: emailAddress,
+        can_create_subordinate_ca: canCreateSubordinateCA,
+        certificate_policies_oid: certificatePoliciesOID,
+        certificate_policies_cps: certificatePoliciesCPS
     });
 };
 

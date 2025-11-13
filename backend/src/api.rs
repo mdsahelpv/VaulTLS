@@ -8,13 +8,14 @@ use rocket::http::{Cookie, CookieJar, SameSite};
 use rocket::FromForm;
 use tokio::io::AsyncReadExt;
 use tracing::{trace, debug, info, warn, error};
-use openssl::x509::X509;
+use openssl::x509::{X509, X509Name};
+use openssl::pkey::PKey;
 use serde::Serialize;
 use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
-use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRL, CRLEntry};
+use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry};
 use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
@@ -53,7 +54,26 @@ pub(crate) async fn setup_json(
     state: &State<AppState>,
     setup_req: Json<SetupRequest>
 ) -> Result<(), ApiError> {
-    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), None, None).await
+    setup_common(
+        state,
+        setup_req.name.clone(),
+        setup_req.email.clone(),
+        setup_req.ca_name.clone(),
+        setup_req.ca_validity_in_years,
+        setup_req.password.clone(),
+        None,
+        None,
+        setup_req.key_type.clone(),
+        setup_req.key_size.clone(),
+        setup_req.hash_algorithm.clone(),
+        setup_req.countryName.clone(),
+        setup_req.stateOrProvinceName.clone(),
+        setup_req.localityName.clone(),
+        setup_req.organizationName.clone(),
+        setup_req.organizationalUnitName.clone(),
+        setup_req.commonName.clone(),
+        setup_req.emailAddress.clone(),
+    ).await
 }
 
 #[post("/server/setup/form", data = "<setup_req>")]
@@ -65,7 +85,7 @@ pub(crate) async fn setup_form(
     let mut pfx_data = Vec::new();
     let mut reader = setup_req.pfx_file.open().await.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {}", e)))?;
     reader.read_to_end(&mut pfx_data).await.map_err(|e| ApiError::Other(format!("Failed to read PFX file: {}", e)))?;
-    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone()).await
+    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone(), setup_req.key_type.clone(), setup_req.key_size.clone(), None, None, None, None, None, None, None, None).await
 }
 
 async fn setup_common(
@@ -76,9 +96,24 @@ async fn setup_common(
     ca_validity_in_years: u64,
     password: Option<String>,
     pfx_data: Option<Vec<u8>>,
-    pfx_password: Option<String>
+    pfx_password: Option<String>,
+    key_type: Option<String>,
+    key_size: Option<String>,
+    hash_algorithm: Option<String>,
+    // DN fields for self-signed CA
+    country_name: Option<String>,
+    state_or_province_name: Option<String>,
+    locality_name: Option<String>,
+    organization_name: Option<String>,
+    organizational_unit_name: Option<String>,
+    common_name: Option<String>,
+    email_address: Option<String>
 ) -> Result<(), ApiError> {
     debug!("Starting setup process for user: {}, email: {}", name, email);
+
+    info!("key_type => {:?}", key_type);
+    info!("key_size/curve => {:?}", key_size);
+    info!("hash_algorithm => {:?}", hash_algorithm);
 
     if state.db.is_setup().await.is_ok() {
         warn!("Server is already setup.");
@@ -140,10 +175,39 @@ async fn setup_common(
         }
     } else {
         debug!("Generating self-signed CA with name: {}", ca_name);
-    match CertificateBuilder::new_with_ca(None)?
+        let mut builder = CertificateBuilder::new_with_ca_and_key_type_size(None, key_type.as_deref(), key_size.as_deref())?
             .set_name(&ca_name)?
-            .set_valid_until(ca_validity_in_years)?
-            .build_ca() {
+            .set_valid_until(ca_validity_in_years)?;
+
+        // Set hash algorithm if provided
+        if let Some(hash_alg) = &hash_algorithm {
+            builder = builder.set_hash_algorithm(hash_alg)?;
+        }
+
+        // Set DN fields if provided
+        if let Some(country) = country_name {
+            builder = builder.set_country(&country)?;
+        }
+        if let Some(state) = state_or_province_name {
+            builder = builder.set_state(&state)?;
+        }
+        if let Some(locality) = locality_name {
+            builder = builder.set_locality(&locality)?;
+        }
+        if let Some(org) = organization_name {
+            builder = builder.set_organization(&org)?;
+        }
+        if let Some(org_unit) = organizational_unit_name {
+            builder = builder.set_organizational_unit(&org_unit)?;
+        }
+        if let Some(common) = common_name {
+            builder = builder.set_common_name(&common)?;
+        }
+        if let Some(email) = email_address {
+            builder = builder.set_email(&email)?;
+        }
+
+        match builder.build_ca() {
             Ok(ca) => {
                 debug!("Self-signed CA generated successfully");
                 ca
@@ -415,6 +479,10 @@ pub(crate) async fn create_user_certificate(
                 .set_dns_san(&dns)?
                 .build_common_with_extensions(Server, crl_url, ocsp_url)?
         }
+        CertificateType::SubordinateCA => {
+            // For subordinate CA, we need to create a CA certificate signed by the parent CA
+            cert_builder.build_subordinate_ca()?
+        }
     };
 
     cert = state.db.insert_user_cert(cert).await?;
@@ -453,10 +521,43 @@ pub(crate) async fn create_self_signed_ca(
 ) -> Result<Json<i64>, ApiError> {
     debug!(ca_name=?payload.name, validity_years=?payload.validity_in_years, "Creating self-signed CA");
 
-    let ca = CertificateBuilder::new_with_ca(None)?
+    let mut builder = CertificateBuilder::new_with_ca_and_key_type_size(None, payload.key_type.as_deref(), payload.key_size.as_deref())?
         .set_name(&payload.name)?
-        .set_valid_until(payload.validity_in_years)?
-        .build_ca()?;
+        .set_valid_until(payload.validity_in_years)?;
+
+    // Set advanced PKI extensions if provided
+    if let Some(oid) = &payload.certificate_policies_oid {
+        builder = builder.set_certificate_policies_oid(oid)?;
+    }
+    if let Some(cps_url) = &payload.certificate_policies_cps_url {
+        builder = builder.set_certificate_policies_cps_url(cps_url)?;
+    }
+
+    // Set DN fields if provided
+    if let Some(country) = &payload.country_name {
+        builder = builder.set_country(country)?;
+    }
+    if let Some(state) = &payload.state_or_province_name {
+        builder = builder.set_state(state)?;
+    }
+    if let Some(locality) = &payload.locality_name {
+        builder = builder.set_locality(locality)?;
+    }
+    if let Some(org) = &payload.organization_name {
+        builder = builder.set_organization(org)?;
+    }
+    if let Some(org_unit) = &payload.organizational_unit_name {
+        builder = builder.set_organizational_unit(org_unit)?;
+    }
+    if let Some(common) = &payload.common_name {
+        builder = builder.set_common_name(common)?;
+    }
+    if let Some(email) = &payload.email_address {
+        builder = builder.set_email(email)?;
+    }
+
+    let mut ca = builder.build_ca()?;
+    ca.can_create_subordinate_ca = payload.can_create_subordinate_ca;
 
     let ca = state.db.insert_ca(ca).await?;
     info!(ca=?ca, "Self-signed CA created");
@@ -469,7 +570,31 @@ pub struct CreateCASelfSignedRequest {
     pub name: String,
     pub validity_in_years: u64,
     #[serde(default)]
+    pub key_type: Option<String>,
+    #[serde(default)]
+    pub key_size: Option<String>,
+    #[serde(default)]
     pub password: Option<String>,
+    #[serde(default)]
+    pub country_name: Option<String>,
+    #[serde(default)]
+    pub state_or_province_name: Option<String>,
+    #[serde(default)]
+    pub locality_name: Option<String>,
+    #[serde(default)]
+    pub organization_name: Option<String>,
+    #[serde(default)]
+    pub organizational_unit_name: Option<String>,
+    #[serde(default)]
+    pub common_name: Option<String>,
+    #[serde(default)]
+    pub email_address: Option<String>,
+    #[serde(default)]
+    pub can_create_subordinate_ca: bool,
+    #[serde(default)]
+    pub certificate_policies_oid: Option<String>,
+    #[serde(default)]
+    pub certificate_policies_cps_url: Option<String>,
 }
 
 
@@ -515,6 +640,76 @@ pub(crate) async fn download_ca(
 }
 
 #[openapi(tag = "Certificates")]
+#[get("/certificates/ca/<id>/download")]
+/// Download a specific CA certificate by ID.
+pub(crate) async fn download_ca_by_id(
+    state: &State<AppState>,
+    id: i64,
+    _authentication: Authenticated
+) -> Result<DownloadResponse, ApiError> {
+    let ca = state.db.get_ca(id).await?;
+    let pem = get_pem(&ca)?;
+    Ok(DownloadResponse::new(pem, &format!("ca_certificate_{}.pem", ca.id)))
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/ca/<id>/download_key")]
+/// Download a specific CA certificate and private key pair by ID.
+/// Requires admin role.
+pub(crate) async fn download_ca_key_pair_by_id(
+    state: &State<AppState>,
+    id: i64,
+    _authentication: AuthenticatedPrivileged
+) -> Result<DownloadResponse, ApiError> {
+    let ca = state.db.get_ca(id).await?;
+
+    // Get certificate PEM
+    let cert_pem = get_pem(&ca)?;
+
+    // Get private key PEM
+    let private_key = PKey::private_key_from_der(&ca.key)
+        .map_err(|e| ApiError::Other(format!("Failed to load CA private key: {}", e)))?;
+    let key_pem = private_key.private_key_to_pem_pkcs8()
+        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {}", e)))?;
+
+    // Combine certificate and private key
+    let mut combined_pem = Vec::new();
+    combined_pem.extend(cert_pem);
+    combined_pem.extend(b"\n");
+    combined_pem.extend(key_pem);
+
+    Ok(DownloadResponse::new(combined_pem, &format!("ca_certificate_and_key_{}.pem", ca.id)))
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/ca/download_key")]
+/// Download the current CA certificate and private key pair in PEM format.
+/// Requires admin role.
+pub(crate) async fn download_ca_key_pair(
+    state: &State<AppState>,
+    _authentication: AuthenticatedPrivileged
+) -> Result<DownloadResponse, ApiError> {
+    let ca = state.db.get_current_ca().await?;
+
+    // Get certificate PEM
+    let cert_pem = get_pem(&ca)?;
+
+    // Get private key PEM
+    let private_key = PKey::private_key_from_der(&ca.key)
+        .map_err(|e| ApiError::Other(format!("Failed to load CA private key: {}", e)))?;
+    let key_pem = private_key.private_key_to_pem_pkcs8()
+        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {}", e)))?;
+
+    // Combine certificate and private key
+    let mut combined_pem = Vec::new();
+    combined_pem.extend(cert_pem);
+    combined_pem.extend(b"\n");
+    combined_pem.extend(key_pem);
+
+    Ok(DownloadResponse::new(combined_pem, "ca_certificate_and_key.pem"))
+}
+
+#[openapi(tag = "Certificates")]
 #[get("/certificates/ca/list")]
 /// Get all CA certificates. Requires authentication.
 pub(crate) async fn get_ca_list(
@@ -543,10 +738,22 @@ pub(crate) async fn get_ca_list(
         };
 
         // Get signature algorithm
-        let signature_algorithm = match cert.signature_algorithm().object().nid().as_raw() {
-            668 => "RSA-SHA256",
-            794 => "ECDSA-SHA256",
-            _ => "Unknown",
+        let sig_alg_obj = cert.signature_algorithm().object();
+        let signature_algorithm = match sig_alg_obj.to_string().as_str() {
+        "sha256WithRSAEncryption" => "RSA-SHA256",
+        "sha512WithRSAEncryption" => "RSA-SHA512",
+        "ecdsa-with-SHA256" => "ECDSA-SHA256",
+        "ecdsa-with-SHA512" => "ECDSA-SHA512",
+            _ => {
+                // Fallback to NID-based detection if string matching fails
+                match sig_alg_obj.nid().as_raw() {
+                668 => "RSA-SHA256",
+                794 => "ECDSA-SHA256",
+                913 => "RSA-SHA512",
+                796 => "ECDSA-SHA512",
+                    _ => "Unknown",
+                }
+            }
         };
 
         // Use the creation_source field to determine if CA is self-signed or imported
@@ -635,11 +842,15 @@ pub(crate) async fn get_ca_list(
             }
         }
 
+        // Format subject and issuer as proper DN strings
+        let subject = format_subject_name(subject_name);
+        let issuer = format_subject_name(issuer_name);
+
         let ca_detail = CADetails {
             id: ca.id,
             name,
-            subject: format!("{:?}", subject_name),
-            issuer: format!("{:?}", issuer_name),
+            subject,
+            issuer,
             created_on: ca.created_on,
             valid_until: ca.valid_until,
             serial_number: serial.to_bn()?.to_hex_str()?.to_string(),
@@ -649,6 +860,7 @@ pub(crate) async fn get_ca_list(
             certificate_pem,
             chain_length,
             chain_certificates,
+            can_create_subordinate_ca: ca.can_create_subordinate_ca,
         };
 
         ca_details.push(ca_detail);
@@ -700,6 +912,7 @@ pub struct CADetails {
     pub certificate_pem: String,
     pub chain_length: usize,
     pub chain_certificates: Vec<CertificateChainInfo>,
+    pub can_create_subordinate_ca: bool,
 }
 
 #[openapi(tag = "Certificates")]
@@ -727,10 +940,25 @@ pub(crate) async fn get_ca_details(
     };
 
     // Get signature algorithm
-    let signature_algorithm = match cert.signature_algorithm().object().nid().as_raw() {
-        668 => "RSA-SHA256",
-        794 => "ECDSA-SHA256",
-        _ => "Unknown",
+    let sig_alg_obj = cert.signature_algorithm().object();
+    let sig_alg_str = sig_alg_obj.to_string();
+    let signature_algorithm = match sig_alg_str.as_str() {
+        "sha256WithRSAEncryption" => "RSA-SHA256",
+        "sha512WithRSAEncryption" => "RSA-SHA512",
+        "ecdsa-with-SHA256" => "ECDSA-SHA256",
+        "ecdsa-with-SHA512" => "ECDSA-SHA512",
+        _ => {
+            // Debug: print the actual signature algorithm string
+            debug!("Unknown signature algorithm: '{}' (NID: {})", sig_alg_str, sig_alg_obj.nid().as_raw());
+            // Fallback to NID-based detection if string matching fails
+            match sig_alg_obj.nid().as_raw() {
+                668 => "RSA-SHA256",
+                794 => "ECDSA-SHA256",
+                913 => "RSA-SHA512",
+                796 => "ECDSA-SHA512",
+                _ => "Unknown",
+            }
+        }
     };
 
     // Use the creation_source field to determine if CA is self-signed or imported
@@ -798,8 +1026,8 @@ pub(crate) async fn get_ca_details(
     let ca_details = CADetails {
         id: ca.id,
         name,
-        subject: format!("{:?}", subject_name),
-        issuer: format!("{:?}", issuer_name),
+        subject: format_subject_name(subject_name),
+        issuer: format_subject_name(issuer_name),
         created_on: ca.created_on,
         valid_until: ca.valid_until,
         serial_number: serial.to_bn()?.to_hex_str()?.to_string(),
@@ -809,6 +1037,7 @@ pub(crate) async fn get_ca_details(
         certificate_pem,
         chain_length,
         chain_certificates,
+        can_create_subordinate_ca: ca.can_create_subordinate_ca,
     };
 
     Ok(Json(ca_details))
@@ -1420,6 +1649,46 @@ pub(crate) async fn download_crl(
 //     // Process the request
 //     process_ocsp_request(state, &request_data).await
 // }
+
+/// Format an X509Name as a proper DN string (RFC 4514 format)
+fn format_subject_name(name: &openssl::x509::X509NameRef) -> String {
+    let mut dn_parts = Vec::new();
+
+    for entry in name.entries() {
+        if let Ok(data) = entry.data().as_utf8() {
+            // Map common OIDs to their short names
+            let rdn_type = match entry.object().nid().as_raw() {
+                13 => "CN".to_string(),      // commonName
+                14 => "SN".to_string(),      // surname
+                3 => "CN".to_string(),       // commonName (alternative)
+                17 => "ST".to_string(),      // stateOrProvinceName
+                18 => "L".to_string(),       // localityName
+                19 => "STREET".to_string(),  // streetAddress
+                6 => "O".to_string(),        // organizationName
+                7 => "OU".to_string(),       // organizationalUnitName
+                8 => "ST".to_string(),       // stateOrProvinceName (alternative)
+                10 => "O".to_string(),       // organizationName (alternative)
+                11 => "OU".to_string(),      // organizationalUnitName (alternative)
+                16 => "POSTALCODE".to_string(), // postalCode
+                20 => "DC".to_string(),      // domainComponent
+                41 => "NAME".to_string(),    // name
+                43 => "INITIALS".to_string(), // initials
+                44 => "GENERATION".to_string(), // generationQualifier
+                46 => "DNQUALIFIER".to_string(), // dnQualifier
+                48 => "emailAddress".to_string(), // emailAddress (PKCS#9)
+                49 => "emailAddress".to_string(), // emailAddress (alternative)
+                _ => {
+                    // Use the full OID if not recognized
+                    entry.object().to_string()
+                }
+            };
+
+            dn_parts.push(format!("{}={}", rdn_type, data.as_ref() as &str));
+        }
+    }
+
+    dn_parts.join(", ")
+}
 
 async fn process_ocsp_request(
     state: &State<AppState>,
