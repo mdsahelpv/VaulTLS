@@ -1,7 +1,8 @@
 use crate::cert::{Certificate, CA};
 use crate::constants::{DB_FILE_PATH, TEMP_DB_FILE_PATH};
 use crate::data::enums::{CertificateRenewMethod, CertificateType, UserRole, CertificateRevocationReason};
-use crate::data::objects::{User, CertificateRevocation};
+use crate::data::objects::{User, CertificateRevocation, AuditLogEntry, AuditEventType, AuditEventCategory, AuditLogQuery, AuditLogStats, AuditCleanupResult, ActionCount, UserActivity};
+use crate::settings::AuditSettings;
 use crate::helper::get_secret;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -154,21 +155,29 @@ impl VaulTLSDB {
     }
 
     pub(crate) async fn fix_password(&self) -> Result<()> {
-        let users = self.get_all_user().await?;
+        db_do!(self.pool, |conn: &Connection| {
+            let mut stmt = conn.prepare("SELECT id, name, password_hash FROM users WHERE password_hash IS NOT NULL")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?
+                ))
+            })?;
 
-        trace!("Checking for users with empty passwords");
-
-        for id in users.iter().map(|user| user.id) {
-            let user = self.get_user(id).await?;
-            if let Some(stored_password) = user.password_hash {
-                if stored_password.verify("") {
-                    // Password stored is empty
-                    info!("Password for user {} is empty, disabling password", user.name);
-                    self.unset_user_password(user.id).await?;
+            for row_result in rows {
+                let (user_id, user_name, password_hash_str) = row_result?;
+                if let Ok(password) = Password::try_from(password_hash_str.as_str()) {
+                    if password.verify("") {
+                        // Password stored is empty
+                        info!("Password for user {} is empty, disabling password", user_name);
+                        conn.execute("UPDATE users SET password_hash = NULL WHERE id = ?", &[&user_id])?;
+                    }
                 }
             }
-        }
-        Ok(())
+
+            Ok(())
+        })
     }
 
     /// Insert a new CA certificate into the database
@@ -727,6 +736,371 @@ impl VaulTLSDB {
         db_do!(self.pool, |conn: &Connection| {
             conn.execute("DELETE FROM certificate_revocation", [])?;
             Ok(())
+        })
+    }
+
+    // ================= AUDIT LOGGING METHODS =================
+
+    /// Log an audit event
+    pub(crate) async fn log_audit_event(&self, entry: &AuditLogEntry) -> Result<i64> {
+        let entry = entry.clone();
+        db_do!(self.pool, move |conn: &Connection| {
+            let old_values_json = entry.old_values.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default());
+            let new_values_json = entry.new_values.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default());
+
+            conn.execute(
+                "INSERT INTO audit_logs (timestamp, event_type, event_category, user_id, user_name, ip_address, user_agent, resource_type, resource_id, resource_name, action, success, details, old_values, new_values, error_message, session_id, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                params![
+                    entry.timestamp,
+                    serde_json::to_string(&entry.event_type)?,
+                    serde_json::to_string(&entry.event_category)?,
+                    entry.user_id,
+                    entry.user_name,
+                    entry.ip_address,
+                    entry.user_agent,
+                    entry.resource_type,
+                    entry.resource_id,
+                    entry.resource_name,
+                    entry.action,
+                    entry.success,
+                    entry.details,
+                    old_values_json,
+                    new_values_json,
+                    entry.error_message,
+                    entry.session_id,
+                    entry.source
+                ],
+            )?;
+
+            Ok(conn.last_insert_rowid())
+        })
+    }
+
+    /// Query audit logs with advanced filtering
+    pub(crate) async fn query_audit_logs(&self, query: &AuditLogQuery) -> Result<(Vec<AuditLogEntry>, i64)> {
+        // Convert all the borrowed values to owned strings first
+        let user_id_filter = query.user_id.map(|id| id.to_string());
+        let event_category_filter = query.event_category.clone();
+        let event_type_filter = query.event_type.clone();
+        let resource_type_filter = query.resource_type.clone();
+        let action_filter = query.action.clone();
+        let success_filter = query.success;
+        let start_date_filter = query.start_date.map(|d| d.to_string());
+        let end_date_filter = query.end_date.map(|d| d.to_string());
+        let search_term_filter = query.search_term.clone();
+        let page_val = query.page.unwrap_or(1).max(1) as i64;
+        let limit_val = query.limit.unwrap_or(50).min(1000) as i64; // Cap at 1000
+
+        db_do!(self.pool, move |conn: &Connection| {
+            let mut conditions = Vec::new();
+            let mut params = Vec::new();
+
+            // Build WHERE conditions dynamically - now using owned values
+            if let Some(ref user_id) = user_id_filter {
+                conditions.push("user_id = ?");
+                params.push(user_id.clone());
+            }
+
+            if let Some(ref event_category) = event_category_filter {
+                conditions.push("event_category = ?");
+                params.push(serde_json::to_string(event_category)?);
+            }
+
+            if let Some(ref event_type) = event_type_filter {
+                conditions.push("event_type = ?");
+                params.push(serde_json::to_string(event_type)?);
+            }
+
+            if let Some(ref resource_type) = resource_type_filter {
+                conditions.push("resource_type = ?");
+                params.push(resource_type.clone());
+            }
+
+            if let Some(ref action) = action_filter {
+                conditions.push("action = ?");
+                params.push(action.clone());
+            }
+
+            if let Some(success) = success_filter {
+                conditions.push("success = ?");
+                params.push(format!("{}", if success { 1 } else { 0 }));
+            }
+
+            if let Some(ref start_date) = start_date_filter {
+                conditions.push("timestamp >= ?");
+                params.push(start_date.clone());
+            }
+
+            if let Some(ref end_date) = end_date_filter {
+                conditions.push("timestamp <= ?");
+                params.push(end_date.clone());
+            }
+
+            if let Some(ref search_term) = search_term_filter {
+                conditions.push("(details LIKE ? OR resource_name LIKE ? OR user_name LIKE ? OR error_message LIKE ?)");
+                let search_pattern = format!("%{}%", search_term);
+                params.extend(vec![search_pattern.clone(), search_pattern.clone(), search_pattern.clone(), search_pattern]);
+            }
+
+            let where_clause = if conditions.is_empty() {
+                String::new()
+            } else {
+                format!("WHERE {}", conditions.join(" AND "))
+            };
+
+            // Get total count
+            let count_query = format!("SELECT COUNT(*) FROM audit_logs {}", where_clause);
+            let total_count: i64 = {
+                let mut stmt = conn.prepare(&count_query)?;
+                let mut param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+                stmt.query_row(&param_refs[..], |row| row.get(0))?
+            };
+
+            // Get paginated results
+            let offset = (page_val - 1) * limit_val;
+
+            let data_query = format!(
+                "SELECT id, timestamp, event_type, event_category, user_id, user_name, ip_address, user_agent, resource_type, resource_id, resource_name, action, success, details, old_values, new_values, error_message, session_id, source FROM audit_logs {} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                where_clause
+            );
+
+            params.push(limit_val.to_string());
+            params.push(offset.to_string());
+
+            let mut stmt = conn.prepare(&data_query)?;
+            let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+
+            let rows = stmt.query_map(&param_refs[..], |row| {
+                let event_type_str: String = row.get(2)?;
+                let event_category_str: String = row.get(3)?;
+
+                let old_values: Option<String> = row.get(14)?;
+                let new_values: Option<String> = row.get(15)?;
+
+                Ok(AuditLogEntry {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    event_type: serde_json::from_str(&event_type_str).unwrap_or(AuditEventType::UserAction),
+                    event_category: serde_json::from_str(&event_category_str).unwrap_or(AuditEventCategory::System),
+                    user_id: row.get(4)?,
+                    user_name: row.get(5)?,
+                    ip_address: row.get(6)?,
+                    user_agent: row.get(7)?,
+                    resource_type: row.get(8)?,
+                    resource_id: row.get(9)?,
+                    resource_name: row.get(10)?,
+                    action: row.get(11)?,
+                    success: row.get::<_, i64>(12)? != 0,
+                    details: row.get(13)?,
+                    old_values: old_values.and_then(|s| serde_json::from_str(&s).ok()),
+                    new_values: new_values.and_then(|s| serde_json::from_str(&s).ok()),
+                    error_message: row.get(16)?,
+                    session_id: row.get(17)?,
+                    source: row.get(18)?,
+                })
+            })?;
+
+            let entries = rows.collect::<Result<Vec<_>, _>>()?;
+            Ok((entries, total_count))
+        })
+    }
+
+    /// Get audit log statistics
+    pub(crate) async fn get_audit_stats(&self) -> Result<AuditLogStats> {
+        db_do!(self.pool, |conn: &Connection| {
+            // Total events
+            let total_events: i64 = conn.query_row("SELECT COUNT(*) FROM audit_logs", [], |row| row.get(0))?;
+
+            // Events in last 24 hours
+            let yesterday = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64 - (24 * 60 * 60 * 1000);
+            let events_today: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM audit_logs WHERE timestamp >= ?",
+                params![yesterday],
+                |row| row.get(0),
+            )?;
+
+            // Failed operations
+            let failed_operations: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM audit_logs WHERE success = 0",
+                [],
+                |row| row.get(0),
+            )?;
+
+            // Top actions (last 30 days)
+            let thirty_days_ago = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64 - (30 * 24 * 60 * 60 * 1000);
+
+            let mut top_actions_stmt = conn.prepare(
+                "SELECT action, COUNT(*) as count FROM audit_logs WHERE timestamp >= ? GROUP BY action ORDER BY count DESC LIMIT 10"
+            )?;
+            let top_actions_rows = top_actions_stmt.query_map(params![thirty_days_ago], |row| {
+                Ok(ActionCount {
+                    action: row.get(0)?,
+                    count: row.get(1)?,
+                })
+            })?;
+            let top_actions = top_actions_rows.collect::<Result<Vec<_>, _>>()?;
+
+            // Top users (last 30 days)
+            let mut top_users_stmt = conn.prepare(
+                "SELECT user_id, user_name, COUNT(*) as count, MAX(timestamp) as last_activity FROM audit_logs WHERE timestamp >= ? AND user_id IS NOT NULL GROUP BY user_id, user_name ORDER BY count DESC LIMIT 10"
+            )?;
+            let top_users_rows = top_users_stmt.query_map(params![thirty_days_ago], |row| {
+                Ok(UserActivity {
+                    user_id: row.get(0)?,
+                    user_name: row.get(1)?,
+                    event_count: row.get(2)?,
+                    last_activity: row.get(3)?,
+                })
+            })?;
+            let top_users = top_users_rows.collect::<Result<Vec<_>, _>>()?;
+
+            // Recent events (last 24 hours)
+            let mut recent_stmt = conn.prepare(
+                "SELECT id, timestamp, event_type, event_category, user_id, user_name, ip_address, user_agent, resource_type, resource_id, resource_name, action, success, details, old_values, new_values, error_message, session_id, source FROM audit_logs ORDER BY timestamp DESC LIMIT 50"
+            )?;
+            let recent_rows = recent_stmt.query_map([], |row| {
+                let event_type_str: String = row.get(2)?;
+                let event_category_str: String = row.get(3)?;
+
+                let old_values: Option<String> = row.get(14)?;
+                let new_values: Option<String> = row.get(15)?;
+
+                Ok(AuditLogEntry {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    event_type: serde_json::from_str(&event_type_str).unwrap_or(AuditEventType::UserAction),
+                    event_category: serde_json::from_str(&event_category_str).unwrap_or(AuditEventCategory::System),
+                    user_id: row.get(4)?,
+                    user_name: row.get(5)?,
+                    ip_address: row.get(6)?,
+                    user_agent: row.get(7)?,
+                    resource_type: row.get(8)?,
+                    resource_id: row.get(9)?,
+                    resource_name: row.get(10)?,
+                    action: row.get(11)?,
+                    success: row.get::<_, i64>(12)? != 0,
+                    details: row.get(13)?,
+                    old_values: old_values.and_then(|s| serde_json::from_str(&s).ok()),
+                    new_values: new_values.and_then(|s| serde_json::from_str(&s).ok()),
+                    error_message: row.get(16)?,
+                    session_id: row.get(17)?,
+                    source: row.get(18)?,
+                })
+            })?;
+            let recent_events = recent_rows.collect::<Result<Vec<_>, _>>()?;
+
+            Ok(AuditLogStats {
+                total_events,
+                events_today,
+                failed_operations,
+                top_actions,
+                top_users,
+                recent_events,
+            })
+        })
+    }
+
+    /// Clean up old audit logs based on retention policy
+    pub(crate) async fn cleanup_audit_logs(&self, retention_days: i32) -> Result<AuditCleanupResult> {
+        let start_time = std::time::SystemTime::now();
+
+        db_do!(self.pool, |conn: &Connection| {
+            let cutoff_date = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64 - ((retention_days as i64) * 24 * 60 * 60 * 1000);
+
+            // Get count before deletion
+            let count_before: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM audit_logs WHERE timestamp < ?",
+                params![cutoff_date],
+                |row| row.get(0),
+            )?;
+
+            // Delete old records
+            conn.execute(
+                "DELETE FROM audit_logs WHERE timestamp < ?",
+                params![cutoff_date],
+            )?;
+
+            // Update cleanup timestamp in settings if settings table exists
+            let _ = conn.execute(
+                "UPDATE audit_settings SET last_cleanup = ? WHERE id = 1",
+                params![std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64],
+            );
+
+            let execution_time = std::time::SystemTime::now()
+                .duration_since(start_time)
+                .unwrap()
+                .as_millis() as i64;
+
+            Ok(AuditCleanupResult {
+                deleted_count: count_before,
+                cutoff_date,
+                execution_time_ms: execution_time,
+            })
+        })
+    }
+
+    /// Set audit settings
+    pub(crate) async fn set_audit_settings(&self, settings: &AuditSettings) -> Result<()> {
+        let settings = settings.clone();
+        db_do!(self.pool, move |conn: &Connection| {
+            conn.execute(
+                "INSERT OR REPLACE INTO audit_settings (id, enabled, retention_days, log_authentication, log_certificate_operations, log_ca_operations, log_user_operations, log_settings_changes, log_system_events, max_log_size_mb, last_cleanup) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    settings.enabled,
+                    settings.retention_days,
+                    settings.log_authentication,
+                    settings.log_certificate_operations,
+                    settings.log_ca_operations,
+                    settings.log_user_operations,
+                    settings.log_settings_changes,
+                    settings.log_system_events,
+                    settings.max_log_size_mb,
+                    settings.last_cleanup,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Get audit settings
+    pub(crate) async fn get_audit_settings(&self) -> Result<AuditSettings> {
+        db_do!(self.pool, |conn: &Connection| {
+            let result = conn.query_row(
+                "SELECT enabled, retention_days, log_authentication, log_certificate_operations, log_ca_operations, log_user_operations, log_settings_changes, log_system_events, max_log_size_mb, last_cleanup FROM audit_settings WHERE id = 1",
+                [],
+                |row| {
+                    Ok(AuditSettings {
+                        enabled: row.get::<_, i64>(0)? != 0,
+                        retention_days: row.get(1)?,
+                        log_authentication: row.get::<_, i64>(2)? != 0,
+                        log_certificate_operations: row.get::<_, i64>(3)? != 0,
+                        log_ca_operations: row.get::<_, i64>(4)? != 0,
+                        log_user_operations: row.get::<_, i64>(5)? != 0,
+                        log_settings_changes: row.get::<_, i64>(6)? != 0,
+                        log_system_events: row.get::<_, i64>(7)? != 0,
+                        max_log_size_mb: row.get(8)?,
+                        last_cleanup: row.get(9).ok(),
+                    })
+                }
+            );
+
+            match result {
+                Ok(settings) => Ok(settings),
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    // Create default settings if none exist
+                    Ok(AuditSettings::default())
+                }
+                Err(e) => Err(anyhow!("Database error: {}", e)),
+            }
         })
     }
 }

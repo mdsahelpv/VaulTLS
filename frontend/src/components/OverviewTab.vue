@@ -254,6 +254,85 @@
                 Choose which CA to use for signing this certificate.
               </div>
             </div>
+
+            <!-- Advanced Certificate Configuration (Collapsible) -->
+            <div class="mb-3">
+              <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                @click="advancedConfigExpanded = !advancedConfigExpanded"
+              >
+                <i :class="advancedConfigExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'"></i>
+                Advanced Certificate Configuration
+                <small class="text-muted ms-1">(Key Type, Key Size, Hash Algorithm)</small>
+              </button>
+            </div>
+
+            <div v-if="advancedConfigExpanded" class="border rounded p-3 mb-3 bg-light">
+              <div class="mb-3">
+                <label class="form-label">Key Type</label>
+                <div class="form-check">
+                  <input
+                    class="form-check-input"
+                    type="radio"
+                    id="keyTypeRSA-overview"
+                    value="RSA"
+                    v-model="certReq.key_type"
+                    required
+                  >
+                  <label class="form-check-label" for="keyTypeRSA-overview">
+                    RSA
+                  </label>
+                </div>
+                <div class="form-check">
+                  <input
+                    class="form-check-input"
+                    type="radio"
+                    id="keyTypeECDSA-overview"
+                    value="ECDSA"
+                    v-model="certReq.key_type"
+                    required
+                  >
+                  <label class="form-check-label" for="keyTypeECDSA-overview">
+                    ECDSA
+                  </label>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label for="keySize-overview" class="form-label">Key Size</label>
+                  <select
+                    class="form-select"
+                    id="keySize-overview"
+                    v-model="certReq.key_size"
+                    required
+                  >
+                    <option v-if="certReq.key_type === 'RSA'" value="2048">2048</option>
+                    <option v-if="certReq.key_type === 'RSA'" value="4096">4096</option>
+                    <option v-if="certReq.key_type === 'ECDSA'" value="P-256">P-256</option>
+                    <option v-if="certReq.key_type === 'ECDSA'" value="P-521">P-521</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label for="hashAlgorithm-overview" class="form-label">Hash Algorithm</label>
+                  <select
+                    class="form-select"
+                    id="hashAlgorithm-overview"
+                    v-model="certReq.hash_algorithm"
+                    required
+                  >
+                    <option value="sha256">SHA-256</option>
+                    <option value="sha512">SHA-512</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                These settings configure the cryptographic parameters for this certificate, including key type, key size, and hash algorithm for signing. By default, these match your selected CA's parameters.
+              </div>
+            </div>
             <div class="mb-3" v-if="certReq.cert_type == CertificateType.Server">
               <label class="form-label">DNS Names</label>
               <div v-for="(_, index) in certReq.dns_names" :key="index" class="mb-2">
@@ -344,6 +423,7 @@
                 <option :value="CertificateRenewMethod.RenewAndNotify">Renew and Notify</option>
               </select>
             </div>
+
             <div v-if="isMailValid" class="mb-3 form-check form-switch">
               <input
                   type="checkbox"
@@ -851,6 +931,9 @@ const selectableCertificates = computed(() => {
 // Revocation history modal state
 const showRevocationHistory = ref(false);
 
+// Advanced configuration collapse state
+const advancedConfigExpanded = ref(false);
+
 const certificateDetails = ref<CertificateDetails | null>(null);
 
 const passwordRule = computed(() => {
@@ -867,6 +950,9 @@ const certReq = reactive<CertificateRequirements>({
   cert_type: CertificateType.Client,
   dns_names: [''],
   renew_method: CertificateRenewMethod.None,
+  key_type: 'RSA',
+  key_size: '2048',
+  hash_algorithm: 'sha256',
 });
 
 const isMailValid = computed(() => {
@@ -884,6 +970,49 @@ const isRootCA = computed(() => {
 watch(passwordRule, (newVal) => {
   certReq.system_generated_password = (newVal === PasswordRule.System);
 }, { immediate: true });
+
+// Watch for key type changes and reset key size to appropriate default
+watch(() => certReq.key_type, (newKeyType: string | undefined) => {
+  if (newKeyType === 'RSA' && certReq.key_size !== '2048' && certReq.key_size !== '4096') {
+    certReq.key_size = '2048';
+  } else if (newKeyType === 'ECDSA' && certReq.key_size !== 'P-256' && certReq.key_size !== 'P-521') {
+    certReq.key_size = 'P-256';
+  }
+});
+
+// Watch for selected CA changes and set defaults to match CA's parameters
+watch(selectedCA, (newSelectedCA: CAAndCertificate | undefined) => {
+  if (newSelectedCA) {
+    // Set defaults to match the selected CA's cryptographic parameters
+    const keySizeStr = newSelectedCA.key_size;
+    const sigAlgStr = newSelectedCA.signature_algorithm;
+
+    // Determine key type from signature algorithm or key size
+    if (sigAlgStr.includes('RSA') || keySizeStr.startsWith('2048') || keySizeStr.startsWith('4096')) {
+      certReq.key_type = 'RSA';
+      // Extract just the number from key size (e.g., "RSA 2048" -> "2048")
+      const rsaSize = keySizeStr.match(/(\d+)/)?.[1];
+      certReq.key_size = rsaSize && ['2048', '4096'].includes(rsaSize) ? rsaSize : '2048';
+    } else if (sigAlgStr.includes('ECDSA') || keySizeStr.includes('P-256') || keySizeStr.includes('P-521')) {
+      certReq.key_type = 'ECDSA';
+      // Extract curve from key size (e.g., "ECDSA P-256" -> "P-256")
+      if (keySizeStr.includes('P-256')) {
+        certReq.key_size = 'P-256';
+      } else if (keySizeStr.includes('P-521')) {
+        certReq.key_size = 'P-521';
+      } else {
+        certReq.key_size = 'P-256';
+      }
+    }
+
+    // Determine hash algorithm from signature algorithm
+    if (sigAlgStr.includes('SHA512') || sigAlgStr.includes('sha512')) {
+      certReq.hash_algorithm = 'sha512';
+    } else if (sigAlgStr.includes('SHA256') || sigAlgStr.includes('sha256')) {
+      certReq.hash_algorithm = 'sha256';
+    }
+  }
+});
 
 onMounted(async () => {
   await certificateStore.fetchCertificates();

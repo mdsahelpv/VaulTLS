@@ -10,6 +10,7 @@ import OverviewTab from '@/components/OverviewTab.vue';
 import SettingsTab from '@/components/SettingsTab.vue';
 import UserTab from "@/components/UserTab.vue";
 import CATools from '@/components/CATools.vue';
+import AuditLogsTab from '@/components/AuditLogsTab.vue';
 
 const router = createRouter({
     history: createWebHistory(),
@@ -52,6 +53,11 @@ const router = createRouter({
                     path: 'settings',
                     name: 'Settings',
                     component: SettingsTab,
+                },
+                {
+                    path: 'audit',
+                    name: 'Audit',
+                    component: AuditLogsTab,
                 },
             ],
             // A guard to check if the app is set up and user is authenticated

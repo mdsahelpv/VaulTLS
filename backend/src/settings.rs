@@ -58,9 +58,9 @@ impl JsonSchema for Settings {
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Default, Debug)]
 pub(crate) struct InnerSettings {
     #[serde(default)]
-    mail: Mail,
-    #[serde(default)]
     common: Common,
+    #[serde(default)]
+    mail: Mail,
     #[serde(default)]
     auth: Auth,
     #[serde(default)]
@@ -70,7 +70,9 @@ pub(crate) struct InnerSettings {
     #[serde(default)]
     crl: CRLSettings,
     #[serde(default)]
-    ocsp: OCSPSettings
+    ocsp: OCSPSettings,
+    #[serde(default)]
+    audit: AuditSettings
 }
 
 /// Wrapper for the settings to make them serializable for the frontend.
@@ -307,6 +309,48 @@ impl Default for OCSPSettings {
     }
 }
 
+/// Audit logging settings.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub(crate) struct AuditSettings {
+    /// Whether audit logging is enabled
+    pub(crate) enabled: bool,
+    /// Number of days to retain audit logs (default: 365)
+    pub(crate) retention_days: i32,
+    /// Log authentication events
+    pub(crate) log_authentication: bool,
+    /// Log certificate operations
+    pub(crate) log_certificate_operations: bool,
+    /// Log CA operations
+    pub(crate) log_ca_operations: bool,
+    /// Log user management operations
+    pub(crate) log_user_operations: bool,
+    /// Log settings changes
+    pub(crate) log_settings_changes: bool,
+    /// Log system events
+    pub(crate) log_system_events: bool,
+    /// Maximum audit log size in MB before rotation (default: 100)
+    pub(crate) max_log_size_mb: i32,
+    /// Timestamp of last cleanup
+    pub(crate) last_cleanup: Option<i64>,
+}
+
+impl Default for AuditSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            retention_days: 365,
+            log_authentication: true,
+            log_certificate_operations: true,
+            log_ca_operations: true,
+            log_user_operations: true,
+            log_settings_changes: true,
+            log_system_events: true,
+            max_log_size_mb: 100,
+            last_cleanup: None,
+        }
+    }
+}
+
 
 /// Generates a new JWT key.
 fn generate_jwt_key() -> String {
@@ -344,6 +388,7 @@ impl InnerSettings {
         self.oidc = settings.oidc.clone();
         self.crl = settings.crl.clone();
         self.ocsp = settings.ocsp.clone();
+        self.audit = settings.audit.clone();
 
         self.save_to_file(None)
     }
@@ -386,6 +431,7 @@ impl InnerSettings {
 
     fn get_crl(&self) -> &CRLSettings { &self.crl }
     fn get_ocsp(&self) -> &OCSPSettings { &self.ocsp }
+    fn get_audit(&self) -> &AuditSettings { &self.audit }
 }
 
 impl Settings {
@@ -468,5 +514,10 @@ impl Settings {
     pub(crate) fn set_is_root_ca(&self, is_root_ca: bool) -> Result<(), ApiError> {
         let mut settings = self.0.write();
         settings.set_is_root_ca(is_root_ca)
+    }
+
+    pub(crate) fn get_audit(&self) -> AuditSettings {
+        let settings = self.0.read();
+        settings.get_audit().clone()
     }
 }

@@ -733,11 +733,11 @@ const fileInput = ref<HTMLInputElement | null>(null);
 
 const handleAddCA = () => {
   if (isRootCA.value) {
-    // In Root CA Server Mode: directly show Create Root CA form
+    // In Root CA Server Mode: can create subordinate CAs
     caCreationType.value = 'self-signed';
     showAddCAModal.value = true;
   } else {
-    // In Normal Mode: directly show Import CA chain form (only option available)
+    // In Normal Mode: can only import existing CAs
     caCreationType.value = 'import';
     showAddCAModal.value = true;
   }

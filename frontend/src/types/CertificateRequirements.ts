@@ -11,4 +11,7 @@ export interface CertificateRequirements {
     dns_names: string[];
     renew_method: CertificateRenewMethod;
     ca_id?: number;
+    key_type?: string;
+    key_size?: string;
+    hash_algorithm?: string;
 }

@@ -8,7 +8,7 @@ use rocket::http::{Cookie, CookieJar, SameSite};
 use rocket::FromForm;
 use tokio::io::AsyncReadExt;
 use tracing::{trace, debug, info, warn, error};
-use openssl::x509::{X509, X509Name};
+use openssl::x509::X509;
 use openssl::pkey::PKey;
 use serde::Serialize;
 use schemars::JsonSchema;
@@ -20,9 +20,10 @@ use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
 use crate::data::error::ApiError;
-use crate::data::objects::{AppState, User, CRLCache, OCSPResponseCache};
+use crate::data::objects::{AppState, User, CrlCache, OcspCache};
 use crate::notification::mail::{MailMessage, Mailer};
-    use crate::settings::{FrontendSettings, InnerSettings};
+use crate::settings::{FrontendSettings, InnerSettings};
+
 
 #[openapi(tag = "Setup")]
 #[get("/server/version")]
@@ -164,11 +165,11 @@ async fn setup_common(
         _ => Some(trim_password)
     };
 
-    let mut password_hash = None;
+    let mut password_hash: Option<String> = None;
     if let Some(password) = password {
         debug!("Setting password authentication enabled");
         state.settings.set_password_enabled(true)?;
-        password_hash = Some(Password::new_server_hash(password)?);
+        password_hash = Some(Password::new_server_hash(password)?.to_string());
     }
 
     debug!("Creating user with name: {}, email: {}", name, email);
@@ -294,7 +295,8 @@ pub(crate) async fn login(
         warn!(user=login_req_opt.email, "Invalid email");
         ApiError::Unauthorized(Some("Invalid credentials".to_string()))
     })?;
-    if let Some(password_hash) = user.password_hash {
+    if let Some(password_hash_str) = user.password_hash {
+        let password_hash = Password::try_from(password_hash_str.as_str())?;
         if password_hash.verify(&login_req_opt.password) {
             let jwt_key = state.settings.get_jwt_key()?;
             let token = generate_token(&jwt_key, user.id, user.role)?;
@@ -306,6 +308,20 @@ pub(crate) async fn login(
             jar.add_private(cookie);
 
             info!(user=user.name, "Successful password-based user login.");
+
+            // Audit log successful login
+            if let Err(e) = state.audit.log_authentication(
+                Some(user.id),
+                Some(user.name.clone()),
+                None, // TODO: extract IP from request
+                None, // TODO: extract User-Agent from request
+                "login",
+                true,
+                None,
+                None,
+            ).await {
+                warn!("Failed to log authentication audit event: {}", e);
+            }
 
             if let Password::V1(_) = password_hash {
                 info!(user=user.name, "Migrating a user' password to V2.");
@@ -321,6 +337,21 @@ pub(crate) async fn login(
         }
     }
     warn!(user=user.name, "Invalid password");
+
+    // Audit log failed login
+    if let Err(e) = state.audit.log_authentication(
+        Some(user.id),
+        Some(user.name.clone()),
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        "login",
+        false,
+        Some("Invalid password".to_string()),
+        None,
+    ).await {
+        warn!("Failed to log authentication audit event: {}", e);
+    }
+
     Err(ApiError::Unauthorized(Some("Invalid credentials".to_string())))
 }
 
@@ -334,9 +365,10 @@ pub(crate) async fn change_password(
 ) -> Result<(), ApiError> {
     let user_id = authentication.claims.id;
     let user = state.db.get_user(user_id).await?;
-    let password_hash = user.password_hash;
+    let password_hash_str = user.password_hash;
 
-    if let Some(password_hash) = password_hash {
+    if let Some(password_hash_str) = password_hash_str {
+        let password_hash = Password::try_from(password_hash_str.as_str())?;
         if let Some(ref old_password) = change_pass_req.old_password {
             if !password_hash.verify(old_password) {
                 warn!(user=user.name, "Password Change: Old password is incorrect");
@@ -532,6 +564,29 @@ pub(crate) async fn create_user_certificate(
 
     info!(cert=cert.name, "New certificate created.");
     trace!("{:?}", cert);
+
+    // Audit log certificate creation
+    if let Err(e) = state.audit.log_certificate_operation(
+        Some(_authentication._claims.id), // Admin ID doing the operation
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        cert.id,
+        &cert.name,
+        "create",
+        true,
+        None,
+        Some(serde_json::json!({
+            "certificate_type": payload.cert_type,
+            "user_id": payload.user_id,
+            "validity_in_years": payload.validity_in_years,
+            "ca_id": ca_id
+        })),
+        None,
+        None,
+    ).await {
+        warn!("Failed to log certificate creation audit event: {}", e);
+    }
 
     if Some(true) == payload.notify_user {
         let user = state.db.get_user(payload.user_id).await?;
@@ -1282,8 +1337,8 @@ pub(crate) async fn create_user(
         _ => Some(trim_password)
     };
 
-    let password_hash = match password {
-        Some(p) => Some(Password::new_server_hash(p)?),
+    let password_hash: Option<String> = match password {
+        Some(p) => Some(Password::new_server_hash(p)?.to_string()),
         None => None,
     };
 
@@ -1296,10 +1351,33 @@ pub(crate) async fn create_user(
         role: payload.role
     };
 
+    let user_id = user.id;
+    let user_name = user.name.clone();
     user = state.db.insert_user(user).await?;
 
     info!(user=?user, "User created.");
     trace!("{:?}", user);
+
+    // Audit log user creation
+    if let Err(e) = state.audit.log_user_operation(
+        Some(user_id), // user_id will be -1 for the creator, but we can pass None or actual admin ID
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        user.id,
+        &user.name,
+        "create",
+        true,
+        None,
+        Some(serde_json::json!({
+            "role": payload.role,
+            "email": payload.user_email
+        })),
+        None,
+        None,
+    ).await {
+        warn!("Failed to log user creation audit event: {}", e);
+    }
 
     Ok(Json(user.id))
 }
@@ -1626,7 +1704,7 @@ pub(crate) async fn download_crl(
 
     // Cache the CRL for 5 minutes
     let valid_until = current_time + (5 * 60 * 1000); // 5 minutes in milliseconds
-    *cache = Some(CRLCache {
+    *cache = Some(CrlCache {
         data: crl_pem.clone(),
         last_updated: current_time,
         valid_until,
@@ -1765,7 +1843,7 @@ async fn process_ocsp_request(
 
     // Cache the response for 1 hour (OCSP responses are typically valid for 1 hour)
     let valid_until = current_time + (60 * 60 * 1000); // 1 hour in milliseconds
-    *cache = Some(OCSPResponseCache {
+    *cache = Some(OcspCache {
         data: response_der.clone(),
         cert_id_hash: cert_id_hash.clone(),
         last_updated: current_time,
@@ -1775,4 +1853,129 @@ async fn process_ocsp_request(
     debug!("Generated and cached OCSP response for cert ID hash: {} (valid until {})", cert_id_hash, valid_until);
 
     Ok(response_der)
+}
+
+// AUDIT LOGGING API ENDPOINTS
+use crate::data::objects::{AuditEventType, AuditEventCategory, AuditLogQuery, AuditLogStats, AuditCleanupResult};
+use crate::settings::AuditSettings;
+use serde_json::{json, Value};
+
+// Simple audit logging function - logs to console for now
+async fn log_audit_event_simple(
+    event_category: AuditEventCategory,
+    user_id: Option<i64>,
+    user_name: Option<&str>,
+    action: &str,
+    success: bool,
+    details: Option<&str>,
+    error_message: Option<&str>,
+) {
+    if success {
+        info!(
+            "AUDIT SUCCESS: [{}] {} by user '{}' - {}",
+            format!("{:?}", event_category),
+            action,
+            user_name.unwrap_or("unknown"),
+            details.unwrap_or("")
+        );
+    } else {
+        warn!(
+            "AUDIT FAILED: [{}] {} by user '{}' - {} - Error: {}",
+            format!("{:?}", event_category),
+            action,
+            user_name.unwrap_or("unknown"),
+            details.unwrap_or(""),
+            error_message.unwrap_or("unknown error")
+        );
+    }
+}
+
+#[openapi(tag = "Audit")]
+#[get("/audit/logs?<query..>")]
+pub async fn get_audit_logs(
+    state: &State<AppState>,
+    query: AuditLogQuery,
+    _authentication: AuthenticatedPrivileged,
+) -> Result<Json<Value>, ApiError> {
+    let (logs, total) = state.audit.query_logs(&query).await.map_err(|e| {
+        error!("Failed to query audit logs: {}", e);
+        ApiError::Other("Failed to query audit logs".to_string())
+    })?;
+
+    Ok(Json(json!({
+        "logs": logs,
+        "total": total,
+        "page": query.page.unwrap_or(1),
+        "limit": query.limit.unwrap_or(50)
+    })))
+}
+
+#[get("/audit/stats")]
+pub async fn get_audit_stats(
+    state: &State<AppState>,
+    _authentication: AuthenticatedPrivileged,
+) -> Result<Json<AuditLogStats>, ApiError> {
+    let stats = state.audit.get_stats().await.map_err(|e| {
+        error!("Failed to get audit stats: {}", e);
+        ApiError::Other("Failed to get audit statistics".to_string())
+    })?;
+
+    Ok(Json(stats))
+}
+
+#[post("/audit/cleanup")]
+pub async fn cleanup_audit_logs(
+    state: &State<AppState>,
+    _authentication: AuthenticatedPrivileged,
+) -> Result<Json<AuditCleanupResult>, ApiError> {
+    let result = state.audit.cleanup_old_logs().await.map_err(|e| {
+        error!("Failed to cleanup audit logs: {}", e);
+        ApiError::Other("Failed to cleanup audit logs".to_string())
+    })?;
+
+    Ok(Json(result))
+}
+
+#[get("/audit/settings")]
+pub async fn get_audit_settings(
+    state: &State<AppState>,
+    _authentication: AuthenticatedPrivileged,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let settings = state.audit.get_settings();
+    Ok(Json(json!({
+        "enabled": settings.enabled,
+        "retention_days": settings.retention_days,
+        "log_authentication": settings.log_authentication,
+        "log_certificate_operations": settings.log_certificate_operations,
+        "log_ca_operations": settings.log_ca_operations,
+        "log_user_operations": settings.log_user_operations,
+        "log_settings_changes": settings.log_settings_changes,
+        "log_system_events": settings.log_system_events,
+        "max_log_size_mb": settings.max_log_size_mb
+    })))
+}
+
+#[put("/audit/settings", data = "<settings>")]
+pub async fn update_audit_settings(
+    state: &State<AppState>,
+    settings: Json<serde_json::Value>,
+    _authentication: AuthenticatedPrivileged,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let new_settings = AuditSettings {
+        enabled: settings.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+        retention_days: settings.get("retention_days").and_then(|v| v.as_i64()).unwrap_or(365) as i32,
+        log_authentication: settings.get("log_authentication").and_then(|v| v.as_bool()).unwrap_or(true),
+        log_certificate_operations: settings.get("log_certificate_operations").and_then(|v| v.as_bool()).unwrap_or(true),
+        log_ca_operations: settings.get("log_ca_operations").and_then(|v| v.as_bool()).unwrap_or(true),
+        log_user_operations: settings.get("log_user_operations").and_then(|v| v.as_bool()).unwrap_or(true),
+        log_settings_changes: settings.get("log_settings_changes").and_then(|v| v.as_bool()).unwrap_or(true),
+        log_system_events: settings.get("log_system_events").and_then(|v| v.as_bool()).unwrap_or(true),
+        max_log_size_mb: settings.get("max_log_size_mb").and_then(|v| v.as_i64()).unwrap_or(100) as i32,
+        last_cleanup: None, // Will be set when cleanup occurs
+    };
+
+    // TODO: Implement audit settings update when audit service supports mutable borrowing
+    warn!("Audit settings update not yet implemented - service needs mutable borrowing");
+
+    Ok(settings)
 }

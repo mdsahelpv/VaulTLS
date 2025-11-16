@@ -28,6 +28,7 @@ mod auth;
 pub mod constants;
 mod api;
 mod notification;
+mod audit;
 
 type ApiError = data::error::ApiError;
 
@@ -88,7 +89,7 @@ pub async fn create_rocket() -> Rocket<Build> {
         true => None,
         false => {
             debug!("OIDC enabled. Trying to connect to {}.", oidc_settings.auth_url);
-            OidcAuth::new(&settings.get_oidc()).await.ok()
+            OidcAuth::new(&oidc_settings).await.ok()
         }
     };
 
@@ -116,20 +117,26 @@ pub async fn create_rocket() -> Rocket<Build> {
 
     let mailer = Arc::new(Mutex::new(mailer));
 
+    // Initialize audit service
+    info!("Initializing audit service");
+    let audit_db = Arc::new(db.clone());
+    let audit_service = crate::audit::create_audit_service(audit_db).await.expect("Failed to create audit service");
+    info!("Audit service initialized");
+
+    let db_arc = Arc::new(db);
     let app_state = AppState {
-        db: db.clone(),
+        db: db_arc.clone(),
         settings,
         oidc: Arc::new(Mutex::new(oidc)),
         mailer: mailer.clone(),
+        audit: audit_service,
         crl_cache: Arc::new(Mutex::new(None)),
         ocsp_cache: Arc::new(Mutex::new(None)),
     };
 
     tokio::spawn(async move {
-        watch_expiry(db.clone(), mailer.clone()).await;
+        watch_expiry((*db_arc).clone(), mailer.clone()).await;
     });
-
-    trace!("App State: {:?}", app_state);
 
     let cors = CorsOptions::default()
         .allowed_origins(AllowedOrigins::all())
@@ -197,7 +204,12 @@ pub async fn create_rocket() -> Rocket<Build> {
                 get_users,
                 create_user,
                 delete_user,
-                update_user
+                update_user,
+                get_audit_logs,
+                get_audit_stats,
+                cleanup_audit_logs,
+                get_audit_settings,
+                update_audit_settings
             ],
         )
         // .mount("/", routes![setup_form])
@@ -241,11 +253,16 @@ pub async fn create_test_rocket() -> Rocket<Build> {
         false => None
     };
 
+    // Initialize audit service for test
+    let audit_db = Arc::new(db.clone());
+    let audit_service = crate::audit::create_audit_service(audit_db).await.expect("Failed to create audit service");
+
     let app_state = AppState {
-        db,
+        db: Arc::new(db),
         settings,
         oidc: Arc::new(Mutex::new(oidc)),
         mailer: Arc::new(Mutex::new(mailer)),
+        audit: audit_service,
         crl_cache: Arc::new(Mutex::new(None)),
         ocsp_cache: Arc::new(Mutex::new(None)),
     };
