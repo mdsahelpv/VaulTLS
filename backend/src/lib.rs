@@ -184,6 +184,7 @@ pub async fn create_rocket() -> Rocket<Build> {
                 download_crl,
                 fetch_settings,
                 update_settings,
+                get_ca_mode,
                 is_setup,
                 setup_json,
                 setup_form,

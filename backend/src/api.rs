@@ -31,6 +31,31 @@ pub(crate) fn version() -> &'static str {
     VAULTLS_VERSION
 }
 
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct CAModeResponse {
+    pub is_root_ca: bool,
+    pub mode: String,
+    pub description: String,
+}
+
+#[openapi(tag = "Setup")]
+#[get("/server/ca-mode")]
+/// Get the current CA mode (Root CA or Regular CA).
+pub(crate) fn get_ca_mode(state: &State<AppState>) -> Json<CAModeResponse> {
+    let is_root_ca = state.settings.get_is_root_ca();
+    let (mode, description) = if is_root_ca {
+        ("root-ca", "Root CA Server: Can only issue subordinate CA certificates")
+    } else {
+        ("regular-ca", "Regular Certificate Authority: Can issue all certificate types")
+    };
+
+    Json(CAModeResponse {
+        is_root_ca,
+        mode: mode.to_string(),
+        description: description.to_string(),
+    })
+}
+
 #[openapi(tag = "Setup")]
 #[get("/server/setup")]
 /// Get server setup parameters.

@@ -964,11 +964,8 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
         self.x509.sign(&ca_key, digest)?;
         let cert = self.x509.build();
 
-        // Build certificate chain: [subordinate CA cert, parent CA cert, ...]
+        // Build certificate chain: [parent CA cert, parent's parent if any, ...]
         let mut ca_stack = Stack::new()?;
-
-        // Add the subordinate CA certificate itself
-        ca_stack.push(cert.clone())?;
 
         // Add all certificates from the parent CA's chain
         for chain_cert_der in &ca.cert_chain {

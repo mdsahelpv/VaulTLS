@@ -4,10 +4,10 @@
       <h2 class="mb-0">CA Tools</h2>
       <button
         class="btn btn-primary"
-        @click="showAddCAModal = true"
+        @click="handleAddCA"
       >
         <i class="bi bi-plus-circle me-2"></i>
-        Add CA
+        {{ isRootCA ? 'Add Root CA' : 'Add CA' }}
       </button>
     </div>
 
@@ -109,9 +109,9 @@
       <i class="bi bi-shield-slash text-muted" style="font-size: 3rem;"></i>
       <h4 class="mt-3">No Certificate Authorities Found</h4>
       <p class="text-muted">Create your first CA to start managing certificates.</p>
-      <button class="btn btn-primary" @click="showAddCAModal = true">
+      <button class="btn btn-primary" @click="handleAddCA">
         <i class="bi bi-plus-circle me-2"></i>
-        Create Your First CA
+        {{ isRootCA ? 'Create Your First Root CA' : 'Create Your First CA' }}
       </button>
     </div>
 
@@ -120,11 +120,12 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Add Certificate Authority</h5>
+            <h5 class="modal-title">{{ isRootCA ? 'Create Subordinate Certificate Authority' : 'Add Certificate Authority' }}</h5>
             <button type="button" class="btn-close" @click="showAddCAModal = false"></button>
           </div>
           <div class="modal-body">
-            <div class="row">
+            <!-- Selection Pane - Only show in Normal Mode -->
+            <div v-if="!isRootCA" class="row">
               <div class="col-md-6">
                 <div class="card h-100" :class="{ 'border-primary': caCreationType === 'self-signed' }">
                   <div class="card-body text-center">
@@ -218,7 +219,7 @@
 
                 <div class="row">
                   <div class="col-md-6 mb-3">
-                    <label for="organizationalUnitName" class="form-label">Organizational Unit Name (Optional)</label>
+                    <label for="organizationalUnitName" class="form-label">Organizational Unit (Optional)</label>
                     <input
                       type="text"
                       class="form-control"
@@ -253,11 +254,11 @@
                     >
                   </div>
                   <div class="col-md-6 mb-3">
-                    <label for="caValidity" class="form-label">Validity (Years)</label>
+                    <label for="ca_validity_in_years" class="form-label">Validity (Years)</label>
                     <input
                       type="number"
                       class="form-control"
-                      id="caValidity"
+                      id="ca_validity_in_years"
                       v-model.number="selfSignedForm.validityYears"
                       required
                       min="1"
@@ -266,121 +267,132 @@
                   </div>
                 </div>
 
-                <div class="row">
-                  <div class="col-md-6 mb-3">
-                    <label class="form-label">Key Type</label>
-                    <div class="d-flex gap-3">
-                      <div class="form-check">
-                        <input
-                          class="form-check-input"
-                          type="radio"
-                          id="keyTypeRSA"
-                          value="rsa"
-                          v-model="selfSignedForm.keyType"
-                          required
-                        >
-                        <label class="form-check-label" for="keyTypeRSA">
-                          RSA
-                        </label>
-                      </div>
-                      <div class="form-check">
-                        <input
-                          class="form-check-input"
-                          type="radio"
-                          id="keyTypeECDSA"
-                          value="ecdsa"
-                          v-model="selfSignedForm.keyType"
-                          required
-                        >
-                        <label class="form-check-label" for="keyTypeECDSA">
-                          ECDSA
-                        </label>
-                      </div>
-                    </div>
+                <div class="mb-3">
+                  <label for="ca_name" class="form-label">CA Display Name (Optional)</label>
+                  <input
+                    type="text"
+                    class="form-control"
+                    id="ca_name"
+                    v-model="selfSignedForm.caName"
+                    placeholder="Defaults to Common Name if left empty"
+                  >
+                  <small class="text-muted">Optional display name for the CA. If left empty, the Common Name will be used.</small>
+                </div>
+
+                <!-- Advanced CA Configuration -->
+                <h6 class="mb-3 mt-4">Advanced CA Configuration</h6>
+
+                <div class="mb-3">
+                  <label class="form-label">Key Type</label>
+                  <div class="form-check">
+                    <input
+                      class="form-check-input"
+                      type="radio"
+                      id="keyTypeRSA"
+                      value="RSA"
+                      v-model="selfSignedForm.keyType"
+                      required
+                    >
+                    <label class="form-check-label" for="keyTypeRSA">
+                      RSA
+                    </label>
                   </div>
+                  <div class="form-check">
+                    <input
+                      class="form-check-input"
+                      type="radio"
+                      id="keyTypeECDSA"
+                      value="ECDSA"
+                      v-model="selfSignedForm.keyType"
+                      required
+                    >
+                    <label class="form-check-label" for="keyTypeECDSA">
+                      ECDSA
+                    </label>
+                  </div>
+                </div>
+
+                <div class="row">
                   <div class="col-md-6 mb-3">
                     <label for="keySize" class="form-label">Key Size</label>
                     <select
-                      class="form-control"
+                      class="form-select"
                       id="keySize"
-                      v-model.number="selfSignedForm.keySize"
+                      v-model="selfSignedForm.keySize"
                       required
                     >
-                      <option v-if="selfSignedForm.keyType === 'rsa'" value="2048">2048 bits</option>
-                      <option v-if="selfSignedForm.keyType === 'rsa'" value="3072">3072 bits</option>
-                      <option v-if="selfSignedForm.keyType === 'rsa'" value="4096">4096 bits</option>
-                      <option v-if="selfSignedForm.keyType === 'ecdsa'" value="256">P-256</option>
-                      <option v-if="selfSignedForm.keyType === 'ecdsa'" value="384">P-384</option>
-                      <option v-if="selfSignedForm.keyType === 'ecdsa'" value="521">P-521</option>
+                      <option v-if="selfSignedForm.keyType === 'RSA'" value="2048">2048</option>
+                      <option v-if="selfSignedForm.keyType === 'RSA'" value="4096">4096</option>
+                      <option v-if="selfSignedForm.keyType === 'ECDSA'" value="P-256">P-256</option>
+                      <option v-if="selfSignedForm.keyType === 'ECDSA'" value="P-521">P-521</option>
+                    </select>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label for="hashAlgorithm" class="form-label">Hash Algorithm</label>
+                    <select
+                      class="form-select"
+                      id="hashAlgorithm"
+                      v-model="selfSignedForm.hashAlgorithm"
+                      required
+                    >
+                      <option value="sha256">SHA-256</option>
+                      <option value="sha512">SHA-512</option>
                     </select>
                   </div>
                 </div>
 
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label for="crlValidityDays" class="form-label">CRL Validity (days)</label>
+                    <input
+                      type="number"
+                      class="form-control"
+                      id="crlValidityDays"
+                      v-model.number="selfSignedForm.crlValidityDays"
+                      required
+                      min="1"
+                      max="365"
+                    >
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label for="pathLength" class="form-label">Maximum intermediate CA levels</label>
+                    <input
+                      type="number"
+                      class="form-control"
+                      id="pathLength"
+                      v-model.number="selfSignedForm.pathLength"
+                      required
+                      min="0"
+                      max="10"
+                    >
+                  </div>
+                </div>
+
                 <div class="mb-3">
-                  <label for="caPassword" class="form-label">CA Private Key Password (Optional)</label>
+                  <label for="aiaUrl" class="form-label">AIA URL (where CA certificate can be downloaded)</label>
                   <input
-                    type="password"
+                    type="url"
                     class="form-control"
-                    id="caPassword"
-                    v-model="selfSignedForm.password"
-                    placeholder="Leave empty for system-generated password"
+                    id="aiaUrl"
+                    v-model="selfSignedForm.aiaUrl"
+                    placeholder="http://your-ca.example.com/certs/ca.cert.pem"
                   >
                 </div>
 
                 <div class="mb-3">
-                  <div class="form-check">
-                    <input
-                      class="form-check-input"
-                      type="checkbox"
-                      id="canCreateSubordinateCA"
-                      v-model="selfSignedForm.canCreateSubordinateCA"
-                    >
-                    <label class="form-check-label" for="canCreateSubordinateCA">
-                      Enable Subordinate CA Creation
-                    </label>
-                  </div>
-                  <div class="form-text">
-                    Allow this CA to create subordinate Certificate Authorities.
-                  </div>
-                </div>
-
-                <!-- Advanced PKI Options -->
-                <div class="mb-3">
-                  <h6 class="mb-3">Advanced PKI Options</h6>
-
-                  <div class="row">
-                    <div class="col-md-6 mb-3">
-                      <label for="certificatePoliciesOID" class="form-label">Certificate Policies OID (Optional)</label>
-                      <input
-                        type="text"
-                        class="form-control"
-                        id="certificatePoliciesOID"
-                        v-model="selfSignedForm.certificatePoliciesOID"
-                        placeholder="e.g., 1.2.3.4.1455.67.89.5"
-                      >
-                      <div class="form-text">
-                        Custom OID for certificate policies extension.
-                      </div>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                      <label for="certificatePoliciesCPS" class="form-label">Certificate Practice Statement URL (Optional)</label>
-                      <input
-                        type="url"
-                        class="form-control"
-                        id="certificatePoliciesCPS"
-                        v-model="selfSignedForm.certificatePoliciesCPS"
-                        placeholder="https://pki.yawal.io/cps.html"
-                      >
-                      <div class="form-text">
-                        URL pointing to your Certificate Practice Statement.
-                      </div>
-                    </div>
-                  </div>
+                  <label for="cdpUrl" class="form-label">CDP URL (where Certificate Revocation List can be downloaded)</label>
+                  <input
+                    type="url"
+                    class="form-control"
+                    id="cdpUrl"
+                    v-model="selfSignedForm.cdpUrl"
+                    placeholder="http://your-ca.example.com/crl/ca.crl.pem"
+                  >
                 </div>
 
                 <div class="alert alert-info">
                   <i class="bi bi-info-circle me-2"></i>
-                  These settings configure the Distinguished Name (DN) for your Root CA certificate, following standard X.509 certificate practices.
+                  {{ isRootCA ? 'These settings configure the Distinguished Name (DN) and advanced certificate extensions for your subordinate CA certificate, following standard X.509 certificate practices.' : 'These settings configure the Distinguished Name (DN) and advanced certificate extensions for your Root CA certificate, following standard X.509 certificate practices. Default values are loaded from the OpenSSL configuration.' }}
                 </div>
 
                 <div class="d-flex gap-2">
@@ -390,7 +402,7 @@
                     :disabled="creatingCA"
                   >
                     <span v-if="creatingCA" class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    Create Root CA
+                    {{ isRootCA ? 'Create Subordinate CA' : 'Create Root CA' }}
                   </button>
                   <button type="button" class="btn btn-secondary" @click="showAddCAModal = false">Cancel</button>
                 </div>
@@ -687,16 +699,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useSettingsStore } from '@/stores/settings';
 import { fetchCAs, createSelfSignedCA, importCAFromFile, deleteCA, downloadCA, downloadCAKeyPair, downloadCAById, downloadCAKeyPairById } from '@/api/certificates';
 import { UserRole } from '@/types/User';
 import type { CA } from '@/types/CA';
 import ApiClient from '@/api/ApiClient';
 
 const authStore = useAuthStore();
+const settingsStore = useSettingsStore();
 
 const isAdmin = computed(() => authStore.current_user?.role === UserRole.Admin);
+const isRootCA = computed(() => settingsStore.settings?.common?.is_root_ca || false);
 
 const cas = ref<CA[]>([]);
 const loading = ref(true);
@@ -717,15 +732,18 @@ const selfSignedForm = ref({
   localityName: 'Bin Omran',
   organizationName: 'Your Organization',
   organizationalUnitName: '',
-  commonName: 'rootca.yourdomain.com',
+  commonName: 'subca.yourdomain.com',
   emailAddress: 'pki@yourdomain.com',
   validityYears: 10,
-  keyType: 'rsa',
-  keySize: 2048,
+  keyType: 'RSA',
+  keySize: '2048',
   password: '',
-  canCreateSubordinateCA: false,
-  certificatePoliciesOID: '',
-  certificatePoliciesCPS: ''
+  caName: '',
+  hashAlgorithm: 'sha256',
+  crlValidityDays: 30,
+  pathLength: 1,
+  aiaUrl: 'http://subca.abc.io/certs/ca.cert.pem',
+  cdpUrl: 'http://subca.abc.io/crl/ca.crl.pem'
 });
 
 const importForm = ref({
@@ -736,7 +754,27 @@ const importForm = ref({
 const viewingCA = ref<CA | null>(null);
 const deletingCA = ref<CA | null>(null);
 
+// Watch for key type changes and reset key size to appropriate default
+watch(() => selfSignedForm.value.keyType, (newKeyType: string) => {
+  if (newKeyType === 'RSA' && selfSignedForm.value.keySize !== '2048' && selfSignedForm.value.keySize !== '4096') {
+    selfSignedForm.value.keySize = '2048';
+  } else if (newKeyType === 'ECDSA' && selfSignedForm.value.keySize !== 'P-256' && selfSignedForm.value.keySize !== 'P-521') {
+    selfSignedForm.value.keySize = 'P-256';
+  }
+});
+
 const fileInput = ref<HTMLInputElement | null>(null);
+
+const handleAddCA = () => {
+  if (isRootCA.value) {
+    // In Root CA Server Mode: directly show Create Root CA form
+    caCreationType.value = 'self-signed';
+    showAddCAModal.value = true;
+  } else {
+    // In Normal Mode: show the modal with options
+    showAddCAModal.value = true;
+  }
+};
 
 const loadCAs = async () => {
   try {
@@ -785,7 +823,7 @@ const createSelfSignedCAWrapper = async () => {
   try {
     creatingCA.value = true;
     const id = await createSelfSignedCA(
-      selfSignedForm.value.commonName || 'My Root CA', // CA name (can be same as CN)
+      selfSignedForm.value.caName || selfSignedForm.value.commonName || 'My Root CA', // CA display name, fallback to Common Name
       selfSignedForm.value.validityYears,
       selfSignedForm.value.password || undefined,
       selfSignedForm.value.countryName || undefined,
@@ -795,10 +833,10 @@ const createSelfSignedCAWrapper = async () => {
       selfSignedForm.value.organizationalUnitName || undefined,
       selfSignedForm.value.commonName || undefined, // CN field
       selfSignedForm.value.emailAddress || undefined,
-      selfSignedForm.value.canCreateSubordinateCA,
+      true, // canCreateSubordinateCA - always true for Root CA mode
       selfSignedForm.value.keySize,
-      selfSignedForm.value.certificatePoliciesOID || undefined,
-      selfSignedForm.value.certificatePoliciesCPS || undefined,
+      undefined, // certificatePoliciesOID - not used in first-time setup
+      undefined, // certificatePoliciesCPS - not used in first-time setup
       selfSignedForm.value.keyType
     );
     console.log('Created CA with ID:', id);
@@ -863,12 +901,15 @@ const resetForms = () => {
     commonName: 'rootca.yourdomain.com',
     emailAddress: 'pki@yourdomain.com',
     validityYears: 10,
-    keyType: 'rsa',
-    keySize: 2048,
+    keyType: 'RSA',
+    keySize: '2048',
     password: '',
-    canCreateSubordinateCA: false,
-    certificatePoliciesOID: '',
-    certificatePoliciesCPS: ''
+    caName: '',
+    hashAlgorithm: 'sha256',
+    crlValidityDays: 30,
+    pathLength: 1,
+    aiaUrl: 'http://rootca.abc.io/certs/ca.cert.pem',
+    cdpUrl: 'http://rootca.abc.io/crl/ca.crl.pem'
   };
   importForm.value = { file: null, password: '' };
   if (fileInput.value) {

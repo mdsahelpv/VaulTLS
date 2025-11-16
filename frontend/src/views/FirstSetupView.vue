@@ -419,6 +419,15 @@ watch(keyType, (newKeyType: string) => {
     hashAlgorithm.value = 'sha256';
   }
 });
+
+// Auto-select Root CA Server mode when creating a root CA
+watch(ca_type, (newCaType: string) => {
+  if (newCaType === 'self_signed') {
+    is_root_ca.value = true;
+  } else if (newCaType === 'upload') {
+    is_root_ca.value = false;
+  }
+});
 const crlValidityDays = ref(30);
 const pathLength = ref(1);
 const aiaUrl = ref('http://rootca.abc.io/certs/ca.cert.pem');
