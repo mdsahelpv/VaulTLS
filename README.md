@@ -294,6 +294,28 @@ By default, PKCS12 passwords are optional and certificates will be generated wit
 
 Passwords are stored in the database and retrieved from the web interface only when the user clicks on view password.
 
+### Root CA Server Mode
+VaulTLS supports operating as a **Root CA Server**, which restricts certificate issuance to subordinate CA certificates only. This is useful for organizations that want to maintain strict control over their certificate hierarchy.
+
+#### When to Use Root CA Server Mode
+- **Enterprise PKI hierarchies** where you want to issue only intermediate/subordinate CAs
+- **Regulatory compliance** requiring separation of root and issuing CA roles
+- **Security policies** that prohibit direct end-entity certificate issuance from the root CA
+
+#### Enabling Root CA Server Mode
+During initial setup, check the "Root CA Server" option. This setting cannot be changed after setup.
+
+#### Certificate Restrictions in Root CA Mode
+- **Only Subordinate CA certificates** can be issued
+- **Client and Server certificates** are blocked
+- **All other CA operations** work normally (import, export, management)
+
+#### Root CA Server Workflow
+1. Set up VaulTLS in Root CA Server mode
+2. Issue subordinate CA certificates to intermediate CAs
+3. Deploy intermediate CAs for end-entity certificate issuance
+4. Maintain root CA offline or in secure storage
+
 ### Server Certificates
 Since version v0.7.0 VaulTLS also has support for server certificates.
 The user flow remains quite similar with the difference that SAN DNS entries can be specified.

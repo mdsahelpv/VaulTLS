@@ -13,6 +13,7 @@ export interface Settings {
         password_enabled: boolean;
         password_rule: PasswordRule;
         vaultls_url: string;
+        is_root_ca: boolean;
     },
     mail: {
         smtp_host: string,

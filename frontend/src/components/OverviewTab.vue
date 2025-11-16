@@ -1,5 +1,15 @@
 <template>
   <div class="overview-container">
+    <!-- Root CA Mode Banner -->
+    <div v-if="isRootCA" class="alert alert-warning mb-3">
+      <i class="bi bi-shield-lock me-2"></i>
+      <strong>Root CA Server Mode</strong>
+      <p class="mb-0 mt-1">
+        This instance is configured as a Root CA Server. Only subordinate CA certificates can be issued.
+        Client and server certificates must be issued by importing subordinate CAs into other instances.
+      </p>
+    </div>
+
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h1 class="mb-0">Certificates</h1>
       <div class="d-flex gap-2 align-items-center">
@@ -24,7 +34,7 @@
             class="btn btn-primary me-2"
             @click="showGenerateModal"
         >
-          Create New Certificate
+          {{ isRootCA ? 'Create Subordinate CA' : 'Create New Certificate' }}
         </button>
         <button
             v-if="authStore.isAdmin"
@@ -219,15 +229,14 @@
                   v-model="certReq.cert_type"
                   required
               >
-                <option :value="CertificateType.Client">Client</option>
-                <option :value="CertificateType.Server">Server</option>
-                <option
-                  v-if="selectedCA && selectedCA.can_create_subordinate_ca"
-                  :value="CertificateType.SubordinateCA"
-                >
-                  Subordinate CA
-                </option>
+                <option v-if="!isRootCA" :value="CertificateType.Client">Client</option>
+                <option v-if="!isRootCA" :value="CertificateType.Server">Server</option>
+                <option :value="CertificateType.SubordinateCA">Subordinate CA</option>
               </select>
+              <div v-if="isRootCA" class="form-text text-info">
+                <i class="bi bi-info-circle me-1"></i>
+                Root CA Server mode: Only subordinate CA certificates can be issued.
+              </div>
             </div>
             <div class="mb-3">
               <label for="caId" class="form-label">Certificate Authority (CA)</label>
@@ -866,6 +875,10 @@ const isMailValid = computed(() => {
 
 const selectedCA = computed(() => {
   return availableCAs.value.find(ca => ca.id === certReq.ca_id);
+});
+
+const isRootCA = computed(() => {
+  return settings.value?.common.is_root_ca ?? false;
 });
 
 watch(passwordRule, (newVal) => {

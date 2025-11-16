@@ -38,6 +38,9 @@ pub struct SetupRequest {
     pub organizationalUnitName: Option<String>,
     pub commonName: Option<String>,
     pub emailAddress: Option<String>,
+    // Root CA mode
+    #[serde(default)]
+    pub is_root_ca: bool,
 }
 
 #[derive(FromForm)]
@@ -52,6 +55,8 @@ pub struct SetupFormRequest<'a> {
     pub key_size: Option<String>,
     pub pfx_file: rocket::fs::TempFile<'a>,
     pub pfx_password: Option<String>,
+    #[field(default = false)]
+    pub is_root_ca: bool,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]

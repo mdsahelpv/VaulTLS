@@ -73,6 +73,7 @@ pub(crate) async fn setup_json(
         setup_req.organizationalUnitName.clone(),
         setup_req.commonName.clone(),
         setup_req.emailAddress.clone(),
+        setup_req.is_root_ca,
     ).await
 }
 
@@ -85,7 +86,7 @@ pub(crate) async fn setup_form(
     let mut pfx_data = Vec::new();
     let mut reader = setup_req.pfx_file.open().await.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {}", e)))?;
     reader.read_to_end(&mut pfx_data).await.map_err(|e| ApiError::Other(format!("Failed to read PFX file: {}", e)))?;
-    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone(), setup_req.key_type.clone(), setup_req.key_size.clone(), None, None, None, None, None, None, None, None).await
+    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone(), setup_req.key_type.clone(), setup_req.key_size.clone(), None, None, None, None, None, None, None, None, setup_req.is_root_ca).await
 }
 
 async fn setup_common(
@@ -107,7 +108,9 @@ async fn setup_common(
     organization_name: Option<String>,
     organizational_unit_name: Option<String>,
     common_name: Option<String>,
-    email_address: Option<String>
+    email_address: Option<String>,
+    // Root CA mode
+    is_root_ca: bool
 ) -> Result<(), ApiError> {
     debug!("Starting setup process for user: {}, email: {}", name, email);
 
@@ -235,6 +238,15 @@ async fn setup_common(
             error!("Failed to insert CA into database: {}", e);
             return Err(ApiError::Other(format!("Failed to save CA to database: {}", e)))
         }
+    }
+
+    // Set the Root CA mode in settings
+    state.settings.set_is_root_ca(is_root_ca)?;
+
+    if is_root_ca {
+        info!("VaulTLS set up as Root CA Server - only subordinate CA certificates can be issued");
+    } else {
+        info!("VaulTLS set up as regular Certificate Authority - all certificate types available");
     }
 
     info!("VaulTLS was successfully set up for user: {}", name);
@@ -458,6 +470,12 @@ pub(crate) async fn create_user_certificate(
     } else {
         None
     };
+
+    // Check if we're in Root CA mode and restrict certificate types
+    let is_root_ca = state.settings.get_is_root_ca();
+    if is_root_ca && payload.cert_type.unwrap_or_default() != CertificateType::SubordinateCA {
+        return Err(ApiError::BadRequest("Root CA Server can only issue subordinate CA certificates".to_string()));
+    }
 
     let cert_builder = CertificateBuilder::new_with_ca(Some(&ca))?
         .set_name(&payload.cert_name)?

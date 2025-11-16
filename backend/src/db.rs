@@ -182,8 +182,8 @@ impl VaulTLSDB {
             let cert_chain_json = serde_json::to_string(&ca.cert_chain)?;
 
             conn.execute(
-                "INSERT INTO ca_certificates (created_on, valid_until, certificate, key, creation_source, cert_chain) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![ca.created_on, ca.valid_until, ca.cert, ca.key, ca.creation_source, cert_chain_json],
+                "INSERT INTO ca_certificates (created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![ca.created_on, ca.valid_until, ca.cert, ca.key, ca.creation_source, cert_chain_json, ca.can_create_subordinate_ca],
             )?;
 
             Ok(conn.last_insert_rowid())
@@ -193,7 +193,7 @@ impl VaulTLSDB {
     /// Retrieve the most recent CA entry from the database
     pub(crate) async fn get_current_ca(&self) -> Result<CA> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain FROM ca_certificates ORDER BY id DESC LIMIT 1")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca FROM ca_certificates ORDER BY id DESC LIMIT 1")?;
 
             stmt.query_row([], |row| {
                 let cert_chain: Option<String> = row.get(6)?;
@@ -212,7 +212,7 @@ impl VaulTLSDB {
                     key: row.get(4)?,
                     creation_source: row.get(5)?,
                     cert_chain,
-                    can_create_subordinate_ca: false, // Default for existing records
+                    can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
                 })
             }).map_err(|_| anyhow!("VaulTLS has not been set-up yet"))
         })
@@ -221,7 +221,7 @@ impl VaulTLSDB {
     /// Retrieve all CA certificates from the database
     pub(crate) async fn get_all_ca(&self) -> Result<Vec<CA>> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain FROM ca_certificates ORDER BY id DESC")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca FROM ca_certificates ORDER BY id DESC")?;
             let rows = stmt.query([])?;
             Ok(rows.map(|row| {
                 let cert_chain: Option<String> = row.get(6)?;
@@ -240,7 +240,7 @@ impl VaulTLSDB {
                     key: row.get(4)?,
                     creation_source: row.get(5)?,
                     cert_chain,
-                    can_create_subordinate_ca: false, // Default for existing records
+                    can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
                 })
             })
             .collect()?)
@@ -251,7 +251,7 @@ impl VaulTLSDB {
     #[allow(dead_code)]
     pub(crate) async fn get_ca(&self, id: i64) -> Result<CA> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain FROM ca_certificates WHERE id = ?1")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca FROM ca_certificates WHERE id = ?1")?;
 
             stmt.query_row(params![id], |row| {
                 let cert_chain: Option<String> = row.get(6)?;
@@ -270,7 +270,7 @@ impl VaulTLSDB {
                     key: row.get(4)?,
                     creation_source: row.get(5)?,
                     cert_chain,
-                    can_create_subordinate_ca: false, // Default for existing records
+                    can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
                 })
             }).map_err(|e| anyhow!("CA with id {} not found: {}", id, e))
         })

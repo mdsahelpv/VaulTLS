@@ -150,6 +150,8 @@ pub(crate) struct Common {
     vaultls_url: String,
     #[serde(default)]
     password_rule: PasswordRule,
+    #[serde(default)]
+    is_root_ca: bool,
 }
 
 impl Common {
@@ -373,6 +375,15 @@ impl InnerSettings {
         self.common.password_rule
     }
 
+    fn get_is_root_ca(&self) -> bool {
+        self.common.is_root_ca
+    }
+
+    fn set_is_root_ca(&mut self, is_root_ca: bool) -> Result<(), ApiError> {
+        self.common.is_root_ca = is_root_ca;
+        self.save_to_file(None)
+    }
+
     fn get_crl(&self) -> &CRLSettings { &self.crl }
     fn get_ocsp(&self) -> &OCSPSettings { &self.ocsp }
 }
@@ -447,5 +458,15 @@ impl Settings {
     pub(crate) fn get_ocsp(&self) -> OCSPSettings {
         let settings = self.0.read();
         settings.get_ocsp().clone()
+    }
+
+    pub(crate) fn get_is_root_ca(&self) -> bool {
+        let settings = self.0.read();
+        settings.get_is_root_ca()
+    }
+
+    pub(crate) fn set_is_root_ca(&self, is_root_ca: bool) -> Result<(), ApiError> {
+        let mut settings = self.0.write();
+        settings.set_is_root_ca(is_root_ca)
     }
 }

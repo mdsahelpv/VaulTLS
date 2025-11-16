@@ -17,6 +17,7 @@ export interface SetupReq {
     organizationalUnitName?: string;
     commonName?: string;
     emailAddress?: string;
+    is_root_ca?: boolean;
 }
 
 export interface IsSetupResponse {

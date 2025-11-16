@@ -77,6 +77,25 @@
           </div>
         </div>
 
+        <!-- Root CA Server Mode -->
+        <div v-if="ca_type === 'self_signed'" class="mb-3">
+          <div class="form-check">
+            <input
+                class="form-check-input"
+                type="checkbox"
+                id="is_root_ca"
+                v-model="is_root_ca"
+            />
+            <label class="form-check-label" for="is_root_ca">
+              <strong>Set up as Root CA Server</strong>
+            </label>
+            <div class="form-text">
+              When enabled, this instance will only issue subordinate CA certificates.
+              Client and server certificates must be issued by importing subordinate CAs into other instances.
+            </div>
+          </div>
+        </div>
+
         <!-- Distinguished Name Configuration for Root CA -->
         <div v-if="ca_type === 'self_signed'">
           <h6 class="mb-3">Certificate Authority Configuration</h6>
@@ -370,6 +389,7 @@ const ca_validity_in_years = ref(10);
 const password = ref('');
 const errorMessage = ref('');
 const ca_type = ref('upload'); // Default to upload existing CA
+const is_root_ca = ref(false);
 const pfx_file = ref<File | null>(null);
 const pfx_password = ref('');
 const selectedFileName = ref<string>('');
@@ -492,6 +512,8 @@ const setupPassword = async () => {
       organizationalUnitName: ca_type.value === 'self_signed' ? organizationalUnitName.value : undefined,
       commonName: ca_type.value === 'self_signed' ? commonName.value : undefined,
       emailAddress: ca_type.value === 'self_signed' ? emailAddress.value : undefined,
+      // Root CA mode
+      is_root_ca: is_root_ca.value,
     };
 
     await setup(setupData);
