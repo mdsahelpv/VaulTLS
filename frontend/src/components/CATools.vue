@@ -124,41 +124,7 @@
             <button type="button" class="btn-close" @click="showAddCAModal = false"></button>
           </div>
           <div class="modal-body">
-            <!-- Selection Pane - Only show in Normal Mode -->
-            <div v-if="!isRootCA" class="row">
-              <div class="col-md-6">
-                <div class="card h-100" :class="{ 'border-primary': caCreationType === 'self-signed' }">
-                  <div class="card-body text-center">
-                    <i class="bi bi-key text-primary" style="font-size: 3rem;"></i>
-                    <h5 class="mt-3">Create Root CA</h5>
-                    <p class="text-muted">Generate a new Root Certificate Authority for your organization.</p>
-                    <button
-                      class="btn btn-outline-primary"
-                      :class="{ 'btn-primary': caCreationType === 'self-signed' }"
-                      @click="caCreationType = 'self-signed'"
-                    >
-                      Select
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="card h-100" :class="{ 'border-primary': caCreationType === 'import' }">
-                  <div class="card-body text-center">
-                    <i class="bi bi-upload text-success" style="font-size: 3rem;"></i>
-                    <h5 class="mt-3">Import CA Chain</h5>
-                    <p class="text-muted">Import an existing Certificate Authority from PKCS#12 file.</p>
-                    <button
-                      class="btn btn-outline-success"
-                      :class="{ 'btn-success': caCreationType === 'import' }"
-                      @click="caCreationType = 'import'"
-                    >
-                      Select
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+
 
             <!-- Self-Signed CA Form -->
             <div v-if="caCreationType === 'self-signed'" class="mt-4">
@@ -425,13 +391,13 @@
                   >
                 </div>
                 <div class="mb-3">
-                  <label for="importPassword" class="form-label">PKCS#12 Password</label>
+                  <label for="importPassword" class="form-label">PKCS#12 Password (Leave empty if no password)</label>
                   <input
                     type="password"
                     class="form-control"
                     id="importPassword"
                     v-model="importForm.password"
-                    required
+                    placeholder="Leave empty if no password is set"
                   >
                 </div>
                 <div class="alert alert-info">
@@ -771,7 +737,8 @@ const handleAddCA = () => {
     caCreationType.value = 'self-signed';
     showAddCAModal.value = true;
   } else {
-    // In Normal Mode: show the modal with options
+    // In Normal Mode: directly show Import CA chain form (only option available)
+    caCreationType.value = 'import';
     showAddCAModal.value = true;
   }
 };

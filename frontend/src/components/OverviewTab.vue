@@ -231,7 +231,7 @@
               >
                 <option v-if="!isRootCA" :value="CertificateType.Client">Client</option>
                 <option v-if="!isRootCA" :value="CertificateType.Server">Server</option>
-                <option :value="CertificateType.SubordinateCA">Subordinate CA</option>
+                <option v-if="isRootCA" :value="CertificateType.SubordinateCA">Subordinate CA</option>
               </select>
               <div v-if="isRootCA" class="form-text text-info">
                 <i class="bi bi-info-circle me-1"></i>
