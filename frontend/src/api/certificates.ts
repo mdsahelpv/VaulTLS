@@ -1,5 +1,5 @@
 import ApiClient from './ApiClient';
-import type {Certificate, CertificateDetails} from '@/types/Certificate';
+import type {Certificate, CertificateDetails, CrlMetadata, CrlFileInfo} from '@/types/Certificate';
 import type {CertificateRequirements} from "@/types/CertificateRequirements.ts";
 import type {CAAndCertificate} from '@/types/CA';
 
@@ -142,4 +142,16 @@ export const getRevocationStatus = async (id: number): Promise<any> => {
 
 export const downloadCRL = async (): Promise<void> => {
     return await ApiClient.download('/certificates/crl');
+};
+
+export const getCrlMetadata = async (): Promise<CrlMetadata> => {
+    return await ApiClient.get<CrlMetadata>('/certificates/crl/metadata');
+};
+
+export const listCrlFiles = async (): Promise<CrlFileInfo[]> => {
+    return await ApiClient.get<CrlFileInfo[]>('/certificates/crl/files');
+};
+
+export const downloadCrlBackup = async (filename: string): Promise<void> => {
+    return await ApiClient.download(`/certificates/crl/backup/${filename}`);
 };

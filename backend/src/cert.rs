@@ -13,12 +13,13 @@ use openssl::pkey::{PKey, Private};
 use openssl::stack::Stack;
 use openssl::x509::{X509Name, X509NameBuilder, X509};
 use openssl::x509::extension::{AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName, SubjectKeyIdentifier};
+use openssl::x509::AuthorityInformationAccess;
 use openssl::x509::X509Builder;
 use passwords::PasswordGenerator;
 use rocket_okapi::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
-use crate::constants::CA_FILE_PATH;
+use crate::constants::{CA_FILE_PATH, CRL_DIR_PATH, CURRENT_CRL_FILE_PATH};
 use crate::data::enums::{CertificateRenewMethod, CertificateType};
 use crate::data::enums::CertificateType::{Client, Server};
 use crate::ApiError;
@@ -573,7 +574,7 @@ impl CertificateBuilder {
     }
 
     pub fn build_ca(self) -> Result<CA, anyhow::Error> {
-        let name = self.name.as_ref().ok_or(anyhow!("X509: name not set"))?;
+        let name = self.name.ok_or(anyhow!("X509: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("X509: valid_until not set"))?;
 
         // Use OpenSSL command-line tool with a temporary configuration file
@@ -825,100 +826,322 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
         let name = self.name.ok_or(anyhow!("X509: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("X509: valid_until not set"))?;
         let user_id = self.user_id.ok_or(anyhow!("X509: user_id not set"))?;
-        let ca = self.ca.ok_or(anyhow!("X509: CA not set"))?;
 
-        let ca_cert = X509::from_der(&ca.cert)?;
-        let ca_key = PKey::private_key_from_der(&ca.key)?;
+        // If we have CRL or OCSP URLs, we need to use OpenSSL CLI to generate the certificate
+        // with proper extensions, since rust-openssl doesn't support these extensions
+        if crl_url.is_some() || ocsp_url.is_some() {
+            debug!("Certificate requires CRL/OCSP extensions, using OpenSSL CLI generation");
 
-        let basic_constraints = BasicConstraints::new().build()?;
-        self.x509.append_extension(basic_constraints)?;
+            use std::process::Command;
 
-        let key_usage = KeyUsage::new()
-            .digital_signature()
-            .key_encipherment()
-            .build()?;
-        self.x509.append_extension(key_usage)?;
+            // Collect fields that will be moved before using methods
+            let ca = self.ca.as_ref().ok_or(anyhow!("X509: CA not set"))?;
+            let common_name = self.common_name.as_deref().unwrap_or(&self.name.as_ref().unwrap());
 
-        self.x509.set_issuer_name(ca_cert.subject_name())?;
+            // Create subject name manually for OpenSSL CLI
+            use openssl::x509::X509NameBuilder;
+            let mut subject_builder = X509NameBuilder::new()?;
+            if let Some(country) = &self.country {
+                subject_builder.append_entry_by_text("C", country)?;
+            }
+            if let Some(state) = &self.state {
+                subject_builder.append_entry_by_text("ST", state)?;
+            }
+            if let Some(locality) = &self.locality {
+                subject_builder.append_entry_by_text("L", locality)?;
+            }
+            if let Some(organization) = &self.organization {
+                subject_builder.append_entry_by_text("O", organization)?;
+            }
+            if let Some(org_unit) = &self.organizational_unit {
+                subject_builder.append_entry_by_text("OU", org_unit)?;
+            }
+            subject_builder.append_entry_by_text("CN", common_name)?;
+            if let Some(email) = &self.email {
+                subject_builder.append_entry_by_text("emailAddress", email)?;
+            }
+            let subject_name = subject_builder.build();
 
-        // Add CRL Distribution Points extension if CRL URL is provided
-        if let Some(crl_url) = crl_url {
-            debug!("Adding CRL Distribution Points extension with URL: {}", crl_url);
+            // Create temporary files for certificate generation with extensions
+            let temp_dir = std::env::temp_dir();
+            let ca_cert_path = temp_dir.join(format!("ca_cert_ext_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+            let ca_key_path = temp_dir.join(format!("ca_key_ext_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+            let cert_req_path = temp_dir.join(format!("cert_req_ext_{}.csr", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+            let cert_path = temp_dir.join(format!("cert_ext_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+            let config_path = temp_dir.join(format!("cert_ext_config_{}.cnf", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
 
-            // Construct CRL Distribution Points extension manually
-            // The extension contains a sequence of distribution points
-            // Each distribution point can have a fullName (URI) or nameRelativeToCRLIssuer
+            let cleanup_temp_files = || {
+                let _ = std::fs::remove_file(&ca_cert_path);
+                let _ = std::fs::remove_file(&ca_key_path);
+                let _ = std::fs::remove_file(&cert_req_path);
+                let _ = std::fs::remove_file(&cert_path);
+                let _ = std::fs::remove_file(&config_path);
+            };
 
-            // Create the distribution point name (fullName with URI)
-            // ASN.1 structure: [0] { [0] { uniformResourceIdentifier:"http://..." } }
-            let dist_point_der: Vec<u8> = Vec::new();
+            let ca_cert = X509::from_der(&ca.cert)?;
+            let ca_key = PKey::private_key_from_der(&ca.key)?;
 
-            // Start with the URI as a context-specific tagged [6] (uniformResourceIdentifier)
-            // For simplicity, we'll create a basic structure that should work with most clients
-            // Full implementation would require proper ASN.1 encoding
+            // Write CA certificate and key to temp files
+            let ca_cert_pem = ca_cert.to_pem()
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to encode CA certificate to PEM: {}", e)
+                })?;
+            std::fs::write(&ca_cert_path, &ca_cert_pem)
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to write CA certificate to temp file: {}", e)
+                })?;
 
-            // For now, we'll use a simplified approach that creates a valid extension
-            // This is a placeholder until proper CRL distribution points are available in OpenSSL
-            debug!("CRL Distribution Points extension added (simplified implementation)");
-        }
+            let ca_key_pem = ca_key.private_key_to_pem_pkcs8()
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to encode CA private key to PEM: {}", e)
+                })?;
+            std::fs::write(&ca_key_path, &ca_key_pem)
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to write CA private key to temp file: {}", e)
+                })?;
 
-        // TODO: Add Authority Information Access (OCSP) extension if OCSP URL is provided
-        // NOTE: AuthorityInformationAccess not available in current OpenSSL version
-        if ocsp_url.is_some() {
-            debug!("Authority Information Access (OCSP) extension requested but not implemented (OpenSSL version limitation)");
-        }
+            let mut req_builder = openssl::x509::X509ReqBuilder::new()?;
+            req_builder.set_version(0)?;
+            req_builder.set_subject_name(&subject_name)?;
+            req_builder.set_pubkey(&self.private_key)?;
+            req_builder.sign(&self.private_key, MessageDigest::sha256())?;
+            let cert_req = req_builder.build();
 
-        // Sign with the selected hash algorithm
-        let digest = match self.hash_algorithm.as_deref() {
-            Some("sha256") | Some("sha-256") | Some("SHA-256") | Some("SHA256") => MessageDigest::sha256(),
-            Some("sha512") | Some("sha-512") | Some("SHA-512") | Some("SHA512") => MessageDigest::sha512(),
-            _ => MessageDigest::sha256(), // Default to SHA256
-        };
+            let cert_req_der = cert_req.to_der()
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to encode certificate request to DER: {}", e)
+                })?;
+            std::fs::write(&cert_req_path, &cert_req_der)
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to write certificate request to temp file: {}", e)
+                })?;
 
-        self.x509.sign(&ca_key, digest)?;
-        let cert = self.x509.build();
+            // Create OpenSSL configuration for certificate with extensions
+            let mut config_content = format!(r#"[ req ]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+string_mask = utf8only
+default_md = sha256
 
-        // Build the certificate chain for the PKCS#12 including all intermediate certificates
-        // This ensures that certificates can be properly validated by client applications
-        let mut ca_stack = Stack::new()?;
+[ req_distinguished_name ]
+countryName = Country Name (2 letter code)
+countryName_default = QA
 
-        // Include all certificates from the CA's certificate chain (except the end-entity which is the same as ca.cert)
-        for chain_cert_der in &ca.cert_chain {
-            // Only include chain certificates that are different from the main CA cert to avoid duplicates
-            if chain_cert_der != &ca.cert {
+[ v3_req ]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+"#);
+
+            // Add extended key usage based on certificate type
+            match certificate_type {
+                CertificateType::Client => {
+                    config_content.push_str("extendedKeyUsage = clientAuth\n");
+                },
+                CertificateType::Server => {
+                    config_content.push_str("extendedKeyUsage = serverAuth\n");
+                },
+                _ => {}
+            }
+
+            // Add CRL Distribution Points extension if requested
+            if let Some(crl_url) = crl_url {
+                config_content.push_str(&format!("crlDistributionPoints = URI:{}\n", crl_url));
+            }
+
+            // Add Authority Information Access (OCSP) extension if requested
+            if let Some(ocsp_url) = ocsp_url {
+                config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{}\n", ocsp_url));
+            }
+
+            config_content.push_str(r#"
+
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir = /tmp/ca_temp
+certs = $dir/certs
+new_certs_dir = $dir/newcerts
+database = $dir/index.txt
+serial = $dir/serial.txt
+default_md = sha256
+policy = policy_anything
+email_in_dn = no
+unique_subject = no
+copy_extensions = copy
+
+[ policy_anything ]
+countryName = optional
+stateOrProvinceName = optional
+localityName = optional
+organizationName = optional
+organizationalUnitName = optional
+commonName = supplied
+emailAddress = optional
+
+[ v3_ca ]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+basicConstraints = CA:FALSE
+"#);
+
+            // Add the same extensions to the CA section for signing
+            if let Some(crl_url) = crl_url {
+                config_content.push_str(&format!("crlDistributionPoints = URI:{}\n", crl_url));
+            }
+            if let Some(ocsp_url) = ocsp_url {
+                config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{}\n", ocsp_url));
+            }
+
+            std::fs::write(&config_path, &config_content)
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to write OpenSSL config file: {}", e)
+                })?;
+
+            // Sign the certificate with OpenSSL CLI to include extensions
+            let validity_days = ((valid_until - self.created_on) / (1000 * 60 * 60 * 24)) as u32;
+            let validity_days = validity_days.max(1);
+
+            let output = Command::new("openssl")
+                .args(&[
+                    "x509",
+                    "-req",
+                    "-in", &cert_req_path.to_string_lossy(),
+                    "-CA", &ca_cert_path.to_string_lossy(),
+                    "-CAkey", &ca_key_path.to_string_lossy(),
+                    "-CAcreateserial",
+                    "-out", &cert_path.to_string_lossy(),
+                    "-days", &validity_days.to_string(),
+                    "-sha256",
+                    "-extfile", &config_path.to_string_lossy(),
+                    "-extensions", "v3_ca",
+                ])
+                .output()
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to execute openssl x509 command: {}", e)
+                })?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                cleanup_temp_files();
+                return Err(anyhow!("OpenSSL certificate signing failed: {}", stderr));
+            }
+
+            // Read and convert the signed certificate
+            let cert_pem = std::fs::read(&cert_path)
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to read signed certificate: {}", e)
+                })?;
+            let cert = X509::from_pem(&cert_pem)
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to parse signed certificate: {}", e)
+                })?;
+
+            cleanup_temp_files();
+
+            // Build the certificate chain
+            let mut ca_stack = Stack::new()?;
+            for chain_cert_der in &ca.cert_chain {
                 let chain_cert = X509::from_der(chain_cert_der)?;
                 ca_stack.push(chain_cert)?;
             }
+
+            let pkcs12 = Pkcs12::builder()
+                .name(&name)
+                .ca(ca_stack)
+                .cert(&cert)
+                .pkey(&self.private_key)
+                .build2(&self.pkcs12_password)?;
+
+            Ok(Certificate{
+                id: -1,
+                name,
+                created_on: self.created_on,
+                valid_until,
+                certificate_type,
+                pkcs12: pkcs12.to_der()?,
+                pkcs12_password: self.pkcs12_password,
+                ca_id: ca.id,
+                user_id,
+                renew_method: self.renew_method,
+                is_revoked: false,
+                revoked_on: None,
+                revoked_reason: None,
+                revoked_by: None,
+            })
+        } else {
+            // Use the original rust-openssl implementation when no extensions are needed
+            let ca = self.ca.ok_or(anyhow!("X509: CA not set"))?;
+            let ca_cert = X509::from_der(&ca.cert)?;
+            let ca_key = PKey::private_key_from_der(&ca.key)?;
+
+            let basic_constraints = BasicConstraints::new().build()?;
+            self.x509.append_extension(basic_constraints)?;
+
+            let key_usage = KeyUsage::new()
+                .digital_signature()
+                .key_encipherment()
+                .build()?;
+            self.x509.append_extension(key_usage)?;
+
+            self.x509.set_issuer_name(ca_cert.subject_name())?;
+
+            // Sign with the selected hash algorithm
+            let digest = match self.hash_algorithm.as_deref() {
+                Some("sha256") | Some("sha-256") | Some("SHA-256") | Some("SHA256") => MessageDigest::sha256(),
+                Some("sha512") | Some("sha-512") | Some("SHA-512") | Some("SHA512") => MessageDigest::sha512(),
+                _ => MessageDigest::sha256(), // Default to SHA256
+            };
+
+            self.x509.sign(&ca_key, digest)?;
+            let cert = self.x509.build();
+
+            // Build the certificate chain for the PKCS#12 including all intermediate certificates
+            let mut ca_stack = Stack::new()?;
+            for chain_cert_der in &ca.cert_chain {
+                if chain_cert_der != &ca.cert {
+                    let chain_cert = X509::from_der(chain_cert_der)?;
+                    ca_stack.push(chain_cert)?;
+                }
+            }
+            if ca_stack.len() == 0 {
+                ca_stack.push(ca_cert.clone())?;
+            }
+
+            let pkcs12 = Pkcs12::builder()
+                .name(&name)
+                .ca(ca_stack)
+                .cert(&cert)
+                .pkey(&self.private_key)
+                .build2(&self.pkcs12_password)?;
+
+            Ok(Certificate{
+                id: -1,
+                name,
+                created_on: self.created_on,
+                valid_until,
+                certificate_type,
+                pkcs12: pkcs12.to_der()?,
+                pkcs12_password: self.pkcs12_password,
+                ca_id: ca.id,
+                user_id,
+                renew_method: self.renew_method,
+                is_revoked: false,
+                revoked_on: None,
+                revoked_reason: None,
+                revoked_by: None,
+            })
         }
-
-        // If no chain certificates were added, add the CA cert itself for backward compatibility
-        if ca_stack.len() == 0 {
-            ca_stack.push(ca_cert.clone())?;
-        }
-
-        let pkcs12 = Pkcs12::builder()
-            .name(&name)
-            .ca(ca_stack)
-            .cert(&cert)
-            .pkey(&self.private_key)
-            .build2(&self.pkcs12_password)?;
-
-        Ok(Certificate{
-            id: -1,
-            name,
-            created_on: self.created_on,
-            valid_until,
-            certificate_type,
-            pkcs12: pkcs12.to_der()?,
-            pkcs12_password: self.pkcs12_password,
-            ca_id: ca.id,
-            user_id,
-            renew_method: self.renew_method,
-            is_revoked: false,
-            revoked_on: None,
-            revoked_reason: None,
-            revoked_by: None,
-        })
     }
 
     pub fn build_subordinate_ca(mut self) -> Result<Certificate, anyhow::Error> {
@@ -1288,82 +1511,214 @@ pub(crate) fn get_certificate_details(cert: &Certificate) -> Result<CertificateD
     })
 }
 
-/// Generate a Certificate Revocation List (CRL) for the given CA
+/// Generate a Certificate Revocation List (CRL) for the given CA using external OpenSSL CLI
 pub(crate) fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8>, ApiError> {
-    debug!("CRL generation requested for {} revoked certificates", revoked_certificates.len());
+    debug!("Generating CRL for CA using external OpenSSL CLI ({} revoked certificates)", revoked_certificates.len());
 
-    // Load CA certificate and private key
+    use std::process::Command;
+
+    // Create temporary files
+    let temp_dir = std::env::temp_dir();
+    let ca_cert_path = temp_dir.join(format!("ca_cert_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let ca_key_path = temp_dir.join(format!("ca_key_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let index_path = temp_dir.join(format!("index_{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let serial_path = temp_dir.join(format!("serial_{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let crl_path = temp_dir.join(format!("crl_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let config_path = temp_dir.join(format!("crl_config_{}.cnf", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+
+    let cleanup_temp_files = || {
+        let _ = std::fs::remove_file(&ca_cert_path);
+        let _ = std::fs::remove_file(&ca_key_path);
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&serial_path);
+        let _ = std::fs::remove_file(&crl_path);
+        let _ = std::fs::remove_file(&config_path);
+    };
+
+    // Load CA certificate and key
     let ca_cert = X509::from_der(&ca.cert)
-        .map_err(|e| ApiError::Other(format!("Failed to load CA certificate: {}", e)))?;
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to load CA certificate: {}", e))
+        })?;
 
     let ca_key = PKey::private_key_from_der(&ca.key)
-        .map_err(|e| ApiError::Other(format!("Failed to load CA private key: {}", e)))?;
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to load CA private key: {}", e))
+        })?;
 
-    // Create CRL structure
-    // Note: OpenSSL rust bindings don't have full CRL support, so we'll create a basic implementation
-    // This is a simplified CRL that should work for basic revocation checking
+    // Write CA certificate to PEM
+    let ca_cert_pem = ca_cert.to_pem()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to encode CA certificate to PEM: {}", e))
+        })?;
+    std::fs::write(&ca_cert_path, &ca_cert_pem)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write CA certificate to temp file: {}", e))
+        })?;
 
-    let mut crl_der = Vec::new();
+    // Write CA private key to PEM (PKCS#8 format for better compatibility)
+    let ca_key_pem = ca_key.private_key_to_pem_pkcs8()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to encode CA private key to PEM: {}", e))
+        })?;
+    std::fs::write(&ca_key_path, &ca_key_pem)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write CA private key to temp file: {}", e))
+        })?;
 
-    // CRL header (simplified ASN.1 structure)
-    // This is a basic implementation - in production, you'd want proper ASN.1 encoding
+    // Create OpenSSL index file with revoked certificates
+    let mut index_content = String::new();
 
-    // Version (v2)
-    crl_der.extend_from_slice(&[0x30]); // SEQUENCE
-    // We'll build the CRL content manually since OpenSSL bindings are limited
+    // Format: Status|Expiration|RevocationDate|Serial|FileName|Subject
+    // We use a far-future expiration date since we don't track individual certificate validity in this context
+    let far_future = "20351231235959Z";
 
-    // For now, create a minimal valid CRL structure
-    // This is a placeholder that creates a technically valid but minimal CRL
-    // In production, this should be replaced with proper CRL generation
+    for (i, entry) in revoked_certificates.iter().enumerate() {
+        // Convert revocation date from milliseconds to OpenSSL UTCTime format
+        let revocation_time = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(entry.revocation_date as u64);
+        let revocation_datetime: chrono::DateTime<chrono::Utc> = revocation_time.into();
+        let revocation_openssl = revocation_datetime.format("%y%m%d%H%M%SZ").to_string();
 
-    // Basic CRL structure (simplified):
-    // SEQUENCE {
-    //   SEQUENCE {  // tbsCertList
-    //     INTEGER 1,  // version
-    //     AlgorithmIdentifier,
-    //     Name,  // issuer
-    //     UTCTime,  // thisUpdate
-    //     UTCTime,  // nextUpdate
-    //     SEQUENCE OF {  // revokedCertificates (optional)
-    //       SEQUENCE {  // RevokedCertificate
-    //         INTEGER,  // serialNumber
-    //         UTCTime   // revocationDate
-    //       }
-    //     }
-    //   }
-    //   AlgorithmIdentifier,
-    //   BIT STRING  // signature
-    // }
+        // Convert serial number to hex string
+        let serial_hex = hex::encode(&entry.serial_number).to_uppercase();
 
-    // Since OpenSSL rust bindings don't support CRL creation directly,
-    // we'll return a placeholder for now and implement external tool integration later
-    debug!("CRL structure prepared with {} revoked certificates", revoked_certificates.len());
+        // Create a unique filename for this entry
+        let filename = format!("unknown_{}", i + 1);
 
-    // For immediate functionality, return a basic valid CRL
-    // This is a minimal CRL that should be accepted by most clients
-    // TODO: Replace with proper CRL generation when OpenSSL supports it
+        // Create subject (simplified - we don't have full subject info from CRLEntry)
+        let subject = format!("/CN=RevokedCertificate{}", i + 1);
 
-    // Create a minimal valid DER-encoded CRL
-    // This is a simplified implementation for basic functionality
-    let minimal_crl_der = vec![
-        0x30, 0x1F,  // SEQUENCE, length 31
-        0x30, 0x1D,  // SEQUENCE (tbsCertList), length 29
-        0x02, 0x01, 0x01,  // INTEGER 1 (version)
-        0x30, 0x0D,  // SEQUENCE (AlgorithmIdentifier)
-        0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B,  // sha256WithRSAEncryption
-        0x05, 0x00,  // NULL
-        0x30, 0x00,  // Name (empty for simplicity)
-        0x17, 0x0D, 0x32, 0x35, 0x31, 0x31, 0x31, 0x30, 0x30, 0x37, 0x32, 0x34, 0x33, 0x32, 0x5A,  // UTCTime thisUpdate
-        0x17, 0x0D, 0x32, 0x35, 0x31, 0x31, 0x31, 0x31, 0x30, 0x37, 0x32, 0x34, 0x33, 0x32, 0x5A,  // UTCTime nextUpdate
-        // revokedCertificates would go here if any
-        0x30, 0x0D,  // SEQUENCE (AlgorithmIdentifier)
-        0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B,  // sha256WithRSAEncryption
-        0x05, 0x00,  // NULL
-        0x03, 0x01, 0x00  // BIT STRING (empty signature for now)
-    ];
+        // Add entry for revoked certificate
+        index_content.push_str(&format!("R|{}|{}|{}|{}|{}\n",
+            far_future,        // Expiration (not relevant for CRL)
+            revocation_openssl, // Revocation date
+            serial_hex,        // Serial number in hex
+            filename,          // File name (not used)
+            subject            // Subject (simplified)
+        ));
+    }
 
-    debug!("Generated minimal CRL with {} bytes", minimal_crl_der.len());
-    Ok(minimal_crl_der)
+    std::fs::write(&index_path, &index_content)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write CRL index file: {}", e))
+        })?;
+
+    // Create serial file for CRL numbering
+    let crl_serial_big_num = generate_serial_number()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to generate CRL serial number: {}", e))
+        })?
+        .to_bn()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to convert ASN.1 integer to BigNum: {}", e))
+        })?;
+    let crl_serial = crl_serial_big_num.to_hex_str()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to convert CRL serial to hex: {}", e))
+        })?;
+    std::fs::write(&serial_path, format!("{}\n", crl_serial))
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write CRL serial file: {}", e))
+        })?;
+
+    // Create OpenSSL configuration for CRL generation
+    let config_content = format!(r#"[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+database = {}
+serial = {}
+crl_extensions = crl_ext
+default_crl_days = 30
+default_md = sha256
+
+[ crl_ext ]
+authorityKeyIdentifier=keyid:always
+"#, index_path.to_string_lossy(), serial_path.to_string_lossy());
+
+    std::fs::write(&config_path, &config_content)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write OpenSSL config file: {}", e))
+        })?;
+
+    // Run OpenSSL command to generate CRL
+    let output = Command::new("openssl")
+        .args(&[
+            "ca",
+            "-config", &config_path.to_string_lossy(),
+            "-gencrl",
+            "-keyfile", &ca_key_path.to_string_lossy(),
+            "-cert", &ca_cert_path.to_string_lossy(),
+            "-out", &crl_path.to_string_lossy(),
+            "-batch",  // Don't prompt for anything
+        ])
+        .output()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to execute openssl ca command: {}", e))
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        cleanup_temp_files();
+        return Err(ApiError::Other(format!("OpenSSL CRL generation failed: {}", stderr)));
+    }
+
+    // The CRL is already generated in PEM format, now convert PEM to DER
+    let crl_der_path = temp_dir.join(format!("crl_der_{}.der", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let cleanup_temp_files = || {
+        let _ = std::fs::remove_file(&ca_cert_path);
+        let _ = std::fs::remove_file(&ca_key_path);
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&serial_path);
+        let _ = std::fs::remove_file(&crl_path);
+        let _ = std::fs::remove_file(&crl_der_path);
+        let _ = std::fs::remove_file(&config_path);
+    };
+
+    let crl_der = Command::new("openssl")
+        .args(&[
+            "crl",
+            "-inform", "PEM",
+            "-outform", "DER",
+            "-in", &crl_path.to_string_lossy(),
+            "-out", &crl_der_path.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to convert CRL to DER: {}", e))
+        })?;
+
+    if !crl_der.status.success() {
+        let stderr = String::from_utf8_lossy(&crl_der.stderr);
+        cleanup_temp_files();
+        return Err(ApiError::Other(format!("CRL DER conversion failed: {}", stderr)));
+    }
+
+    // Read the DER encoded CRL
+    let crl_der_data = std::fs::read(&crl_der_path)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to read DER CRL: {}", e))
+        })?;
+
+    cleanup_temp_files();
+
+    debug!("Successfully generated CRL using OpenSSL CLI ({} bytes)", crl_der_data.len());
+    Ok(crl_der_data)
 }
 
 /// Convert CRL to PEM format
@@ -1394,6 +1749,227 @@ pub(crate) fn crl_to_pem(crl_der: &[u8]) -> Result<Vec<u8>, ApiError> {
 
     debug!("Converted CRL to PEM format ({} bytes)", pem.len());
     Ok(pem)
+}
+
+/// Save CRL to file system with metadata
+pub(crate) fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    debug!("Saving CRL to file system for CA {}", ca_id);
+
+    // Ensure CRL directory exists
+    std::fs::create_dir_all(CRL_DIR_PATH).map_err(|e| {
+        error!("Failed to create CRL directory: {}", e);
+        ApiError::Other(format!("Failed to create CRL directory: {}", e))
+    })?;
+
+    // Convert to PEM format for storage
+    let crl_pem = crl_to_pem(crl_der)?;
+
+    // Save to current CRL file
+    std::fs::write(CURRENT_CRL_FILE_PATH, &crl_pem).map_err(|e| {
+        error!("Failed to write CRL file: {}", e);
+        ApiError::Other(format!("Failed to write CRL file: {}", e))
+    })?;
+
+    // Create timestamped backup
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let backup_path = format!("{}/ca_{}_{}.crl", CRL_DIR_PATH, ca_id, timestamp);
+    std::fs::write(&backup_path, &crl_pem).map_err(|e| {
+        error!("Failed to write CRL backup file: {}", e);
+        ApiError::Other(format!("Failed to write CRL backup file: {}", e))
+    })?;
+
+    debug!("Successfully saved CRL to file system (main: {}, backup: {})",
+           CURRENT_CRL_FILE_PATH, backup_path);
+    Ok(())
+}
+
+/// Load CRL from file system
+pub(crate) fn load_crl_from_file() -> Result<Vec<u8>, ApiError> {
+    debug!("Loading CRL from file system");
+
+    // Check if CRL file exists
+    if !std::path::Path::new(CURRENT_CRL_FILE_PATH).exists() {
+        debug!("CRL file does not exist: {}", CURRENT_CRL_FILE_PATH);
+        return Err(ApiError::NotFound(Some("CRL file not found".to_string())));
+    }
+
+    // Read the PEM-encoded CRL
+    let crl_pem = std::fs::read(CURRENT_CRL_FILE_PATH).map_err(|e| {
+        error!("Failed to read CRL file: {}", e);
+        ApiError::Other(format!("Failed to read CRL file: {}", e))
+    })?;
+
+    // Extract DER data from PEM
+    let crl_pem_str = String::from_utf8_lossy(&crl_pem);
+    let der_data = extract_der_from_pem(&crl_pem_str)?;
+
+    debug!("Successfully loaded CRL from file system ({} bytes)", der_data.len());
+    Ok(der_data)
+}
+
+/// Get CRL metadata from file system
+#[derive(Serialize, Deserialize, JsonSchema, Debug)]
+pub struct CrlMetadata {
+    pub ca_id: i64,
+    pub file_size: u64,
+    pub created_time: i64,
+    pub modified_time: i64,
+    pub backup_count: usize,
+}
+
+pub(crate) fn get_crl_metadata(ca_id: i64) -> Result<CrlMetadata, ApiError> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    debug!("Getting CRL metadata for CA {}", ca_id);
+
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    // Check current CRL file
+    let file_path = std::path::Path::new(CURRENT_CRL_FILE_PATH);
+    if !file_path.exists() {
+        return Err(ApiError::NotFound(Some("CRL file not found".to_string())));
+    }
+
+    let metadata = file_path.metadata().map_err(|e| {
+        ApiError::Other(format!("Failed to get file metadata: {}", e))
+    })?;
+
+    // Count backup files for this CA
+    let backup_count = match std::fs::read_dir(CRL_DIR_PATH) {
+        Ok(entries) => {
+            entries.filter_map(|entry_result| {
+                entry_result.ok().and_then(|entry| {
+                    entry.file_name().to_str().and_then(|name| {
+                        // Look for files that start with ca_{ca_id}_
+                        if name.starts_with(&format!("ca_{}_", ca_id)) && name.ends_with(".crl") {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    })
+                })
+            }).count()
+        },
+        Err(_) => 0,
+    };
+
+    let crl_metadata = CrlMetadata {
+        ca_id,
+        file_size: metadata.len(),
+        created_time: metadata.created().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            .duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64,
+        modified_time: metadata.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            .duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64,
+        backup_count,
+    };
+
+    debug!("CRL metadata retrieved: {:?}", crl_metadata);
+    Ok(crl_metadata)
+}
+
+/// List all stored CRL files with their metadata
+#[derive(Serialize, Deserialize, JsonSchema, Debug)]
+pub struct CrlFileInfo {
+    pub filename: String,
+    pub ca_id: i64,
+    pub created_time: i64,
+    pub file_size: u64,
+}
+
+pub(crate) fn list_crl_files() -> Result<Vec<CrlFileInfo>, ApiError> {
+    debug!("Listing all CRL files");
+
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let mut crl_files = Vec::new();
+
+    // Create directory if it doesn't exist
+    if !std::path::Path::new(CRL_DIR_PATH).exists() {
+        std::fs::create_dir_all(CRL_DIR_PATH).map_err(|e| {
+            ApiError::Other(format!("Failed to create CRL directory: {}", e))
+        })?;
+        return Ok(crl_files);
+    }
+
+    let entries = std::fs::read_dir(CRL_DIR_PATH).map_err(|e| {
+        ApiError::Other(format!("Failed to read CRL directory: {}", e))
+    })?;
+
+    for entry_result in entries {
+        let entry = entry_result.map_err(|e| {
+            ApiError::Other(format!("Failed to read directory entry: {}", e))
+        })?;
+
+        let path = entry.path();
+        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+            if filename.ends_with(".crl") {
+                // Parse CA ID and timestamp from filename ca_{ca_id}_{timestamp}.crl
+                if let Some(ca_id) = parse_ca_id_from_filename(filename) {
+                    if let Ok(metadata) = entry.metadata() {
+                        let created_time = metadata.created().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                            .duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+
+                        crl_files.push(CrlFileInfo {
+                            filename: filename.to_string(),
+                            ca_id,
+                            created_time,
+                            file_size: metadata.len(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by creation time (newest first)
+    crl_files.sort_by(|a, b| b.created_time.cmp(&a.created_time));
+
+    debug!("Found {} CRL files", crl_files.len());
+    Ok(crl_files)
+}
+
+/// Parse CA ID from CRL filename (format: ca_{ca_id}_{timestamp}.crl)
+fn parse_ca_id_from_filename(filename: &str) -> Option<i64> {
+    // Remove .crl extension
+    let name_without_ext = filename.strip_suffix(".crl")?;
+
+    // Split by underscore and extract CA ID
+    let parts: Vec<&str> = name_without_ext.split('_').collect();
+    if parts.len() >= 2 && parts[0] == "ca" {
+        parts[1].parse::<i64>().ok()
+    } else {
+        None
+    }
+}
+
+/// Extract DER data from PEM format
+fn extract_der_from_pem(pem_str: &str) -> Result<Vec<u8>, ApiError> {
+    // Find the PEM content between BEGIN and END markers
+    let begin_marker = "-----BEGIN X509 CRL-----";
+    let end_marker = "-----END X509 CRL-----";
+
+    let start_pos = pem_str.find(begin_marker)
+        .ok_or_else(|| ApiError::Other("Invalid PEM format: BEGIN marker not found".to_string()))?;
+    let end_pos = pem_str.find(end_marker)
+        .ok_or_else(|| ApiError::Other("Invalid PEM format: END marker not found".to_string()))?;
+
+    let pem_content = &pem_str[start_pos + begin_marker.len()..end_pos];
+
+    // Remove whitespace and decode from base64
+    let clean_content: String = pem_content.chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+
+    base64::decode(&clean_content)
+        .map_err(|e| ApiError::Other(format!("Failed to decode base64 PEM content: {}", e)))
 }
 
 /// Parse an OCSP request from DER-encoded bytes

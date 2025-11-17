@@ -60,6 +60,21 @@ export interface CADetails {
     certificate_pem: string;
 }
 
+export interface CrlMetadata {
+    ca_id: number;
+    file_size: number;
+    created_time: number;
+    modified_time: number;
+    backup_count: number;
+}
+
+export interface CrlFileInfo {
+    filename: string;
+    ca_id: number;
+    created_time: number;
+    file_size: number;
+}
+
 export interface CertificateDetails {
     id: number;
     name: string;

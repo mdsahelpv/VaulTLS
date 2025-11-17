@@ -393,9 +393,36 @@ pub(crate) async fn change_password(
 #[post("/auth/logout")]
 /// Endpoint to logout.
 pub(crate) async fn logout(
-    jar: &CookieJar<'_>
+    jar: &CookieJar<'_>,
+    authentication: Authenticated,
+    state: &State<AppState>
 ) -> Result<(), ApiError> {
     jar.remove_private(Cookie::build(("name", "auth_token")));
+
+    // Audit log user logout
+    if let Err(e) = state.audit.log_authentication(
+        Some(authentication.claims.id), // User logging out
+        None, // TODO: get actual user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        "logout",
+        true,
+        None,
+        Some(serde_json::json!({
+            "logout_successful": true,
+            "session_ended": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+            "logout_timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        }).to_string()),
+    ).await {
+        warn!("Failed to log authentication logout audit event: {}", e);
+    }
+
     Ok(())
 }
 
@@ -615,7 +642,7 @@ pub(crate) async fn create_user_certificate(
 pub(crate) async fn create_self_signed_ca(
     state: &State<AppState>,
     payload: Json<CreateCASelfSignedRequest>,
-    _authentication: AuthenticatedPrivileged
+    authentication: AuthenticatedPrivileged
 ) -> Result<Json<i64>, ApiError> {
     debug!(ca_name=?payload.name, validity_years=?payload.validity_in_years, "Creating self-signed CA");
 
@@ -657,10 +684,34 @@ pub(crate) async fn create_self_signed_ca(
     let mut ca = builder.build_ca()?;
     ca.can_create_subordinate_ca = payload.can_create_subordinate_ca;
 
+    let ca_id = ca.id;
+    // Extract CA name from certificate subject
+    let ca_cert = X509::from_der(&ca.cert)?;
+    let subject_name = ca_cert.subject_name();
+    let ca_name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+        .and_then(|e| e.data().as_utf8().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
     let ca = state.db.insert_ca(ca).await?;
     info!(ca=?ca, "Self-signed CA created");
 
-    Ok(Json(ca))
+    // Audit log CA creation
+    if let Err(e) = state.audit.log_ca_operation(
+        Some(authentication._claims.id), // Admin doing the operation
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        ca,
+        &ca_name,
+        "create",
+        true,
+        None,
+        None,
+    ).await {
+        warn!("Failed to log CA creation audit event: {}", e);
+    }
+
+    Ok(Json(ca_id))
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
@@ -702,7 +753,7 @@ pub struct CreateCASelfSignedRequest {
 pub(crate) async fn import_ca_from_file(
     state: &State<AppState>,
     upload: Form<ImportCARequest<'_>>,
-    _authentication: AuthenticatedPrivileged
+    authentication: AuthenticatedPrivileged
 ) -> Result<Json<i64>, ApiError> {
     debug!("Importing CA from PKCS#12 file");
 
@@ -712,10 +763,35 @@ pub(crate) async fn import_ca_from_file(
     reader.read_to_end(&mut buffer).await.map_err(|e| ApiError::Other(format!("Failed to read file: {}", e)))?;
 
     let ca = CertificateBuilder::from_pfx(&buffer, upload.password.as_deref(), upload.name.as_deref())?;
+    let ca_id = ca.id;
+    // Extract CA name from certificate subject
+    let ca_cert = X509::from_der(&ca.cert)?;
+    let subject_name = ca_cert.subject_name();
+    let ca_name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+        .and_then(|e| e.data().as_utf8().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
     let ca = state.db.insert_ca(ca).await?;
 
     info!(ca=?ca, "CA imported from PKCS#12 file");
-    Ok(Json(ca))
+
+    // Audit log CA import
+    if let Err(e) = state.audit.log_ca_operation(
+        Some(authentication._claims.id), // Admin doing the import
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        ca,
+        &ca_name,
+        "import",
+        true,
+        None,
+        None,
+    ).await {
+        warn!("Failed to log CA import audit event: {}", e);
+    }
+
+    Ok(Json(ca_id))
 }
 
 #[derive(FromForm, JsonSchema, Debug)]
@@ -757,7 +833,7 @@ pub(crate) async fn download_ca_by_id(
 pub(crate) async fn download_ca_key_pair_by_id(
     state: &State<AppState>,
     id: i64,
-    _authentication: AuthenticatedPrivileged
+    authentication: AuthenticatedPrivileged
 ) -> Result<DownloadResponse, ApiError> {
     let ca = state.db.get_ca(id).await?;
 
@@ -776,6 +852,38 @@ pub(crate) async fn download_ca_key_pair_by_id(
     combined_pem.extend(b"\n");
     combined_pem.extend(key_pem);
 
+    // Extract CA name from certificate subject
+    let ca_cert = X509::from_der(&ca.cert)?;
+    let subject_name = ca_cert.subject_name();
+    let ca_name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+        .and_then(|e| e.data().as_utf8().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    // Audit log CA private key download - HIGH SECURITY RISK
+    if let Err(e) = state.audit.log_ca_operation(
+        Some(authentication._claims.id), // Admin downloading the keys
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        ca.id,
+        &ca_name,
+        "download_private_key",
+        true,
+        Some(serde_json::json!({
+            "security_risk": "HIGH",
+            "operation": "CA private key exported",
+            "exported_by": authentication._claims.id,
+            "export_timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        }).to_string()),
+        None,
+    ).await {
+        warn!("Failed to log CA private key download audit event: {}", e);
+    }
+
     Ok(DownloadResponse::new(combined_pem, &format!("ca_certificate_and_key_{}.pem", ca.id)))
 }
 
@@ -785,7 +893,7 @@ pub(crate) async fn download_ca_key_pair_by_id(
 /// Requires admin role.
 pub(crate) async fn download_ca_key_pair(
     state: &State<AppState>,
-    _authentication: AuthenticatedPrivileged
+    authentication: AuthenticatedPrivileged
 ) -> Result<DownloadResponse, ApiError> {
     let ca = state.db.get_current_ca().await?;
 
@@ -803,6 +911,30 @@ pub(crate) async fn download_ca_key_pair(
     combined_pem.extend(cert_pem);
     combined_pem.extend(b"\n");
     combined_pem.extend(key_pem);
+
+    // Audit log CA private key download - HIGH SECURITY RISK
+    if let Err(e) = state.audit.log_ca_operation(
+        Some(authentication._claims.id), // Admin downloading the keys
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        ca.id,
+        "Unknown", // TODO: Extract CA name from certificate
+        "download_private_key",
+        true,
+        Some(serde_json::json!({
+            "security_risk": "HIGH",
+            "operation": "CA private key exported",
+            "exported_by": authentication._claims.id,
+            "export_timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        }).to_string()),
+        None,
+    ).await {
+        warn!("Failed to log CA private key download audit event: {}", e);
+    }
 
     Ok(DownloadResponse::new(combined_pem, "ca_certificate_and_key.pem"))
 }
@@ -973,8 +1105,11 @@ pub(crate) async fn get_ca_list(
 pub(crate) async fn delete_ca(
     state: &State<AppState>,
     id: i64,
-    _authentication: AuthenticatedPrivileged
+    authentication: AuthenticatedPrivileged
 ) -> Result<(), ApiError> {
+    // Get CA details before deletion for audit logging
+    let ca_to_delete = state.db.get_ca(id).await.map_err(|_| ApiError::NotFound(Some("CA not found".to_string())))?;
+
     // Check if this CA is being used by any certificates
     // Note: This is a simplified check; in production you might want more comprehensive validation
 
@@ -983,6 +1118,34 @@ pub(crate) async fn delete_ca(
 
     state.db.delete_ca(id).await?;
     info!(ca_id=id, "CA deleted");
+
+    // Extract CA name from certificate subject for audit logging
+    let ca_cert = X509::from_der(&ca_to_delete.cert)?;
+    let subject_name = ca_cert.subject_name();
+    let ca_name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+        .and_then(|e| e.data().as_utf8().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    // Audit log CA deletion
+    if let Err(e) = state.audit.log_ca_operation(
+        Some(authentication._claims.id), // Admin doing the deletion
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        id,
+        &ca_name,
+        "delete",
+        true,
+        Some(serde_json::json!({
+            "creation_source": ca_to_delete.creation_source,
+            "created_on": ca_to_delete.created_on,
+            "valid_until": ca_to_delete.valid_until
+        }).to_string()),
+        None,
+    ).await {
+        warn!("Failed to log CA deletion audit event: {}", e);
+    }
 
     Ok(())
 }
@@ -1275,9 +1438,12 @@ pub(crate) async fn fetch_settings(
 pub(crate) async fn update_settings(
     state: &State<AppState>,
     payload: Json<InnerSettings>,
-    _authentication: AuthenticatedPrivileged
+    authentication: AuthenticatedPrivileged
 ) -> Result<(), ApiError> {
     let mut oidc = state.oidc.lock().await;
+
+    // Capture settings before changes for audit logging
+    let old_frontend_settings = FrontendSettings(state.settings.clone());
 
     state.settings.set_settings(&payload)?;
 
@@ -1307,6 +1473,33 @@ pub(crate) async fn update_settings(
     }
 
     info!("Settings updated.");
+
+    // Audit log settings change with before/after comparison
+    if let Err(e) = state.audit.log_settings_change(
+        Some(authentication._claims.id), // Admin making the change
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        "update_settings", // Action
+        true, // Success
+        Some(serde_json::json!({
+            "old_settings": old_frontend_settings,
+            "new_settings": FrontendSettings(state.settings.clone()),
+            "modified_by": authentication._claims.id,
+            "change_timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        })),
+        Some(serde_json::json!({
+            "settings_updated": "Application configuration modified",
+            "admin_id": authentication._claims.id
+        })),
+        None, // session_id
+        None, // additional_details
+    ).await {
+        warn!("Failed to log settings change audit event: {}", e);
+    }
 
     Ok(())
 }
@@ -1399,6 +1592,9 @@ pub(crate) async fn update_user(
         return Err(ApiError::Forbidden(None))
     }
 
+    // Get current user for before/after comparison
+    let old_user = state.db.get_user(id).await?;
+
     let user = User {
         id,
         ..payload.into_inner()
@@ -1407,6 +1603,63 @@ pub(crate) async fn update_user(
 
     info!(user=?user, "User updated.");
     trace!("{:?}", user);
+
+    // Audit log user profile update with role change detection
+    let role_changed = old_user.role != user.role;
+    if let Err(e) = state.audit.log_user_operation(
+        Some(authentication.claims.id), // Admin or user doing the update
+        None, // TODO: get actual user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        id,
+        &user.name,
+        "update",
+        true,
+        Some(serde_json::json!({
+            "old_profile": {
+                "name": old_user.name,
+                "email": old_user.email,
+                "role": old_user.role
+            }
+        })),
+        Some(serde_json::json!({
+            "new_profile": {
+                "name": user.name,
+                "email": user.email,
+                "role": user.role
+            },
+            "changes_detected": {
+                "role_changed": role_changed,
+                "name_changed": old_user.name != user.name,
+                "email_changed": old_user.email != user.email,
+                "updated_by": authentication.claims.id
+            }
+        })),
+        None,
+        Some(if role_changed {
+            serde_json::json!({
+                "security_event": "Role change detected",
+                "old_role": old_user.role,
+                "new_role": user.role,
+                "changed_by": authentication.claims.id,
+                "change_timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+            }).to_string()
+        } else {
+            serde_json::json!({
+                "profile_update": "User profile modified",
+                "updated_by": authentication.claims.id,
+                "update_timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+            }).to_string()
+        }),
+    ).await {
+        warn!("Failed to log user profile update audit event: {}", e);
+    }
 
     Ok(())
 }
@@ -1417,11 +1670,35 @@ pub(crate) async fn update_user(
 pub(crate) async fn delete_user(
     state: &State<AppState>,
     id: i64,
-    _authentication: AuthenticatedPrivileged
+    authentication: AuthenticatedPrivileged
 ) -> Result<(), ApiError> {
+    // Get user details before deletion for audit logging
+    let user_to_delete = state.db.get_user(id).await.map_err(|_| ApiError::NotFound(Some("User not found".to_string())))?;
+
     state.db.delete_user(id).await?;
 
     info!(user=?id, "User deleted.");
+
+    // Audit log user deletion
+    if let Err(e) = state.audit.log_user_operation(
+        Some(authentication._claims.id), // Admin doing the deletion
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        id,
+        &user_to_delete.name,
+        "delete",
+        true,
+        Some(serde_json::json!({
+            "role": user_to_delete.role,
+            "email": user_to_delete.email
+        })),
+        None,
+        None,
+        None,
+    ).await {
+        warn!("Failed to log user deletion audit event: {}", e);
+    }
 
     Ok(())
 }
@@ -1493,6 +1770,35 @@ pub(crate) async fn revoke_certificate(
     debug!("CRL cache cleared due to certificate revocation");
 
     info!(cert_id=id, cert_name=?cert.name, admin_id=?authentication._claims.id, "Certificate revoked successfully");
+
+    // Audit log certificate revocation
+    if let Err(e) = state.audit.log_certificate_operation(
+        Some(authentication._claims.id), // Admin ID doing the revocation
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        id,
+        &cert.name,
+        "revoke",
+        true,
+        Some(serde_json::json!({
+            "old_status": "active",
+            "revocation_reason": format!("{:?}", payload.reason),
+            "notify_user": payload.notify_user
+        })),
+        Some(serde_json::json!({
+            "new_status": "revoked",
+            "revoked_by": authentication._claims.id,
+            "revocation_date": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        })),
+        None,
+        None,
+    ).await {
+        warn!("Failed to log certificate revocation audit event: {}", e);
+    }
 
     // Optionally notify the user
     if payload.notify_user.unwrap_or(false) {
@@ -1702,17 +2008,118 @@ pub(crate) async fn download_crl(
     let crl_der = generate_crl(&ca, &revoked_entries)?;
     let crl_pem = crate::cert::crl_to_pem(&crl_der)?;
 
-    // Cache the CRL for 5 minutes
-    let valid_until = current_time + (5 * 60 * 1000); // 5 minutes in milliseconds
+    // Save CRL to file system for persistence
+    if let Err(e) = crate::cert::save_crl_to_file(&crl_der, ca.id) {
+        warn!("Failed to save CRL to file system: {}", e);
+        // Continue anyway - the CRL will still work from cache
+    }
+
+    // Get CRL cache timeout from settings (refresh_interval_hours converted to milliseconds)
+    let crl_settings = state.settings.get_crl();
+    let cache_timeout_ms = (crl_settings.refresh_interval_hours as i64) * 60 * 60 * 1000; // hours to milliseconds
+
+    // Cache the CRL for the configured interval
+    let valid_until = current_time + cache_timeout_ms;
     *cache = Some(CrlCache {
         data: crl_pem.clone(),
         last_updated: current_time,
         valid_until,
     });
 
-    debug!("Generated and cached new CRL (valid until {})", valid_until);
+    debug!("Generated, saved to file system, and cached new CRL (valid until {}, cache timeout: {} hours)",
+           valid_until, crl_settings.refresh_interval_hours);
 
     Ok(DownloadResponse::new(crl_pem, "certificate_revocation_list.crl"))
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/crl/metadata")]
+/// Get CRL metadata information. Requires authentication.
+/// Returns information about the current CRL including file size, creation time, and backup count.
+///
+/// Response format:
+/// ```json
+/// {
+///   "ca_id": 1,
+///   "file_size": 1024,
+///   "created_time": 1640995200000,
+///   "modified_time": 1640995200000,
+///   "backup_count": 5
+/// }
+/// ```
+pub(crate) async fn get_crl_metadata_endpoint(
+    state: &State<AppState>,
+    _authentication: Authenticated
+) -> Result<Json<crate::cert::CrlMetadata>, ApiError> {
+    let ca = state.db.get_current_ca().await?;
+    let metadata = crate::cert::get_crl_metadata(ca.id)?;
+    Ok(Json(metadata))
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/crl/files")]
+/// List all CRL files and their metadata. Requires admin role.
+/// Returns a list of all CRL backup files with their creation times and sizes.
+///
+/// Response format:
+/// ```json
+/// [
+///   {
+///     "filename": "ca_1_1640995200000.crl",
+///     "ca_id": 1,
+///     "created_time": 1640995200000,
+///     "file_size": 1024
+///   }
+/// ]
+/// ```
+pub(crate) async fn list_crl_files_endpoint(
+    state: &State<AppState>,
+    _authentication: AuthenticatedPrivileged
+) -> Result<Json<Vec<crate::cert::CrlFileInfo>>, ApiError> {
+    let files = crate::cert::list_crl_files()?;
+    Ok(Json(files))
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/crl/backup/<filename>")]
+/// Download a specific CRL backup file. Requires admin role.
+/// Allows downloading of specific CRL backup files by filename.
+///
+/// Usage:
+/// ```bash
+/// curl -H "Authorization: Bearer <token>" \
+///      http://localhost:8000/api/certificates/crl/backup/ca_1_1640995200000.crl
+/// ```
+pub(crate) async fn download_crl_backup(
+    _state: &State<AppState>,
+    filename: &str,
+    _authentication: AuthenticatedPrivileged
+) -> Result<DownloadResponse, ApiError> {
+    use std::path::Path;
+    use crate::constants::CRL_DIR_PATH;
+
+    // Security check: ensure the filename doesn't contain path traversal
+    if filename.contains("..") || filename.contains("/") || filename.contains("\\") {
+        return Err(ApiError::BadRequest("Invalid filename".to_string()));
+    }
+
+    if !filename.ends_with(".crl") {
+        return Err(ApiError::BadRequest("Invalid file extension".to_string()));
+    }
+
+    let file_path = Path::new(CRL_DIR_PATH).join(filename);
+
+    if !file_path.exists() {
+        return Err(ApiError::NotFound(Some("CRL backup file not found".to_string())));
+    }
+
+    // Read the file
+    let file_data = std::fs::read(&file_path).map_err(|e| {
+        error!("Failed to read CRL backup file: {}", e);
+        ApiError::Other("Failed to read CRL backup file".to_string())
+    })?;
+
+    Ok(DownloadResponse::new(file_data, filename))
 }
 
 // #[get("/ocsp?<request>")]
