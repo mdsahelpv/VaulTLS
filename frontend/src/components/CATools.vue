@@ -120,7 +120,7 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ isRootCA ? 'Create Subordinate Certificate Authority' : 'Add Certificate Authority' }}</h5>
+            <h5 class="modal-title">{{ isRootCA ? 'Create Root CA' : 'Create Certificate Authority' }}</h5>
             <button type="button" class="btn-close" @click="showAddCAModal = false"></button>
           </div>
           <div class="modal-body">
@@ -129,7 +129,6 @@
             <!-- Self-Signed CA Form -->
             <div v-if="caCreationType === 'self-signed'" class="mt-4">
               <form @submit.prevent="createSelfSignedCAWrapper">
-                <h6 class="mb-3">Certificate Authority Configuration</h6>
 
                 <!-- Distinguished Name Fields -->
                 <div class="row">
@@ -801,7 +800,7 @@ const createSelfSignedCAWrapper = async () => {
       selfSignedForm.value.commonName || undefined, // CN field
       selfSignedForm.value.emailAddress || undefined,
       true, // canCreateSubordinateCA - always true for Root CA mode
-      selfSignedForm.value.keySize,
+      selfSignedForm.value.keyType === 'RSA' ? parseInt(selfSignedForm.value.keySize) : undefined,
       undefined, // certificatePoliciesOID - not used in first-time setup
       undefined, // certificatePoliciesCPS - not used in first-time setup
       selfSignedForm.value.keyType
