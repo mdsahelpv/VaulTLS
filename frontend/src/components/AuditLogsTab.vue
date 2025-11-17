@@ -74,85 +74,103 @@
         </h6>
       </div>
       <div class="card-body">
+        <!-- Quick Search - Always Visible -->
         <div class="row">
-          <div class="col-md-3">
-            <label class="form-label">Event Category</label>
-            <select class="form-select" v-model="filters.eventCategory">
-              <option value="">All Categories</option>
-              <option value="authentication">Authentication</option>
-              <option value="certificates">Certificates</option>
-              <option value="certificate_authority">Certificate Authority</option>
-              <option value="users">Users</option>
-              <option value="settings">Settings</option>
-              <option value="system">System</option>
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Event Type</label>
-            <select class="form-select" v-model="filters.eventType">
-              <option value="">All Types</option>
-              <option value="user_action">User Action</option>
-              <option value="system_event">System Event</option>
-              <option value="security_event">Security Event</option>
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Status</label>
-            <select class="form-select" v-model="filters.success">
-              <option value="">All Events</option>
-              <option :value="true">Successful</option>
-              <option :value="false">Failed</option>
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">User</label>
-            <select class="form-select" v-model="filters.userId">
-              <option value="">All Users</option>
-              <option v-for="user in users" :key="user.id" :value="user.id">
-                {{ user.name }}
-              </option>
-            </select>
-          </div>
-        </div>
-        <div class="row mt-3">
-          <div class="col-md-4">
-            <label class="form-label">Date From</label>
-            <input type="date" class="form-control" v-model="filters.startDate">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Date To</label>
-            <input type="date" class="form-control" v-model="filters.endDate">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Search</label>
+          <div class="col-md-8">
+            <label for="searchTerm" class="form-label">Search Logs</label>
             <input
               type="text"
               class="form-control"
+              id="searchTerm"
               v-model="filters.searchTerm"
-              placeholder="Search logs..."
+              placeholder="Search logs by content, user, action, etc..."
+              @keyup.enter="applyFilters"
             >
           </div>
-        </div>
-        <div class="row mt-3">
-          <div class="col-md-6">
-            <label class="form-label">Page</label>
-            <select class="form-select" v-model="filters.page">
-              <option v-for="n in totalPages" :key="n" :value="n">{{ n }}</option>
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Results per page</label>
-            <select class="form-select" v-model="filters.limit">
-              <option value="25">25</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-            </select>
-          </div>
-          <div class="col-md-3 d-flex align-items-end">
+          <div class="col-md-4 d-flex align-items-end">
             <button class="btn btn-primary w-100" @click="applyFilters" :disabled="loading">
               <i class="bi bi-search me-1"></i>
               Search
             </button>
+          </div>
+        </div>
+
+        <!-- Advanced Filters - Collapsible -->
+        <div class="mt-3">
+          <button
+            type="button"
+            class="btn btn-outline-secondary btn-sm"
+            @click="advancedFiltersExpanded = !advancedFiltersExpanded"
+          >
+            <i :class="advancedFiltersExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'"></i>
+            {{ advancedFiltersExpanded ? 'Hide' : 'Show' }} Advanced Filters
+          </button>
+        </div>
+
+        <div v-if="advancedFiltersExpanded" class="border rounded p-3 mt-3 bg-light">
+          <div class="row">
+            <div class="col-md-3">
+              <label for="eventCategory" class="form-label">Event Category</label>
+              <select class="form-select" id="eventCategory" v-model="filters.eventCategory">
+                <option value="">All Categories</option>
+                <option value="authentication">Authentication</option>
+                <option value="certificates">Certificates</option>
+                <option value="certificate_authority">Certificate Authority</option>
+                <option value="users">Users</option>
+                <option value="settings">Settings</option>
+                <option value="system">System</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label for="eventType" class="form-label">Event Type</label>
+              <select class="form-select" id="eventType" v-model="filters.eventType">
+                <option value="">All Types</option>
+                <option value="user_action">User Action</option>
+                <option value="system_event">System Event</option>
+                <option value="security_event">Security Event</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label for="success" class="form-label">Status</label>
+              <select class="form-select" id="success" v-model="filters.success">
+                <option value="">All Events</option>
+                <option :value="true">Successful</option>
+                <option :value="false">Failed</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label for="userId" class="form-label">User</label>
+              <select class="form-select" id="userId" v-model="filters.userId">
+                <option value="">All Users</option>
+                <option v-for="user in users" :key="user.id" :value="user.id">
+                  {{ user.name }}
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="row mt-3">
+            <div class="col-md-4">
+              <label for="startDate" class="form-label">Date From</label>
+              <input type="date" id="startDate" class="form-control" v-model="filters.startDate">
+            </div>
+            <div class="col-md-4">
+              <label for="endDate" class="form-label">Date To</label>
+              <input type="date" id="endDate" class="form-control" v-model="filters.endDate">
+            </div>
+            <div class="col-md-2">
+              <label for="page" class="form-label">Page</label>
+              <select class="form-select" id="page" v-model="filters.page">
+                <option v-for="n in totalPages" :key="n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label for="limit" class="form-label">Results per page</label>
+              <select class="form-select" id="limit" v-model="filters.limit">
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -338,36 +356,7 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useUserStore } from '@/stores/users';
 import { UserRole } from '@/types/User';
-
-// Types (would need to be added to frontend types)
-interface AuditLogEntry {
-  id: number;
-  timestamp: number;
-  event_type: string;
-  event_category: string;
-  user_id?: number;
-  user_name?: string;
-  ip_address?: string;
-  user_agent?: string;
-  resource_type?: string;
-  resource_id?: number;
-  resource_name?: string;
-  action: string;
-  success: boolean;
-  details?: string;
-  error_message?: string;
-  session_id?: string;
-  source: string;
-}
-
-interface AuditStats {
-  total_events: number;
-  events_today: number;
-  failed_operations: number;
-  top_actions: Array<{ action: string; count: number }>;
-  top_users: Array<{ user_id: number; user_name: string; event_count: number; last_activity: number }>;
-  recent_events: AuditLogEntry[];
-}
+import { getAuditLogs, getAuditStats, type AuditLogEntry, type AuditStats, type AuditLogQuery } from '@/api/audit';
 
 // Stores
 const authStore = useAuthStore();
@@ -391,6 +380,9 @@ const filters = ref({
   endDate: '',
   searchTerm: ''
 });
+
+// Advanced filters expand/collapse state
+const advancedFiltersExpanded = ref(false);
 
 // Computed
 const users = computed(() => userStore.users);
@@ -421,18 +413,40 @@ const loadLogs = async () => {
   error.value = null;
 
   try {
-    // This would need a backend API endpoint for fetching audit logs
-    // For now, we'll simulate with empty data
-    logs.value = [];
-    totalResults.value = 0;
+    // Build query from filters
+    const query: AuditLogQuery = {};
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    if (filters.value.page && filters.value.page > 1) {
+      query.page = filters.value.page;
+    }
+    if (filters.value.limit && filters.value.limit !== 50) {
+      query.limit = filters.value.limit;
+    }
+    if (filters.value.eventCategory) {
+      query.eventCategory = filters.value.eventCategory;
+    }
+    if (filters.value.eventType) {
+      query.eventType = filters.value.eventType;
+    }
+    if (filters.value.userId) {
+      query.userId = filters.value.userId;
+    }
+    if (filters.value.success !== '') {
+      query.success = filters.value.success === 'true';
+    }
+    if (filters.value.startDate) {
+      query.startDate = filters.value.startDate;
+    }
+    if (filters.value.endDate) {
+      query.endDate = filters.value.endDate;
+    }
+    if (filters.value.searchTerm) {
+      query.searchTerm = filters.value.searchTerm;
+    }
 
-    // In real implementation:
-    // const response = await fetchAuditLogs(filters.value);
-    // logs.value = response.logs;
-    // totalResults.value = response.total;
+    const response = await getAuditLogs(query);
+    logs.value = response.logs;
+    totalResults.value = response.total;
 
   } catch (err: any) {
     error.value = err.message || 'Failed to load audit logs';
@@ -444,11 +458,11 @@ const loadLogs = async () => {
 
 const loadStats = async () => {
   try {
-    // This would fetch audit statistics
-    // const response = await fetchAuditStats();
-    // stats.value = response;
-
-    // Simulate with empty data for now
+    const response = await getAuditStats();
+    stats.value = response;
+  } catch (err: any) {
+    console.error('Failed to load audit stats:', err);
+    // Set empty stats to avoid errors in UI
     stats.value = {
       total_events: 0,
       events_today: 0,
@@ -457,8 +471,6 @@ const loadStats = async () => {
       top_users: [],
       recent_events: []
     };
-  } catch (err: any) {
-    console.error('Failed to load audit stats:', err);
   }
 };
 

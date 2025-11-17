@@ -41,6 +41,38 @@
               <option :value="PasswordRule.System">System Generated</option>
             </select>
           </div>
+
+          <!-- Root CA Mode Warning Section -->
+          <div class="mb-3 form-check form-switch">
+            <input
+                type="checkbox"
+                class="form-check-input"
+                id="common-is-root-ca"
+                v-model="settings.common.is_root_ca"
+                role="switch"
+                @change="toggleRootCAMode"
+            />
+            <label class="form-check-label" for="common-is-root-ca">
+              <strong>Root CA Server Mode</strong>
+              <small class="text-muted d-block mt-1">
+                Restricts certificate issuance to subordinate CA certificates only.
+                Client and server certificates must be issued by subordinate CAs.
+              </small>
+            </label>
+          </div>
+
+          <!-- Warning Alert for Root CA Mode -->
+          <div v-if="settings.common.is_root_ca" class="alert alert-warning">
+            <i class="bi bi-shield-lock me-2"></i>
+            <strong>Root CA Server Mode Active</strong>
+            <p class="mb-2 mt-1">
+              This instance is configured as a Root CA Server. Only subordinate CA certificates can be issued.
+              Client and server certificates must be issued by importing subordinate CAs into other instances.
+            </p>
+            <small class="text-muted">
+              <strong>Security Note:</strong> This setting should be changed carefully as it affects the fundamental operation of the certificate authority.
+            </small>
+          </div>
         </div>
       </div>
 
@@ -278,6 +310,51 @@ const changePassword = async () => {
   showPasswordDialog.value = false;
   changePasswordReq.value = { oldPassword: '', newPassword: '' };
   confirmPassword.value = '';
+};
+
+const toggleRootCAMode = (event: Event) => {
+  const isChecked = (event.target as HTMLInputElement).checked;
+
+  if (isChecked) {
+    // Enabling Root CA mode - show warning
+    const confirmed = confirm(
+      'WARNING: Enabling Root CA Server Mode\n\n' +
+      'This will restrict your certificate authority to only issue subordinate CA certificates.\n\n' +
+      '• Client certificates: CANNOT be issued from this instance\n' +
+      '• Server certificates: CANNOT be issued from this instance\n' +
+      '• Subordinate CA certificates: CAN be issued from this instance\n\n' +
+      'You will need to use subordinate CAs from other instances to issue client/server certificates.\n\n' +
+      'This setting takes effect after restart.\n\n' +
+      'Are you sure you want to enable Root CA Server Mode?'
+    );
+
+    if (!confirmed) {
+      event.preventDefault();
+      // Revert the checkbox
+      setTimeout(() => {
+        settings.value!.common.is_root_ca = !isChecked;
+      }, 0);
+    }
+  } else {
+    // Disabling Root CA mode - show different warning
+    const confirmed = confirm(
+      'WARNING: Disabling Root CA Server Mode\n\n' +
+      'This will allow your certificate authority to issue all types of certificates:\n\n' +
+      '• Client certificates: CAN be issued\n' +
+      '• Server certificates: CAN be issued\n' +
+      '• CA certificates: CAN be issued directly\n\n' +
+      'This setting takes effect after restart.\n\n' +
+      'Are you sure you want to disable Root CA Server Mode?'
+    );
+
+    if (!confirmed) {
+      event.preventDefault();
+      // Revert the checkbox
+      setTimeout(() => {
+        settings.value!.common.is_root_ca = !isChecked;
+      }, 0);
+    }
+  }
 };
 
 const saveSettings = async () => {
