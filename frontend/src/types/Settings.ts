@@ -21,12 +21,23 @@ export interface Settings {
         encryption: Encryption,
         username?: string,
         password?: string,
-        from: string,
+        from: string;
     };
     oidc: {
         id: string,
         secret: string,
         auth_url: string,
         callback_url: string;
-    }
+    };
+    crl: {
+        validity_days: number;
+        refresh_interval_hours: number;
+        distribution_url?: string;
+        enabled: boolean;
+    };
+    ocsp: {
+        responder_url?: string;
+        validity_hours: number;
+        enabled: boolean;
+    };
 }

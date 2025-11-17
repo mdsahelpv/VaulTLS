@@ -11,6 +11,7 @@ import SettingsTab from '@/components/SettingsTab.vue';
 import UserTab from "@/components/UserTab.vue";
 import CATools from '@/components/CATools.vue';
 import AuditLogsTab from '@/components/AuditLogsTab.vue';
+import CRLTools from '@/components/CRLTools.vue';
 
 const router = createRouter({
     history: createWebHistory(),
@@ -58,6 +59,11 @@ const router = createRouter({
                     path: 'audit',
                     name: 'Audit',
                     component: AuditLogsTab,
+                },
+                {
+                    path: 'crl',
+                    name: 'CRL',
+                    component: CRLTools,
                 },
             ],
             // A guard to check if the app is set up and user is authenticated

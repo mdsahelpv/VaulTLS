@@ -254,42 +254,6 @@ stop_services() {
     fi
 }
 
-# Function to stop backend only
-stop_backend_only() {
-    print_status "Stopping backend service only..."
-
-    if [ -f "backend.pid" ]; then
-        BACKEND_PID=$(cat backend.pid)
-        if kill -0 $BACKEND_PID 2>/dev/null; then
-            print_status "Stopping backend server (PID: $BACKEND_PID)..."
-            kill $BACKEND_PID
-            wait $BACKEND_PID 2>/dev/null
-            print_success "Backend server stopped"
-        fi
-        rm -f backend.pid
-    else
-        print_warning "Backend does not appear to be running (no PID file found)"
-    fi
-}
-
-# Function to stop frontend only
-stop_frontend_only() {
-    print_status "Stopping frontend service only..."
-
-    if [ -f "frontend.pid" ]; then
-        FRONTEND_PID=$(cat frontend.pid)
-        if kill -0 $FRONTEND_PID 2>/dev/null; then
-            print_status "Stopping frontend server (PID: $FRONTEND_PID)..."
-            kill $FRONTEND_PID
-            wait $FRONTEND_PID 2>/dev/null
-            print_success "Frontend server stopped"
-        fi
-        rm -f frontend.pid
-    else
-        print_warning "Frontend does not appear to be running (no PID file found)"
-    fi
-}
-
 # Function to show status
 show_status() {
     echo "=== VaulTLS Application Status ==="
@@ -333,11 +297,9 @@ show_help() {
     echo "Usage: $0 [COMMAND] [OPTIONS]"
     echo ""
     echo "Commands:"
-    echo "  start          Start both backend and frontend (interactive choice)"
-    echo "  start [1-3]    Start backend(1), frontend(2), both(3) with no prompt"
+    echo "  start          Start both backend and frontend (default)"
     echo "  clean-start    Clean all remnants and start fresh"
-    echo "  stop           Stop services (interactive choice: backend/frontend/both)"
-    echo "  stop [1-3]     Stop backend(1), frontend(2), both(3) with no prompt"
+    echo "  stop           Stop both services"
     echo "  status         Show status of services"
     echo "  setup          Setup both backend and frontend without starting"
     echo "  backend        Start only backend"
@@ -360,16 +322,9 @@ show_help() {
     echo "  DB_PATH                Database file path (default: ./backend/database.db3)"
     echo ""
     echo "Examples:"
-    echo "  $0 start                    # Start services (interactive menu)"
-    echo "  $0 start 1                  # Start backend only (no prompt)"
-    echo "  $0 start 2                  # Start frontend only (no prompt)"
-    echo "  $0 start 3                  # Start both services (no prompt)"
-    echo "  $0 stop                     # Stop services (interactive menu)"
-    echo "  $0 stop 1                   # Stop backend only (no prompt)"
-    echo "  $0 stop 2                   # Stop frontend only (no prompt)"
-    echo "  $0 stop 3                   # Stop both services (no prompt)"
-    echo "  $0 start --release          # Start both with backend in release mode"
-    echo "  $0 backend --port 9000      # Start backend on custom port"
+    echo "  $0 start                    # Start both services in development mode"
+    echo "  $0 start --release          # Start both services with backend in release mode"
+    echo "  $0 backend --port 9000      # Start only backend on port 9000"
     echo "  $0 status                   # Show status of running services"
     echo "  $0 logs                     # Show logs from both services"
 }
@@ -413,23 +368,13 @@ clean_artifacts() {
 # Main script logic
 main() {
     local command="start"
-    local choice=""
     local backend_mode="debug"
     local frontend_mode="development"
 
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            start|stop)
-                command="$1"
-                shift
-                # Check if next argument is a number (1-3)
-                if [[ $# -gt 0 && $1 =~ ^[1-3]$ ]]; then
-                    choice="$1"
-                    shift
-                fi
-                ;;
-            status|setup|logs|clean)
+            start|clean-start|stop|status|setup|backend|frontend|logs|clean)
                 command="$1"
                 shift
                 ;;
@@ -463,74 +408,43 @@ main() {
 
     case $command in
         start)
+            print_status "Starting VaulTLS application..."
             check_requirements
+            setup_backend "$backend_mode"
+            setup_frontend "$frontend_mode"
+            start_backend "$backend_mode"
+            start_frontend "$frontend_mode"
+            show_status
+            print_success "VaulTLS application started successfully in background!"
+            print_status "Use '$0 stop' to stop all services"
+            ;;
+        clean-start)
+            print_status "Performing clean start - removing all remnants..."
+            stop_services
+            sleep 1
 
-            if [ -z "$choice" ]; then
-                print_status "Start Services Options:"
-                print_status "  1) Start backend only"
-                print_status "  2) Start frontend only"
-                print_status "  3) Start both services"
+            # Clean all remnants
+            print_status "Cleaning old database files..."
+            rm -f backend/database.db3 backend/database.db3-shm backend/database.db3-wal
+            rm -f backend/ca.cert backend/settings.json
+            rm -f backend.log frontend.log backend.pid frontend.pid
 
-                echo ""
-                read -p "Enter your choice (1-3) [3]: " choice
-                choice=${choice:-3}  # Default to option 3
-            fi
+            print_status "Cleaning build artifacts..."
+            cd backend && cargo clean && cd ..
+            cd frontend && rm -rf node_modules dist && cd ..
 
-            case $choice in
-                1)
-                    setup_backend "$backend_mode"
-                    start_backend "$backend_mode"
-                    print_success "Backend started successfully in background!"
-                    print_status "Use '$0 stop 1' to stop backend only"
-                    ;;
-                2)
-                    setup_frontend "$frontend_mode"
-                    start_frontend "$frontend_mode"
-                    print_success "Frontend started successfully in background!"
-                    print_status "Use '$0 stop 2' to stop frontend only"
-                    ;;
-                3)
-                    setup_backend "$backend_mode"
-                    setup_frontend "$frontend_mode"
-                    start_backend "$backend_mode"
-                    start_frontend "$frontend_mode"
-                    show_status
-                    print_success "VaulTLS application started successfully in background!"
-                    print_status "Use '$0 stop' to stop all services"
-                    ;;
-                *)
-                    print_error "Invalid choice. Use 1-3."
-                    exit 1
-                    ;;
-            esac
+            print_success "Clean start complete. Starting fresh..."
+            check_requirements
+            setup_backend "$backend_mode"
+            setup_frontend "$frontend_mode"
+            start_backend "$backend_mode"
+            start_frontend "$frontend_mode"
+            show_status
+            print_success "VaulTLS application started fresh in background!"
+            print_status "Use '$0 stop' to stop all services"
             ;;
         stop)
-            if [ -z "$choice" ]; then
-                print_status "Stop Services Options:"
-                print_status "  1) Stop backend only"
-                print_status "  2) Stop frontend only"
-                print_status "  3) Stop both services"
-
-                echo ""
-                read -p "Enter your choice (1-3) [3]: " choice
-                choice=${choice:-3}  # Default to option 3
-            fi
-
-            case $choice in
-                1)
-                    stop_backend_only
-                    ;;
-                2)
-                    stop_frontend_only
-                    ;;
-                3)
-                    stop_services
-                    ;;
-                *)
-                    print_error "Invalid choice. Use 1-3."
-                    exit 1
-                    ;;
-            esac
+            stop_services
             ;;
         status)
             show_status
@@ -541,23 +455,23 @@ main() {
             setup_frontend "$frontend_mode"
             print_success "Setup complete. Run '$0 start' to start the services."
             ;;
-
+        backend)
+            check_requirements
+            setup_backend "$backend_mode"
+            start_backend "$backend_mode"
+            print_success "Backend started successfully in background!"
+            print_status "Use '$0 stop' to stop backend"
+            ;;
+        frontend)
+            check_requirements
+            setup_frontend "$frontend_mode"
+            start_frontend "$frontend_mode"
+            print_success "Frontend started successfully in background!"
+            print_status "Use '$0 stop' to stop frontend"
+            ;;
         logs)
             show_logs
             ;;
-        clean)
-            clean_artifacts
-            ;;
-        *)
-            print_error "Unknown command: $command"
-            show_help
-            exit 1
-            ;;
-    esac
-}
-
-# Run main function with all arguments
-main "$@"
         clean)
             clean_artifacts
             ;;

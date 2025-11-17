@@ -142,6 +142,116 @@
         </div>
       </div>
 
+      <!-- CRL Section -->
+      <h3>Certificate Revocation List (CRL)</h3>
+      <div class="card mt-3 mb-3">
+        <div class="card-body">
+          <div class="mb-3 form-check form-switch">
+            <input
+                type="checkbox"
+                class="form-check-input"
+                id="crl-enabled"
+                v-model="settings.crl.enabled"
+                role="switch"
+            />
+            <label class="form-check-label" for="crl-enabled">
+              CRL enabled
+            </label>
+          </div>
+          <div class="mb-3">
+            <label for="crl-validity-days" class="form-label">CRL Validity (days)</label>
+            <input
+                id="crl-validity-days"
+                v-model="settings.crl.validity_days"
+                type="number"
+                class="form-control"
+                min="1"
+                max="365"
+            />
+            <div class="form-text">
+              How many days the CRL remains valid before requiring regeneration
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="crl-refresh-interval" class="form-label">CRL Refresh Interval (hours)</label>
+            <input
+                id="crl-refresh-interval"
+                v-model="settings.crl.refresh_interval_hours"
+                type="number"
+                class="form-control"
+                min="1"
+                max="168"
+            />
+            <div class="form-text">
+              How often the CRL cache is refreshed and regenerated (1 hour - 1 week)
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="crl-distribution-url" class="form-label">CRL Distribution URL</label>
+            <input
+                id="crl-distribution-url"
+                v-model="computedCrlUrl"
+                type="url"
+                class="form-control"
+                placeholder="https://your-ca.example.com/api/certificates/crl"
+                readonly
+            />
+            <div class="form-text">
+              This VaulTLS instance serves as the CRL distribution point.
+            </div>
+            <div class="form-text text-muted">
+              You can set this URL in certificate extensions as the CRL Distribution Point.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OCSP Section -->
+      <h3>Online Certificate Status Protocol (OCSP)</h3>
+      <div class="card mt-3 mb-3">
+        <div class="card-body">
+          <div class="mb-3 form-check form-switch">
+            <input
+                type="checkbox"
+                class="form-check-input"
+                id="ocsp-enabled"
+                v-model="settings.ocsp.enabled"
+                role="switch"
+            />
+            <label class="form-check-label" for="ocsp-enabled">
+              OCSP enabled
+            </label>
+          </div>
+          <div class="mb-3">
+            <label for="ocsp-validity-hours" class="form-label">OCSP Response Validity (hours)</label>
+            <input
+                id="ocsp-validity-hours"
+                v-model="settings.ocsp.validity_hours"
+                type="number"
+                class="form-control"
+                min="1"
+                max="168"
+            />
+            <div class="form-text">
+              How many hours OCSP responses remain valid
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="ocsp-responder-url" class="form-label">OCSP Responder URL (optional)</label>
+            <input
+                id="ocsp-responder-url"
+                v-model="settings.ocsp.responder_url"
+                type="url"
+                class="form-control"
+                placeholder="https://your-ca.example.com/ocsp"
+            />
+            <div class="form-text">
+              Public URL for OCSP responder (auto-generated if not set)
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- OIDC Section -->
       <h3>OIDC</h3>
       <div class="card mt-3 mb-3">
@@ -291,6 +401,12 @@ const current_user = computed(() => authStore.current_user);
 const settings_error = computed(() => settingsStore.error);
 const user_error = computed(() => userStore.error);
 const password_error = computed(() => authStore.error);
+
+// Compute the CRL distribution URL automatically
+const computedCrlUrl = computed(() => {
+  const baseUrl = settings.value?.common?.vaultls_url;
+  return baseUrl ? `${baseUrl.replace(/\/$/, '')}/api/certificates/crl` : '';
+});
 
 const canChangePassword = computed(() =>
     changePasswordReq.value.newPassword === confirmPassword.value &&

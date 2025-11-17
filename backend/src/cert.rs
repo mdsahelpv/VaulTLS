@@ -826,6 +826,7 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
         let name = self.name.ok_or(anyhow!("X509: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("X509: valid_until not set"))?;
         let user_id = self.user_id.ok_or(anyhow!("X509: user_id not set"))?;
+        let common_name_field = self.common_name;
 
         // If we have CRL or OCSP URLs, we need to use OpenSSL CLI to generate the certificate
         // with proper extensions, since rust-openssl doesn't support these extensions
@@ -836,7 +837,7 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
 
             // Collect fields that will be moved before using methods
             let ca = self.ca.as_ref().ok_or(anyhow!("X509: CA not set"))?;
-            let common_name = self.common_name.as_deref().unwrap_or(&self.name.as_ref().unwrap());
+            let common_name = common_name_field.as_deref().unwrap_or(&name);
 
             // Create subject name manually for OpenSSL CLI
             use openssl::x509::X509NameBuilder;
@@ -1512,7 +1513,7 @@ pub(crate) fn get_certificate_details(cert: &Certificate) -> Result<CertificateD
 }
 
 /// Generate a Certificate Revocation List (CRL) for the given CA using external OpenSSL CLI
-pub(crate) fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8>, ApiError> {
+pub fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8>, ApiError> {
     debug!("Generating CRL for CA using external OpenSSL CLI ({} revoked certificates)", revoked_certificates.len());
 
     use std::process::Command;
@@ -1722,7 +1723,7 @@ authorityKeyIdentifier=keyid:always
 }
 
 /// Convert CRL to PEM format
-pub(crate) fn crl_to_pem(crl_der: &[u8]) -> Result<Vec<u8>, ApiError> {
+pub fn crl_to_pem(crl_der: &[u8]) -> Result<Vec<u8>, ApiError> {
     debug!("Converting CRL from DER to PEM format ({} bytes)", crl_der.len());
 
     // For now, create a basic PEM structure

@@ -4,6 +4,26 @@
 
 VaulTLS is a comprehensive, enterprise-grade solution for managing mTLS (mutual TLS) certificates with ease. It provides a centralized platform for generating, managing, and distributing client and server TLS certificates for your home lab or production environment.
 
+**✨ Key Feature**: **Self-Hosted CRL & OCSP Services** - VaulTLS automatically provides Certificate Revocation List (CRL) distribution and Online Certificate Status Protocol (OCSP) responder services, making your certificates revocation-ready out-of-the-box.
+
+## 🔒 Certificate Revocation Made Simple
+
+VaulTLS includes built-in **Certificate Revocation List (CRL)** and **OCSP** services so you can revoke compromised certificates and notify applications instantly.
+
+### Certificate Revocation List (CRL)
+- **Download your CRL**: `GET /api/certificates/crl` (update every 5 minutes)
+- **Revoke certificates** through the web interface
+- **Automatically distributed** with all issued certificates
+- **7-day validity** with configurable refresh interval
+
+### Online Certificate Status Protocol (OCSP)
+- **Real-time status checking**: `POST /api/ocsp` or `GET /api/ocsp`
+- **Sub-second response** for certificate validation
+- **Perfect for high-security** environments
+- **Industry-standard** OCSP protocol support
+
+**Your VaulTLS instance becomes your own revocation authority - no external dependencies required!**
+
 ## 🎯 Why VaulTLS?
 
 The main reason VaulTLS was developed was to eliminate the complexity of shell scripts and manual OpenSSL commands. Traditional certificate management often lacks:
