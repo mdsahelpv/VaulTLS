@@ -852,7 +852,7 @@ impl VaulTLSDB {
             let count_query = format!("SELECT COUNT(*) FROM audit_logs {}", where_clause);
             let total_count: i64 = {
                 let mut stmt = conn.prepare(&count_query)?;
-                let mut param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+                let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
                 stmt.query_row(&param_refs[..], |row| row.get(0))?
             };
 

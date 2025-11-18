@@ -1,4 +1,4 @@
-use crate::data::objects::{AuditLogEntry, AuditEventType, AuditEventCategory, AuditLogQuery, AuditLogStats, AuditCleanupResult, ActionCount, UserActivity};
+use crate::data::objects::{AuditLogEntry, AuditEventType, AuditEventCategory, AuditLogQuery, AuditLogStats, AuditCleanupResult};
 use crate::settings::AuditSettings;
 use crate::db::VaulTLSDB;
 use std::sync::Arc;

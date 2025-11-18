@@ -13,12 +13,11 @@ use openssl::pkey::{PKey, Private};
 use openssl::stack::Stack;
 use openssl::x509::{X509Name, X509NameBuilder, X509};
 use openssl::x509::extension::{AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName, SubjectKeyIdentifier};
-use openssl::x509::AuthorityInformationAccess;
 use openssl::x509::X509Builder;
 use passwords::PasswordGenerator;
 use rocket_okapi::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use crate::constants::{CA_FILE_PATH, CRL_DIR_PATH, CURRENT_CRL_FILE_PATH};
 use crate::data::enums::{CertificateRenewMethod, CertificateType};
 use crate::data::enums::CertificateType::{Client, Server};
@@ -1888,7 +1887,7 @@ pub struct CrlFileInfo {
 pub(crate) fn list_crl_files() -> Result<Vec<CrlFileInfo>, ApiError> {
     debug!("Listing all CRL files");
 
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
 
     let mut crl_files = Vec::new();
 

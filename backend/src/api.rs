@@ -2269,7 +2269,7 @@ async fn process_ocsp_request(
 }
 
 // AUDIT LOGGING API ENDPOINTS
-use crate::data::objects::{AuditEventType, AuditEventCategory, AuditLogQuery, AuditLogStats, AuditCleanupResult};
+use crate::data::objects::{AuditEventCategory, AuditLogQuery, AuditLogStats, AuditCleanupResult};
 use crate::settings::AuditSettings;
 use serde_json::{json, Value};
 
