@@ -967,6 +967,16 @@ const isRootCA = computed(() => {
   return settings.value?.common.is_root_ca ?? false;
 });
 
+// Watch for Root CA mode changes and set certificate type to Subordinate CA
+watch(isRootCA, (newIsRootCA: boolean) => {
+  if (newIsRootCA) {
+    certReq.cert_type = CertificateType.SubordinateCA;
+  } else {
+    // Reset to Client when not in Root CA mode
+    certReq.cert_type = CertificateType.Client;
+  }
+}, { immediate: true });
+
 watch(passwordRule, (newVal) => {
   certReq.system_generated_password = (newVal === PasswordRule.System);
 }, { immediate: true });

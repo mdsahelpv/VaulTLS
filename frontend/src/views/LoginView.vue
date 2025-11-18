@@ -15,14 +15,28 @@
         </div>
         <div class="mb-3">
           <label for="password" class="form-label">Password</label>
-          <input
-              id="password"
-              type="password"
-              v-model="password"
-              class="form-control"
-              autocomplete="current-password"
-              required
-          />
+          <div class="input-group">
+            <input
+                id="password"
+                :type="showPassword ? 'text' : 'password'"
+                v-model="password"
+                class="form-control"
+                autocomplete="current-password"
+                required
+            />
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                @click="showPassword = !showPassword"
+                :title="showPassword ? 'Hide password' : 'Show password'"
+            >
+              <img
+                :src="showPassword ? '/images/eye-hidden.png' : '/images/eye-open.png'"
+                alt="Toggle password visibility"
+                style="width: 16px; height: 16px;"
+              />
+            </button>
+          </div>
         </div>
         <button type="submit" class="btn btn-primary w-100">Login</button>
         <p v-if="loginError" class="text-danger mt-3">
@@ -52,6 +66,7 @@ import {useSetupStore} from "@/stores/setup.ts";
 const email = ref('');
 const password = ref('');
 const loginError = ref('');
+const showPassword = ref(false);
 const authStore = useAuthStore();
 const setupStore = useSetupStore();
 

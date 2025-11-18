@@ -592,10 +592,13 @@ pub(crate) async fn create_user_certificate(
     info!(cert=cert.name, "New certificate created.");
     trace!("{:?}", cert);
 
+    // Get user name for audit logging
+    let admin_user_name = state.db.get_user(_authentication._claims.id).await.ok().map(|u| u.name);
+
     // Audit log certificate creation
     if let Err(e) = state.audit.log_certificate_operation(
         Some(_authentication._claims.id), // Admin ID doing the operation
-        None, // TODO: get actual admin user name
+        admin_user_name, // Now includes actual user name instead of None
         None, // TODO: extract IP from request
         None, // TODO: extract User-Agent from request
         cert.id,
@@ -1771,10 +1774,13 @@ pub(crate) async fn revoke_certificate(
 
     info!(cert_id=id, cert_name=?cert.name, admin_id=?authentication._claims.id, "Certificate revoked successfully");
 
+    // Get user name for audit logging
+    let admin_user_name = state.db.get_user(authentication._claims.id).await.ok().map(|u| u.name);
+
     // Audit log certificate revocation
     if let Err(e) = state.audit.log_certificate_operation(
         Some(authentication._claims.id), // Admin ID doing the revocation
-        None, // TODO: get actual admin user name
+        admin_user_name, // Now includes actual user name instead of None
         None, // TODO: extract IP from request
         None, // TODO: extract User-Agent from request
         id,
