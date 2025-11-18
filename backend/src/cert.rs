@@ -81,12 +81,12 @@ pub struct CRLEntry {
 pub struct OCSPRequest {
     pub version: i32,
     pub requestor_name: Option<String>,
-    pub certificate_id: OCSP_CERTID,
+    pub certificate_id: OcspCertid,
     pub extensions: Vec<OCSPExtension>,
 }
 
 #[derive(Clone, Debug)]
-pub struct OCSP_CERTID {
+pub struct OcspCertid {
     pub hash_algorithm: String, // e.g., "sha1", "sha256"
     pub issuer_name_hash: Vec<u8>,
     pub issuer_key_hash: Vec<u8>,
@@ -121,7 +121,7 @@ pub enum OCSPResponseStatus {
 
 #[derive(Clone, Debug)]
 pub struct OCSPSingleResponse {
-    pub cert_id: OCSP_CERTID,
+    pub cert_id: OcspCertid,
     pub cert_status: OCSPCertStatus,
     pub this_update: i64,
     pub next_update: Option<i64>,
@@ -1426,7 +1426,7 @@ pub struct CertificateDetails {
 }
 
 /// Extract detailed information from a user certificate's PKCS#12 data
-pub(crate) fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails, ApiError> {
+pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails, ApiError> {
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
         .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
 
@@ -1736,7 +1736,8 @@ pub fn crl_to_pem(crl_der: &[u8]) -> Result<Vec<u8>, ApiError> {
     pem.extend_from_slice(b"-----BEGIN X509 CRL-----\n");
 
     // Base64 encode the DER data
-    let base64_data = base64::encode(crl_der);
+    use base64::{Engine as _, engine::general_purpose};
+    let base64_data = general_purpose::STANDARD.encode(crl_der);
 
     // Split into lines of 64 characters as per RFC 7468
     for chunk in base64_data.as_bytes().chunks(64) {
@@ -1752,7 +1753,7 @@ pub fn crl_to_pem(crl_der: &[u8]) -> Result<Vec<u8>, ApiError> {
 }
 
 /// Save CRL to file system with metadata
-pub(crate) fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
+pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     debug!("Saving CRL to file system for CA {}", ca_id);
@@ -1822,7 +1823,7 @@ pub struct CrlMetadata {
     pub backup_count: usize,
 }
 
-pub(crate) fn get_crl_metadata(ca_id: i64) -> Result<CrlMetadata, ApiError> {
+pub fn get_crl_metadata(ca_id: i64) -> Result<CrlMetadata, ApiError> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     debug!("Getting CRL metadata for CA {}", ca_id);
@@ -1884,7 +1885,7 @@ pub struct CrlFileInfo {
     pub file_size: u64,
 }
 
-pub(crate) fn list_crl_files() -> Result<Vec<CrlFileInfo>, ApiError> {
+pub fn list_crl_files() -> Result<Vec<CrlFileInfo>, ApiError> {
     debug!("Listing all CRL files");
 
     use std::time::UNIX_EPOCH;
@@ -1968,7 +1969,8 @@ fn extract_der_from_pem(pem_str: &str) -> Result<Vec<u8>, ApiError> {
         .filter(|c| !c.is_whitespace())
         .collect();
 
-    base64::decode(&clean_content)
+    use base64::{Engine as _, engine::general_purpose};
+    general_purpose::STANDARD.decode(&clean_content)
         .map_err(|e| ApiError::Other(format!("Failed to decode base64 PEM content: {}", e)))
 }
 
@@ -2054,12 +2056,12 @@ fn extract_certificate_id_from_ocsp_request(_request: &OCSPRequest) -> Result<i6
     Err(ApiError::Other("Certificate ID extraction from OCSP request not yet implemented.".to_string()))
 }
 
-/// Generate OCSP_CERTID from certificate serial number and issuer
+/// Generate OcspCertid from certificate serial number and issuer
 pub(crate) fn generate_ocsp_cert_id(
     serial_number: &[u8],
     issuer_cert: &X509,
     hash_algorithm: &str,
-) -> Result<OCSP_CERTID, ApiError> {
+) -> Result<OcspCertid, ApiError> {
     use openssl::hash::hash;
 
     let digest = match hash_algorithm {
@@ -2081,7 +2083,7 @@ pub(crate) fn generate_ocsp_cert_id(
     let issuer_key_hash = hash(digest, &issuer_key_der)
         .map_err(|e| ApiError::Other(format!("Failed to hash issuer key: {}", e)))?;
 
-    Ok(OCSP_CERTID {
+    Ok(OcspCertid {
         hash_algorithm: hash_algorithm.to_string(),
         issuer_name_hash: issuer_name_hash.to_vec(),
         issuer_key_hash: issuer_key_hash.to_vec(),

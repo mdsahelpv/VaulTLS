@@ -167,6 +167,7 @@ pub async fn create_rocket() -> Rocket<Build> {
         .mount(
             "/api",
             routes![
+                health,
                 version,
                 get_certificates,
                 create_user_certificate,
@@ -276,6 +277,7 @@ pub async fn create_test_rocket() -> Rocket<Build> {
         .mount(
             "/",
             openapi_get_routes![
+                health,
                 version,
                 get_certificates,
                 create_user_certificate,

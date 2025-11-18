@@ -4,6 +4,7 @@
     <hr />
     <!-- Application Section -->
     <div v-if="authStore.isAdmin && settings" class="mb-3">
+
       <!-- Common Section -->
       <h3>Common</h3>
       <div class="card mt-3 mb-3">
@@ -77,7 +78,7 @@
       </div>
 
       <!-- Mail Section -->
-      <h3>Mail</h3>
+      <!-- <h3>Mail</h3>
       <div class="card mt-3 mb-3">
         <div class="card-body">
           <div class="mb-3 row">
@@ -140,7 +141,7 @@
             />
           </div>
         </div>
-      </div>
+      </div> -->
 
       <!-- CRL Section -->
       <h3>Certificate Revocation List (CRL)</h3>
@@ -252,7 +253,7 @@
         </div>
       </div>
 
-      <!-- OIDC Section -->
+      <!-- OIDC Section
       <h3>OIDC</h3>
       <div class="card mt-3 mb-3">
         <div class="card-body">
@@ -293,7 +294,7 @@
             />
           </div>
         </div>
-      </div>
+      </div> -->
     </div>
 
     <h2>User</h2>

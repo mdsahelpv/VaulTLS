@@ -120,7 +120,7 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ isRootCA ? 'Create Root CA' : 'Create Certificate Authority' }}</h5>
+            <h5 class="modal-title">{{ isRootCA ? 'Create Root CA' : 'Import Subordinate Certificate Authority' }}</h5>
             <button type="button" class="btn-close" @click="showAddCAModal = false"></button>
           </div>
           <div class="modal-body">
@@ -390,7 +390,7 @@
                   >
                 </div>
                 <div class="mb-3">
-                  <label for="importPassword" class="form-label">PKCS#12 Password (Leave empty if no password)</label>
+                  <label for="importPassword" class="form-label">PKCS#12 Password</label>
                   <input
                     type="password"
                     class="form-control"

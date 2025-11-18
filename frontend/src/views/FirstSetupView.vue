@@ -1,7 +1,7 @@
 <template>
   <div class="container d-flex justify-content-center align-items-center min-vh-100 py-4">
     <div class="card p-4 shadow" style="max-width: 600px; width: 100%; max-height: 90vh; overflow-y: auto;">
-      <h1 class="text-center mb-4">Hello</h1>
+      <h1 class="text-center mb-4">SETUP</h1>
 
       <!-- Show notice if OIDC is enabled -->
       <div v-if="setupStore.oidcUrl" class="alert alert-info text-center">
@@ -87,11 +87,10 @@
                 v-model="is_root_ca"
             />
             <label class="form-check-label" for="is_root_ca">
-              <strong>Set up as Root CA Server</strong>
+              <strong>SubCA signing Only</strong>
             </label>
             <div class="form-text">
-              When enabled, this instance will only issue subordinate CA certificates.
-              Client and server certificates must be issued by importing subordinate CAs into other instances.
+              When enabled (default), this instance will only issue Subordinate CA (not the Server/Client) certificates.
             </div>
           </div>
         </div>

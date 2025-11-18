@@ -131,7 +131,7 @@ ENV VAULTLS_FRONTEND_PORT=4000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:$VAULTLS_FRONTEND_PORT/health || exit 1
+    CMD curl -f http://localhost:$VAULTLS_FRONTEND_PORT/api/health || exit 1
 
 # Default command
 CMD ["/app/bin/entrypoint.sh"]

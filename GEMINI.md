@@ -1,93 +1,90 @@
-# GEMINI.md
+# Backend Architecture
 
-## Project Overview
+The backend of VaulTLS is a monolithic application written in Rust using the Rocket web framework. The main components are:
 
-This project is **VaulTLS**, a comprehensive, enterprise-grade solution for managing mTLS (mutual TLS) certificates. It provides a centralized platform for generating, managing, and distributing client and server TLS certificates.
+*   **Rocket Server**: The core of the backend is a Rocket server that handles all incoming HTTP requests.
+*   **SQLite Database**: VaulTLS uses a SQLite database to store all its data, including certificates, users, and settings. The database can be encrypted for extra security.
+*   **OIDC Authentication**: The application supports OpenID Connect (OIDC) for authentication, allowing integration with external identity providers.
+*   **Email Notifications**: VaulTLS can send email notifications for events like certificate expiration.
 
-The project is a web application with a **Rust backend** and a **Vue.js frontend**.
+The backend code is organized into several modules:
 
-*   **Backend:** The backend is a Rocket-based web server written in Rust. It uses `rusqlite` with SQLCipher for an encrypted database, `openssl` for cryptographic operations, and `jsonwebtoken` for authentication. It provides a RESTful API for managing certificates, users, and settings.
+*   `api`: Contains all the Rocket API endpoints.
+*   `cert`: Handles certificate generation, signing, and other related operations.
+*   `db`: Manages the SQLite database.
+*   `auth`: Implements the authentication logic, including OIDC and password-based authentication.
+*   `settings`: Manages the application settings.
+*   `notification`: Handles email notifications.
+*   `audit`: Implements the audit logging functionality.
+*   `helper`: Contains helper functions used throughout the application.
+*   `constants`: Defines constants used in the application.
+*   `data`: Defines the data structures used in the application.
 
-*   **Frontend:** The frontend is a Vue.js single-page application built with Vite. It uses Pinia for state management, Vue Router for routing, and Bootstrap for styling. It communicates with the backend via a RESTful API.
+# Building and Running
 
-## Building and Running
+## Docker (Recommended)
 
-### Production (Docker)
+The easiest way to run VaulTLS is using Docker.
 
-The recommended way to run VaulTLS is using Docker.
+```bash
+# Clone the repository
+git clone https://github.com/7ritn/VaulTLS.git
+cd VaulTLS
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/7ritn/VaulTLS.git
-    cd VaulTLS
-    ```
+# Copy environment template
+cp .env.example .env
 
-2.  **Copy environment template:**
-    ```bash
-    cp .env.example .env
-    ```
-
-3.  **Start VaulTLS:**
-    ```bash
-    docker-compose up -d
-    ```
+# Start VaulTLS
+docker-compose up -d
+```
 
 The frontend will be available at `http://localhost:4000` and the backend at `http://localhost:8000`.
 
-### Development (Local)
+## Local Development
 
-For development, a startup script is provided to manage the backend and frontend services.
+For development, you can use the provided startup script.
 
-1.  **Prerequisites:**
-    *   Rust (latest stable)
-    *   Node.js (v16+)
+```bash
+# Make the startup script executable
+chmod +x start-vaultls.sh
 
-2.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/7ritn/VaulTLS.git
-    cd VaulTLS
-    ```
-
-3.  **Make the startup script executable:**
-    ```bash
-    chmod +x start-vaultls.sh
-    ```
-
-4.  **Start both backend and frontend in development mode:**
-    ```bash
-    ./start-vaultls.sh start
-    ```
+# Start both backend and frontend in development mode
+./start-vaultls.sh start
+```
 
 The frontend will be available at `http://localhost:3000` and the backend at `http://localhost:8000`.
 
-The `start-vaultls.sh` script provides other commands for managing the services:
+# Testing
 
-*   `./start-vaultls.sh status`: Check service status
-*   `./start-vaultls.sh logs`: View service logs
-*   `./start-vaultls.sh stop`: Stop all services
-*   `./start-vaultls.sh restart`: Restart services
+To run the test suite:
 
-### Testing
+```bash
+cd backend
+cargo test
+```
 
-The backend has a comprehensive test suite.
+# Development Conventions
 
-*   **Run all tests:**
-    ```bash
-    cd backend
-    cargo test
-    ```
+*   **Rust**: Follow standard Rust formatting (`cargo fmt`).
+*   **Vue.js**: Follow the Vue.js style guide.
+*   **Commits**: Use the conventional commit format.
+*   All new features must include comprehensive tests.
 
-The frontend uses Playwright for end-to-end testing.
+# Project Status and Roadmap
 
-*   **Run all tests:**
-    ```bash
-    cd frontend
-    npm run test
-    ```
+Based on the `tasklist.md` file, the project is actively being developed with a strong focus on security and the implementation of Certificate Revocation List (CRL) and Online Certificate Status Protocol (OCSP) features.
 
-## Development Conventions
+## CRL and OCSP Implementation
 
-*   **Rust:** Follow standard Rust formatting (`cargo fmt`).
-*   **Vue.js:** Follow Vue.js style guide.
-*   **Commits:** Use conventional commit format.
-*   **Testing:** All new features must include comprehensive tests.
+*   **CRL**: Fully implemented, including generation, signing, storage, caching, and distribution.
+*   **OCSP**: Not yet implemented, but data structures are in place.
+
+## Future Plans
+
+The project has a detailed roadmap which includes:
+
+*   **Automated Certificate Renewal**: A background job system for certificate renewal.
+*   **Certificate Analytics Dashboard**: Advanced reporting and analytics.
+*   **Hardware Security Module (HSM) Integration**: For enterprise key management.
+*   **LDAP Integration**: For enterprise directory integration.
+*   **Multi-CA Support**: To allow for multiple certificate authorities.

@@ -25,6 +25,15 @@ use crate::notification::mail::{MailMessage, Mailer};
 use crate::settings::{FrontendSettings, InnerSettings};
 
 
+#[openapi(tag = "Health")]
+#[get("/health")]
+/// Get application health status.
+/// Returns OK if the service is healthy.
+/// Does not require authentication for Docker health checks.
+pub(crate) fn health() -> &'static str {
+    "OK"
+}
+
 #[openapi(tag = "Setup")]
 #[get("/server/version")]
 /// Get the current version of the server.
