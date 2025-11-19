@@ -268,8 +268,8 @@
       <div class="card-body">
         <h4 class="card-header">Change Password</h4>
         <form @submit.prevent="changePassword">
-          <div v-if="authStore.current_user?.has_password" class="mb-3">
-            <label for="old-password" class="form-label">Old Password</label>
+          <div class="mb-3">
+            <label for="old-password" class="form-label">Current Password</label>
             <input
                 id="old-password"
                 v-model="changePasswordReq.oldPassword"
@@ -349,12 +349,16 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { type User, UserRole } from "@/types/User.ts";
 import { useUserStore } from "@/stores/users.ts";
 import { useSetupStore } from "@/stores/setup.ts";
 import { Encryption, PasswordRule } from "@/types/Settings.ts";
+
+// Router
+const router = useRouter();
 
 // Stores
 const settingsStore = useSettingsStore();
@@ -377,11 +381,18 @@ const computedCrlUrl = computed(() => {
 
 const canChangePassword = computed(() =>
     changePasswordReq.value.newPassword === confirmPassword.value &&
-    changePasswordReq.value.newPassword.length > 0
+    changePasswordReq.value.newPassword.length >= 8 &&
+    changePasswordReq.value.oldPassword.length > 0
 );
 
+// Check if user profile has been modified
+const hasUserChanged = computed(() => {
+  if (!editableUser.value || !current_user.value) return false;
+  return editableUser.value.name !== current_user.value.name ||
+         editableUser.value.email !== current_user.value.email;
+});
+
 // Local state
-const showPasswordDialog = ref(false);
 const changePasswordReq = ref({ oldPassword: '', newPassword: '' });
 const confirmPassword = ref('');
 const editableUser = ref<User | null>(null);
@@ -389,10 +400,12 @@ const saved_successfully = ref(false);
 
 // Methods
 const changePassword = async () => {
-  await authStore.changePassword(changePasswordReq.value.oldPassword, changePasswordReq.value.newPassword);
-  showPasswordDialog.value = false;
-  changePasswordReq.value = { oldPassword: '', newPassword: '' };
-  confirmPassword.value = '';
+  const success = await authStore.changePassword(changePasswordReq.value.oldPassword, changePasswordReq.value.newPassword);
+  if (success) {
+    // Password changed successfully - logout to clear any cached sessions and redirect to login
+    await authStore.logout();
+    await router.push('/login');
+  }
 };
 
 
@@ -406,7 +419,7 @@ const saveSettings = async () => {
     await setupStore.reload();
   }
 
-  if (editableUser.value) {
+  if (hasUserChanged.value && editableUser.value) {
     success &&= await userStore.updateUser(editableUser.value);
     await authStore.fetchCurrentUser();
   }

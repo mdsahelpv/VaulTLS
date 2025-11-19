@@ -55,7 +55,7 @@ export const useUserStore = defineStore('user', {
                 return true;
             } catch (err) {
                 this.loading = false;
-                this.error = 'Failed to create user.';
+                this.error = 'Failed to update user.';
                 return false;
             }
         },

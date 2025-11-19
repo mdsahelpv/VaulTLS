@@ -23,14 +23,29 @@
         <!-- Password field moved here, next to username -->
         <div class="mb-3">
           <label for="password" class="form-label">Password</label>
-          <input
-              id="password"
-              type="password"
-              v-model="password"
-              class="form-control"
-              autocomplete="new-password"
-              :required="!setupStore.oidcUrl"
-          />
+          <div class="input-group">
+            <input
+                id="password"
+                :type="showPassword ? 'text' : 'password'"
+                v-model="password"
+                class="form-control"
+                autocomplete="new-password"
+                :required="!setupStore.oidcUrl"
+            />
+            <button
+                class="btn btn-outline-secondary"
+                type="button"
+                @click="showPassword = !showPassword"
+                tabindex="-1"
+            >
+              <img
+                  :src="`/images/${showPassword ? 'eye-hidden' : 'eye-open'}.png`"
+                  alt="Toggle password visibility"
+                  width="16"
+                  height="16"
+              />
+            </button>
+          </div>
           <small class="text-muted">
             {{ setupStore.oidcUrl ? "You can leave this empty if using OAuth (OIDC)." : "Required for local login." }}
           </small>
@@ -351,13 +366,29 @@
         </div>
 
         <div v-if="ca_type === 'upload'" class="mb-3">
-          <input
-              id="pfx_password"
-              type="password"
-              v-model="pfx_password"
-              class="form-control"
-              placeholder="Enter Password (leave empty if none)"
-          />
+          <label for="pfx_password" class="form-label">PFX Password</label>
+          <div class="input-group">
+            <input
+                id="pfx_password"
+                :type="showPfxPassword ? 'text' : 'password'"
+                v-model="pfx_password"
+                class="form-control"
+                placeholder="Enter Password (leave empty if none)"
+            />
+            <button
+                class="btn btn-outline-secondary"
+                type="button"
+                @click="showPfxPassword = !showPfxPassword"
+                tabindex="-1"
+            >
+              <img
+                  :src="`/images/${showPfxPassword ? 'eye-hidden' : 'eye-open'}.png`"
+                  alt="Toggle PFX password visibility"
+                  width="16"
+                  height="16"
+              />
+            </button>
+          </div>
         </div>
 
         <!-- Certificate Validation for Upload Option -->
@@ -402,6 +433,10 @@ import router from '../router/router';
 import { setup, validate_pfx } from "@/api/auth.ts";
 import {useSetupStore} from "@/stores/setup.ts";
 import {hashPassword} from "@/utils/hash.ts";
+
+// Password visibility state
+const showPassword = ref(false);
+const showPfxPassword = ref(false);
 
 const setupStore = useSetupStore();
 
