@@ -12,16 +12,9 @@ export enum CertificateRenewMethod {
 }
 
 export enum CertificateRevocationReason {
-    Unspecified = 0,
-    KeyCompromise = 1,
-    CACompromise = 2,
-    AffiliationChanged = 3,
-    Superseded = 4,
-    CessationOfOperation = 5,
-    CertificateHold = 6,
-    RemoveFromCRL = 8,
-    PrivilegeWithdrawn = 9,
-    AACompromise = 10,
+    Unspecified = 0,      // Default reason when not specified
+    CertificateHold = 1,  // Certificate temporarily withheld
+    Specify = 2,          // Custom revocation reason (requires custom_reason text)
 }
 
 export interface Certificate {

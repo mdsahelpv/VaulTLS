@@ -59,6 +59,8 @@ pub struct CA {
     pub cert_chain: Vec<Vec<u8>>, // Full certificate chain in DER format: [end_entity, intermediate1, intermediate2, ..., root]
     #[serde(skip)]
     pub key: Vec<u8>,
+    pub aia_url: Option<String>, // Authority Information Access URL
+    pub cdp_url: Option<String>, // CRL Distribution Points URL
 }
 
 #[derive(Clone, Debug)]
@@ -338,6 +340,8 @@ impl CertificateBuilder {
             cert: ca_cert_der,
             cert_chain,
             key: ca_key_der,
+            aia_url: None, // TODO: Extract from imported certificate if needed
+            cdp_url: None, // TODO: Extract from imported certificate if needed
         })
     }
 }
@@ -825,6 +829,8 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             cert: cert_der.clone(),
             cert_chain: vec![cert_der], // Self-signed CA has single certificate in chain
             key: self.private_key.private_key_to_der()?,
+            aia_url: self.authority_info_access.clone(),
+            cdp_url: self.crl_distribution_points.clone(),
         })
     }
 

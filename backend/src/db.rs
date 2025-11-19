@@ -222,6 +222,8 @@ impl VaulTLSDB {
                     creation_source: row.get(5)?,
                     cert_chain,
                     can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
+                    aia_url: None, // Will be populated by migration
+                    cdp_url: None, // Will be populated by migration
                 })
             }).map_err(|_| anyhow!("VaulTLS has not been set-up yet"))
         })
@@ -250,6 +252,8 @@ impl VaulTLSDB {
                     creation_source: row.get(5)?,
                     cert_chain,
                     can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
+                    aia_url: None, // Will be populated by migration
+                    cdp_url: None, // Will be populated by migration
                 })
             })
             .collect()?)
@@ -281,6 +285,8 @@ impl VaulTLSDB {
                     creation_source: row.get(5)?,
                     cert_chain,
                     can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
+                    aia_url: None, // Will be populated by migration
+                    cdp_url: None, // Will be populated by migration
                 })
             }).map_err(|e| anyhow!("CA with id {} not found: {}", id, e))
         })

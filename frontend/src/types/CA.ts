@@ -7,6 +7,7 @@ export interface CertificateChainInfo {
     subject: string;              // Certificate subject
     issuer: string;               // Certificate issuer
     serial_number: string;        // Certificate serial number
+    certificate_type: string;     // Type of certificate ("end_entity", "intermediate_ca", "root_ca")
     is_end_entity: boolean;       // Whether this is the end-entity certificate
 }
 

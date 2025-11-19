@@ -1113,8 +1113,14 @@ pub(crate) async fn get_ca_list(
             .map(|s| s.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
 
-        // Extract AIA and CDP extensions from certificate
-        let (aia_url, cdp_url) = extract_aia_and_cdp_urls(&cert)?;
+        // Extract AIA and CDP extensions from certificate (fallback for backward compatibility)
+        let (aia_url, cdp_url) = if ca.aia_url.is_some() && ca.cdp_url.is_some() {
+            (ca.aia_url.clone(), ca.cdp_url.clone())
+        } else {
+            // Fallback to extraction for existing CAs that don't have these fields set
+            let (extracted_aia, extracted_cdp) = extract_aia_and_cdp_urls(&cert)?;
+            (extracted_aia, extracted_cdp)
+        };
 
         // Convert to PEM
         let pem = get_pem(&ca)?;
@@ -1420,8 +1426,14 @@ pub(crate) async fn get_ca_details(
             }
         }
 
-        // Extract AIA and CDP extensions from certificate
-        let (aia_url, cdp_url) = extract_aia_and_cdp_urls(&cert)?;
+        // Extract AIA and CDP extensions from certificate (fallback for backward compatibility)
+        let (aia_url, cdp_url) = if ca.aia_url.is_some() && ca.cdp_url.is_some() {
+            (ca.aia_url.clone(), ca.cdp_url.clone())
+        } else {
+            // Fallback to extraction for existing CAs that don't have these fields set
+            let (extracted_aia, extracted_cdp) = extract_aia_and_cdp_urls(&cert)?;
+            (extracted_aia, extracted_cdp)
+        };
 
     let ca_details = CADetails {
         id: ca.id,
