@@ -13,26 +13,12 @@ export const fetchCertificatePassword = async (id: number): Promise<string> => {
 
 export const downloadCertificate = async (id: number, certName: string, format: string = 'pkcs12'): Promise<void> => {
     try {
-        const certificate = await ApiClient.download(`/certificates/cert/${id}/download?format=${format}`);
-        // Override the filename to use the certificate name and correct extension
-        const extension = getExtension(format);
-        const filename = `${certName.replace(/[^a-zA-Z0-9]/g, '_')}.${extension}`;
-
+        await ApiClient.download(`/certificates/cert/${id}/download?format=${format}`);
         // The ApiClient.download method creates a blob and triggers download
-        // We need to override the filename logic here if needed
-        return certificate;
+        // File naming is handled internally
     } catch (error) {
         console.error('Failed to download certificate:', error);
         throw error;
-    }
-};
-
-const getExtension = (format: string): string => {
-    switch (format) {
-        case 'pkcs12': return 'p12';
-        case 'pem': return 'pem';
-        case 'der': return 'der';
-        default: return 'crt';
     }
 };
 
@@ -45,12 +31,60 @@ export const deleteCertificate = async (id: number): Promise<void> => {
     await ApiClient.delete<void>(`/certificates/cert/${id}`);
 };
 
+interface CreateSelfSignedCAPayload {
+    name: string;
+    validity_in_years: number;
+    key_type?: string;
+    key_size?: number;
+    password?: string;
+    country_name?: string;
+    state_or_province_name?: string;
+    locality_name?: string;
+    organization_name?: string;
+    organizational_unit_name?: string;
+    common_name?: string;
+    email_address?: string;
+    can_create_subordinate_ca?: boolean;
+    certificate_policies_oid?: string;
+    certificate_policies_cps?: string;
+}
+
+interface RevocationHistoryEntry {
+    id: number;
+    certificate_id: number;
+    reason: number;
+    custom_reason?: string;
+    revoked_on: string;
+    revoked_by: number;
+}
+
+interface RevocationStatus {
+    certificate_id: number;
+    is_revoked: boolean;
+    reason?: number;
+    custom_reason?: string;
+    revoked_on?: string;
+    revoked_by?: number;
+}
+
+interface RevokeCertificatePayload {
+    reason: number;
+    notify_user: boolean;
+    custom_reason?: string;
+}
+
 export const revokeCertificate = async (id: number, reason: number, notifyUser: boolean, customReason?: string): Promise<void> => {
-    await ApiClient.post<void>(`/certificates/cert/${id}/revoke`, {
+    const payload: RevokeCertificatePayload = {
         reason: reason,
-        custom_reason: customReason || null,
         notify_user: notifyUser
-    });
+    };
+
+    // Only include custom_reason when reason=2 (Specify)
+    if (reason === 2) {
+        payload.custom_reason = customReason || '';
+    }
+
+    await ApiClient.post<void>(`/certificates/cert/${id}/revoke`, payload);
 };
 
 export const getCertificateDetails = async (id: number): Promise<CertificateDetails> => {
@@ -94,7 +128,7 @@ export const createSelfSignedCA = async (
     certificatePoliciesCPS?: string,
     keyType?: string
 ): Promise<number> => {
-    return await ApiClient.post<number>('/certificates/ca/new', {
+    const payload: CreateSelfSignedCAPayload = {
         name,
         validity_in_years: validityInYears,
         key_type: keyType,
@@ -110,7 +144,9 @@ export const createSelfSignedCA = async (
         can_create_subordinate_ca: canCreateSubordinateCA,
         certificate_policies_oid: certificatePoliciesOID,
         certificate_policies_cps: certificatePoliciesCPS
-    });
+    };
+
+    return await ApiClient.post<number>('/certificates/ca/new', payload);
 };
 
 export const importCAFromFile = async (formData: FormData): Promise<number> => {
@@ -125,8 +161,8 @@ export const deleteCA = async (id: number): Promise<void> => {
     await ApiClient.delete<void>(`/certificates/ca/${id}`);
 };
 
-export const getRevocationHistory = async (): Promise<any[]> => {
-    return await ApiClient.get<any[]>('/certificates/revocation-history');
+export const getRevocationHistory = async (): Promise<RevocationHistoryEntry[]> => {
+    return await ApiClient.get<RevocationHistoryEntry[]>('/certificates/revocation-history');
 };
 
 export const clearRevocationHistory = async (): Promise<void> => {
@@ -137,8 +173,8 @@ export const unrevokeCertificate = async (id: number): Promise<void> => {
     await ApiClient.delete<void>(`/certificates/cert/${id}/revoke`);
 };
 
-export const getRevocationStatus = async (id: number): Promise<any> => {
-    return await ApiClient.get<any>(`/certificates/cert/${id}/revocation-status`);
+export const getRevocationStatus = async (id: number): Promise<RevocationStatus> => {
+    return await ApiClient.get<RevocationStatus>(`/certificates/cert/${id}/revocation-status`);
 };
 
 export const downloadCRL = async (): Promise<void> => {

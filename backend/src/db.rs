@@ -202,7 +202,7 @@ impl VaulTLSDB {
     /// Retrieve the most recent CA entry from the database
     pub(crate) async fn get_current_ca(&self) -> Result<CA> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca FROM ca_certificates ORDER BY id DESC LIMIT 1")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca, aia_url, cdp_url FROM ca_certificates ORDER BY id DESC LIMIT 1")?;
 
             stmt.query_row([], |row| {
                 let cert_chain: Option<String> = row.get(6)?;
@@ -222,17 +222,28 @@ impl VaulTLSDB {
                     creation_source: row.get(5)?,
                     cert_chain,
                     can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
-                    aia_url: None, // Will be populated by migration
-                    cdp_url: None, // Will be populated by migration
+                    aia_url: row.get(8)?, // From database
+                    cdp_url: row.get(9)?, // From database
                 })
             }).map_err(|_| anyhow!("VaulTLS has not been set-up yet"))
+        })
+    }
+
+    /// Update AIA and CDP URLs for an existing CA
+    pub(crate) async fn update_ca_urls(&self, ca_id: i64, aia_url: Option<String>, cdp_url: Option<String>) -> Result<()> {
+        db_do!(self.pool, |conn: &Connection| {
+            conn.execute(
+                "UPDATE ca_certificates SET aia_url = ?1, cdp_url = ?2 WHERE id = ?3",
+                params![aia_url, cdp_url, ca_id],
+            )?;
+            Ok(())
         })
     }
 
     /// Retrieve all CA certificates from the database
     pub(crate) async fn get_all_ca(&self) -> Result<Vec<CA>> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca FROM ca_certificates ORDER BY id DESC")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca, aia_url, cdp_url FROM ca_certificates ORDER BY id DESC")?;
             let rows = stmt.query([])?;
             Ok(rows.map(|row| {
                 let cert_chain: Option<String> = row.get(6)?;
@@ -252,8 +263,8 @@ impl VaulTLSDB {
                     creation_source: row.get(5)?,
                     cert_chain,
                     can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
-                    aia_url: None, // Will be populated by migration
-                    cdp_url: None, // Will be populated by migration
+                    aia_url: row.get(8)?, // From database
+                    cdp_url: row.get(9)?, // From database
                 })
             })
             .collect()?)
@@ -265,7 +276,7 @@ impl VaulTLSDB {
     #[allow(dead_code)]
     pub(crate) async fn get_ca(&self, id: i64) -> Result<CA> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca FROM ca_certificates WHERE id = ?1")?;
+            let mut stmt = conn.prepare("SELECT id, created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca, aia_url, cdp_url FROM ca_certificates WHERE id = ?1")?;
 
             stmt.query_row(params![id], |row| {
                 let cert_chain: Option<String> = row.get(6)?;
@@ -285,8 +296,8 @@ impl VaulTLSDB {
                     creation_source: row.get(5)?,
                     cert_chain,
                     can_create_subordinate_ca: row.get(7).unwrap_or(false), // Default for existing records
-                    aia_url: None, // Will be populated by migration
-                    cdp_url: None, // Will be populated by migration
+                    aia_url: row.get(8)?, // From database
+                    cdp_url: row.get(9)?, // From database
                 })
             }).map_err(|e| anyhow!("CA with id {} not found: {}", id, e))
         })

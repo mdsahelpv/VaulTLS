@@ -340,7 +340,7 @@
                     class="form-control"
                     id="aiaUrl"
                     v-model="selfSignedForm.aiaUrl"
-                    placeholder="http://your-ca.example.com/certs/ca.cert.pem"
+                    placeholder="https://pki.example.com/certs/ca.cert.pem"
                   >
                 </div>
 
@@ -351,7 +351,7 @@
                     class="form-control"
                     id="cdpUrl"
                     v-model="selfSignedForm.cdpUrl"
-                    placeholder="http://your-ca.example.com/crl/ca.crl.pem"
+                    placeholder="https://pki.example.com/crl/ca.crl.pem"
                   >
                 </div>
 
@@ -755,8 +755,8 @@ const selfSignedForm = ref({
   hashAlgorithm: 'sha256',
   crlValidityDays: 30,
   pathLength: 1,
-  aiaUrl: 'http://subca.abc.io/certs/ca.cert.pem',
-  cdpUrl: 'http://subca.abc.io/crl/ca.crl.pem'
+  aiaUrl: '',
+  cdpUrl: ''
 });
 
 const importForm = ref({
@@ -922,8 +922,8 @@ const resetForms = () => {
     hashAlgorithm: 'sha256',
     crlValidityDays: 30,
     pathLength: 1,
-    aiaUrl: 'http://rootca.abc.io/certs/ca.cert.pem',
-    cdpUrl: 'http://rootca.abc.io/crl/ca.crl.pem'
+    aiaUrl: '',
+    cdpUrl: ''
   };
   importForm.value = { file: null, password: '' };
   if (fileInput.value) {

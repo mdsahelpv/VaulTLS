@@ -564,7 +564,7 @@
             <button type="button" class="btn btn-secondary" @click="closeRevokeModal">
               Cancel
             </button>
-            <button type="button" class="btn btn-warning" @click="revokeCertificate">
+            <button type="button" class="btn btn-warning" @click="revokeCertificate" :disabled="!isRevokeValid">
               <i class="bi bi-x-circle me-1"></i>
               Revoke Certificate
             </button>
@@ -662,6 +662,7 @@
                       <div class="col-sm-4"><strong>Type:</strong></div>
                       <div class="col-sm-8">
                         <span class="badge" :class="certificateDetails.certificate_type === CertificateType.Client ? 'bg-primary' : 'bg-success'">
+                          <!-- eslint-disable-next-line -->
                           {{ CertificateType[certificateDetails.certificate_type] }}
                         </span>
                       </div>
@@ -1013,6 +1014,13 @@ const selectedCA = computed(() => {
 
 const isRootCA = computed(() => {
   return settings.value?.common.is_root_ca ?? false;
+});
+
+const isRevokeValid = computed(() => {
+  if (revocationReason.value === 2) {
+    return customRevocationReason.value.trim().length > 0;
+  }
+  return true;
 });
 
 // Watch for Root CA mode changes and set certificate type to Subordinate CA

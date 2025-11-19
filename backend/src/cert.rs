@@ -703,20 +703,15 @@ keyUsage = critical, digitalSignature, cRLSign, keyCertSign
             config_content.push_str(&format!("certificatePolicies = {}\n", oid));
         }
 
-        // Add AIA and CDP extensions using the configured URLs
-        config_content.push_str("authorityInfoAccess = ");
-
+        // Add AIA and CDP extensions using the configured URLs (only if provided)
         if let Some(aia_url) = &self.authority_info_access {
+            config_content.push_str("authorityInfoAccess = ");
             config_content.push_str(&format!("caIssuers;URI:{}\n", aia_url));
-        } else {
-            config_content.push_str("caIssuers;URI:http://pki.yawal.io/certs/ca.cert.pem\n");
         }
 
-        // Add CDP extension
+        // Add CDP extension (only if provided)
         if let Some(cdp_url) = &self.crl_distribution_points {
             config_content.push_str(&format!("crlDistributionPoints = URI:{}\n", cdp_url));
-        } else {
-            config_content.push_str("crlDistributionPoints = URI:http://pki.yawal.io/crl/ca.crl.pem\n");
         }
 
         config_content.push_str(r#"

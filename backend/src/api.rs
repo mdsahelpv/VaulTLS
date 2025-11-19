@@ -340,8 +340,9 @@ async fn setup_common(
     }
 
     debug!("Inserting CA into database");
-    match state.db.insert_ca(ca).await {
-        Ok(_) => debug!("CA inserted into database successfully"),
+    let ca_id_result = state.db.insert_ca(ca).await;
+    let ca_id = match ca_id_result {
+        Ok(id) => id,
         Err(e) => {
             error!("Failed to insert CA into database: {}", e);
             // Clean up: delete the user if CA insertion fails
@@ -352,6 +353,12 @@ async fn setup_common(
             }
             return Err(ApiError::Other(format!("Failed to save CA to database: {}", e)))
         }
+    };
+
+    // Update the CA with the AIA and CDP URLs that were configured during setup
+    if let Err(e) = state.db.update_ca_urls(ca_id, aia_url.clone(), cdp_url.clone()).await {
+        warn!("Failed to update CA URLs in database during setup: {}", e);
+        // Don't fail setup for this - the URLs will be extracted from the certificate when needed
     }
 
     // Set the Root CA mode in settings
@@ -1114,12 +1121,33 @@ pub(crate) async fn get_ca_list(
             .unwrap_or_else(|| "Unknown".to_string());
 
         // Extract AIA and CDP extensions from certificate (fallback for backward compatibility)
+        // Prefer database values over certificate-embedded values when available
         let (aia_url, cdp_url) = if ca.aia_url.is_some() && ca.cdp_url.is_some() {
             (ca.aia_url.clone(), ca.cdp_url.clone())
         } else {
-            // Fallback to extraction for existing CAs that don't have these fields set
-            let (extracted_aia, extracted_cdp) = extract_aia_and_cdp_urls(&cert)?;
-            (extracted_aia, extracted_cdp)
+            // Extract URLs from certificate and update database for backward compatibility
+            let extracted_urls = extract_aia_and_cdp_urls(&cert)?;
+
+            // Update the database with extracted URLs if they are missing
+            // This ensures that future requests don't need to re-extract
+            if ca.aia_url.is_none() || ca.cdp_url.is_none() {
+                debug!("Updating missing URLs for CA {}: AIA='{}', CDP='{}'",
+                       ca.id, extracted_urls.0.as_deref().unwrap_or(""), extracted_urls.1.as_deref().unwrap_or(""));
+
+                // Note: This update is done asynchronously to avoid blocking the response
+                // In a production system, you might want to do this synchronously to ensure consistency
+                let db_clone = state.db.clone();
+                let ca_id = ca.id;
+                let update_aia = extracted_urls.0.clone();
+                let update_cdp = extracted_urls.1.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = db_clone.update_ca_urls(ca_id, update_aia, update_cdp).await {
+                        warn!("Failed to update CA URLs in database: {}", e);
+                    }
+                });
+            }
+
+            extracted_urls
         };
 
         // Convert to PEM
@@ -2320,90 +2348,99 @@ pub(crate) async fn download_crl_backup(
 //     process_ocsp_request(state, &request_data).await
 // }
 
-/// Extract AIA (Authority Information Access) and CDP (CRL Distribution Point) URLs from certificate extensions
-fn extract_aia_and_cdp_urls(cert: &X509) -> Result<(Option<String>, Option<String>), ApiError> {
-    let mut aia_url: Option<String> = None;
-    let mut cdp_url: Option<String> = None;
+        /// Extract AIA (Authority Information Access) and CDP (CRL Distribution Point) URLs from certificate extensions
+        fn extract_aia_and_cdp_urls(cert: &X509) -> Result<(Option<String>, Option<String>), ApiError> {
+            let mut aia_url: Option<String> = None;
+            let mut cdp_url: Option<String> = None;
 
-    // Convert certificate to PEM and then use openssl command-line to extract extensions
-    // This is a workaround since the Rust OpenSSL bindings don't expose extension parsing easily
-    let pem = cert.to_pem()
-        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))?;
+            // Convert certificate to PEM and then use openssl command-line to extract extensions
+            // This is a workaround since the Rust OpenSSL bindings don't expose extension parsing easily
+            let pem = cert.to_pem()
+                .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))?;
 
-    let pem_str = String::from_utf8(pem)
-        .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {}", e)))?;
+            let pem_str = String::from_utf8(pem)
+                .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {}", e)))?;
 
-    // Write certificate to a temporary file
-    let temp_cert_path = std::env::temp_dir().join(format!("cert_ext_{}.pem", std::process::id()));
-    std::fs::write(&temp_cert_path, &pem_str)
-        .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {}", e)))?;
+            // Write certificate to a temporary file
+            let temp_cert_path = std::env::temp_dir().join(format!("cert_ext_{}.pem", std::process::id()));
+            std::fs::write(&temp_cert_path, &pem_str)
+                .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {}", e)))?;
 
-    // Use openssl command to extract extensions
-    let output = std::process::Command::new("openssl")
-        .args(&[
-            "x509",
-            "-in", &temp_cert_path.to_string_lossy(),
-            "-text",
-            "-noout"
-        ])
-        .output()
-        .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {}", e)))?;
+            // Use openssl command to extract extensions
+            let output = std::process::Command::new("openssl")
+                .args(&[
+                    "x509",
+                    "-in", &temp_cert_path.to_string_lossy(),
+                    "-text",
+                    "-noout"
+                ])
+                .output()
+                .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {}", e)))?;
 
-    // Clean up temp file
-    let _ = std::fs::remove_file(&temp_cert_path);
+            // Clean up temp file
+            let _ = std::fs::remove_file(&temp_cert_path);
 
-    if !output.status.success() {
-        return Err(ApiError::Other("Failed to extract certificate extensions".to_string()));
-    }
+            if !output.status.success() {
+                debug!("OpenSSL command failed to extract extensions, returning None for URLs");
+                return Ok((None, None)); // Return None instead of error for missing extensions
+            }
 
-    let text_output = String::from_utf8(output.stdout)
-        .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {}", e)))?;
+            let text_output = String::from_utf8(output.stdout)
+                .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {}", e)))?;
 
-    // Parse the text output to find AIA and CDP URLs
-    for line in text_output.lines() {
-        let line_trimmed = line.trim();
+            debug!("Extracted certificate text: {} characters", text_output.len());
 
-        // Extract any URI line containing http
-        if let Some(http_start) = line_trimmed.find("URI:") {
-            if let Some(url_start_pos) = line_trimmed[http_start..].find("http") {
-                let actual_url_start = http_start + url_start_pos;
-                let url = &line_trimmed[actual_url_start..];
+            // Parse the text output to find AIA and CDP URLs
+            for line in text_output.lines() {
+                let line_trimmed = line.trim();
 
-                // Check what type of URL this is
-                if url.contains("ca.cert") || line_trimmed.contains("CA Issuers") || line_trimmed.contains("caIssuers") {
-                    // This is an AIA (Authority Information Access) URL
-                    if aia_url.is_none() { // Only set if not already set
-                        aia_url = Some(url.to_string());
+                // Extract any URI line containing http
+                if let Some(http_start) = line_trimmed.find("URI:") {
+                    if let Some(url_start_pos) = line_trimmed[http_start..].find("http") {
+                        let actual_url_start = http_start + url_start_pos;
+                        let url = &line_trimmed[actual_url_start..];
+
+                        // Check what type of URL this is
+                        if url.contains("ca.cert") || line_trimmed.contains("CA Issuers") || line_trimmed.contains("caIssuers") {
+                            // This is an AIA (Authority Information Access) URL
+                            if aia_url.is_none() { // Only set if not already set
+                                debug!("Found AIA URL: {}", url);
+                                aia_url = Some(url.to_string());
+                            }
+                        } else if url.contains("ca.crl") || line_trimmed.contains("CRL Distribution Points") {
+                            // This is a CDP (CRL Distribution Points) URL
+                            if cdp_url.is_none() { // Only set if not already set
+                                debug!("Found CDP URL: {}", url);
+                                cdp_url = Some(url.to_string());
+                            }
+                        }
                     }
-                } else if url.contains("ca.crl") || line_trimmed.contains("CRL Distribution Points") {
-                    // This is a CDP (CRL Distribution Points) URL
-                    if cdp_url.is_none() { // Only set if not already set
-                        cdp_url = Some(url.to_string());
+                }
+
+                // Also check for lines that directly contain http without "URI:" prefix
+                if !line_trimmed.contains("URI:") && line_trimmed.contains("http") {
+                    if let Some(http_start) = line_trimmed.find("http") {
+                        let url = &line_trimmed[http_start..];
+
+                        if url.contains("ca.cert") {
+                            if aia_url.is_none() {
+                                debug!("Found AIA URL (alternative): {}", url);
+                                aia_url = Some(url.to_string());
+                            }
+                        } else if url.contains("ca.crl") {
+                            if cdp_url.is_none() {
+                                debug!("Found CDP URL (alternative): {}", url);
+                                cdp_url = Some(url.to_string());
+                            }
+                        }
                     }
                 }
             }
+
+            debug!("Extracted URLs - AIA: {:?}, CDP: {:?}", aia_url, cdp_url);
+            Ok((aia_url, cdp_url))
         }
 
-        // Also check for lines that directly contain http without "URI:" prefix
-        if !line_trimmed.contains("URI:") && line_trimmed.contains("http") {
-            if let Some(http_start) = line_trimmed.find("http") {
-                let url = &line_trimmed[http_start..];
-
-                if url.contains("ca.cert") {
-                    if aia_url.is_none() {
-                        aia_url = Some(url.to_string());
-                    }
-                } else if url.contains("ca.crl") {
-                    if cdp_url.is_none() {
-                        cdp_url = Some(url.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    Ok((aia_url, cdp_url))
-}
 
 /// Determine the certificate type based on position in chain and certificate properties
 fn determine_certificate_type(cert: &X509, index: usize, total_certs: usize) -> String {

@@ -1,4 +1,5 @@
 import js from '@eslint/js'
+import globals from 'globals'
 import vue from 'eslint-plugin-vue'
 import ts from '@typescript-eslint/eslint-plugin'
 import tsParser from '@typescript-eslint/parser'
@@ -8,11 +9,15 @@ export default [
     languageOptions: {
       ecmaVersion: 2020,
       sourceType: 'module',
-      env: { browser: true, node: true, es6: true },
       parser: tsParser,
       parserOptions: {
         ecmaVersion: 2020,
         sourceType: 'module',
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.es2020,
       },
     },
     rules: {
