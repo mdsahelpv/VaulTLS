@@ -1567,28 +1567,19 @@ pub(crate) async fn get_certificate_details(
     id: i64,
     authentication: Authenticated
 ) -> Result<Json<CertificateDetails>, ApiError> {
-    let (user_id, name, created_on, valid_until, pkcs12, pkcs12_password, certificate_type, renew_method, ca_id) = state.db.get_user_cert(id).await?;
-    if user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin {
+    let mut cert = state.db.get_user_cert_by_id(id).await?;
+    if cert.user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin {
         return Err(ApiError::Forbidden(None));
     }
 
-    let cert = Certificate {
-        id: -1,
-        name,
-        created_on,
-        valid_until,
-        certificate_type,
-        pkcs12: pkcs12.to_der().map_err(|e| ApiError::Other(format!("Failed to convert PKCS#12 to DER: {}", e)))?,
-        pkcs12_password,
-        ca_id,
-        user_id,
-        renew_method,
-        is_revoked: false,
-        revoked_on: None,
-        revoked_reason: None,
-        revoked_by: None,
-        custom_revocation_reason: None,
-    };
+    // Get the certificate's revocation status
+    if let Some(revocation) = state.db.get_certificate_revocation(id).await? {
+        cert.is_revoked = true;
+        cert.revoked_on = Some(revocation.revocation_date);
+        cert.revoked_reason = Some(revocation.revocation_reason);
+        cert.revoked_by = revocation.revoked_by_user_id;
+        cert.custom_revocation_reason = revocation.custom_reason;
+    }
 
     let details = crate::cert::get_certificate_details(&cert)?;
     Ok(Json(details))
