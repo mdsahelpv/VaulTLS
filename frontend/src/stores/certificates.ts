@@ -106,11 +106,11 @@ export const useCertificateStore = defineStore('certificate', {
         },
 
         // Revoke a certificate by ID and fetch the updated list
-        async revokeCertificate(id: number, reason: number, notifyUser: boolean): Promise<void> {
+        async revokeCertificate(id: number, reason: number, notifyUser: boolean, customReason?: string): Promise<void> {
             this.loading = true;
             this.error = null;
             try {
-                await revokeCertificateApi(id, reason, notifyUser);
+                await revokeCertificateApi(id, reason, notifyUser, customReason);
                 await this.fetchCertificates();
             } catch (err) {
                 this.error = 'Failed to revoke the certificate.';

@@ -204,7 +204,7 @@
         tabindex="-1"
         style="background: rgba(0, 0, 0, 0.5)"
     >
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-xl">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">Generate New Certificate</h5>
@@ -264,7 +264,7 @@
               >
                 <i :class="advancedConfigExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'"></i>
                 Advanced Certificate Configuration
-                <small class="text-muted ms-1">(Key Type, Key Size, Hash Algorithm, URLs)</small>
+                <!-- <small class="text-muted ms-1">(Key Type, Key Size, Hash Algorithm, URLs)</small> -->
               </button>
             </div>
 
@@ -526,19 +526,26 @@
                   v-model.number="revocationReason"
                   class="form-select"
                   required
-                  title="Choose the appropriate RFC 5280 revocation reason code"
+                  title="Choose the appropriate revocation reason"
               >
                 <option :value="0" title="No specific reason given">Unspecified</option>
-                <option :value="1" title="The private key has been compromised">Key Compromise</option>
-                <option :value="2" title="The CA's private key has been compromised">CA Compromise</option>
-                <option :value="3" title="The certificate subject has changed affiliation">Affiliation Changed</option>
-                <option :value="4" title="This certificate has been replaced by a newer one">Superseded</option>
-                <option :value="5" title="The certificate is no longer needed">Cessation of Operation</option>
-                <option :value="6" title="Certificate is temporarily suspended">Certificate Hold</option>
-                <option :value="8" title="Remove this certificate from the CRL">Remove from CRL</option>
-                <option :value="9" title="Certificate privileges have been withdrawn">Privilege Withdrawn</option>
-                <option :value="10" title="The AA's private key has been compromised">AA Compromise</option>
+                <option :value="1" title="Certificate is temporarily suspended">Certificate Hold</option>
+                <option :value="2" title="Custom reason will be provided">Specify</option>
               </select>
+            </div>
+            <div v-if="revocationReason === 2" class="mb-3">
+              <label for="customRevocationReason" class="form-label">Custom Reason</label>
+              <textarea
+                  id="customRevocationReason"
+                  v-model="customRevocationReason"
+                  class="form-control"
+                  placeholder="Please provide a custom reason for revocation"
+                  rows="3"
+                  maxlength="500"
+              ></textarea>
+              <div class="form-text">
+                Provide a detailed reason for revoking this certificate (maximum 500 characters).
+              </div>
             </div>
             <div v-if="isMailValid" class="mb-3 form-check form-switch">
               <input
@@ -955,6 +962,7 @@ const selectedFormat = ref<string>('pkcs12');
 
 // Revocation modal state
 const revocationReason = ref<number>(0);
+const customRevocationReason = ref<string>('');
 const notifyUserOnRevoke = ref<boolean>(false);
 
 // Filter state
@@ -1180,6 +1188,7 @@ const closeRevokeModal = () => {
   certToRevoke.value = null;
   isRevokeModalVisible.value = false;
   revocationReason.value = 0;
+  customRevocationReason.value = '';
   notifyUserOnRevoke.value = false;
 };
 
@@ -1188,7 +1197,7 @@ const revokeCertificate = async () => {
   if (selectedCertificates.value.size > 0) {
     try {
       const revokePromises = Array.from(selectedCertificates.value).map(certId =>
-        certificateStore.revokeCertificate(certId, revocationReason.value, notifyUserOnRevoke.value)
+        certificateStore.revokeCertificate(certId, revocationReason.value, notifyUserOnRevoke.value, revocationReason.value === 2 ? customRevocationReason.value : undefined)
       );
 
       await Promise.all(revokePromises);
@@ -1208,7 +1217,8 @@ const revokeCertificate = async () => {
     await certificateStore.revokeCertificate(
       certToRevoke.value.id,
       revocationReason.value,
-      notifyUserOnRevoke.value
+      notifyUserOnRevoke.value,
+      revocationReason.value === 2 ? customRevocationReason.value : undefined
     );
     closeRevokeModal();
   } catch (error) {

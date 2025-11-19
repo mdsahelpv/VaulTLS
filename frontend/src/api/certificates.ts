@@ -45,9 +45,10 @@ export const deleteCertificate = async (id: number): Promise<void> => {
     await ApiClient.delete<void>(`/certificates/cert/${id}`);
 };
 
-export const revokeCertificate = async (id: number, reason: number, notifyUser: boolean): Promise<void> => {
+export const revokeCertificate = async (id: number, reason: number, notifyUser: boolean, customReason?: string): Promise<void> => {
     await ApiClient.post<void>(`/certificates/cert/${id}/revoke`, {
         reason: reason,
+        custom_reason: customReason || null,
         notify_user: notifyUser
     });
 };
