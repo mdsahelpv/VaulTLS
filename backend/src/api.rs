@@ -1136,20 +1136,24 @@ pub(crate) async fn get_ca_list(
                                 .map(|s| s.to_string())
                                 .unwrap_or_else(|_| "Invalid".to_string());
 
-                            chain_certificates.push(CertificateChainInfo {
-                                subject: format!("{:?}", chain_subject),
-                                issuer: format!("{:?}", chain_issuer),
-                                serial_number,
-                                is_end_entity: index == 0, // First certificate in chain is end-entity
-                            });
+                            let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
+                        chain_certificates.push(CertificateChainInfo {
+                            subject: format!("{:?}", chain_subject),
+                            issuer: format!("{:?}", chain_issuer),
+                            serial_number,
+                            certificate_type,
+                            is_end_entity: index == 0,
+                        });
                         }
                         Err(e) => {
                             warn!("Failed to get serial number for certificate {} in chain: {}", index + 1, e);
                             // Add entry with invalid serial
+                            let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                             chain_certificates.push(CertificateChainInfo {
                                 subject: format!("{:?}", chain_subject),
                                 issuer: format!("{:?}", chain_issuer),
                                 serial_number: "Invalid".to_string(),
+                                certificate_type,
                                 is_end_entity: index == 0,
                             });
                         }
@@ -1162,6 +1166,7 @@ pub(crate) async fn get_ca_list(
                         subject: format!("Certificate {}: Failed to parse - {:?}", index + 1, e),
                         issuer: "Unknown".to_string(),
                         serial_number: "Unknown".to_string(),
+                        certificate_type: "unknown".to_string(),
                         is_end_entity: index == 0,
                     });
                 }
@@ -1180,10 +1185,12 @@ pub(crate) async fn get_ca_list(
                         let serial_number = serial_bn.to_hex_str()
                             .map(|s| s.to_string())
                             .unwrap_or_else(|_| "Invalid".to_string());
+                        let certificate_type = determine_certificate_type(&main_cert, 0, 1);
                         chain_certificates.push(CertificateChainInfo {
                             subject: format!("{:?}", main_subject),
                             issuer: format!("{:?}", main_issuer),
                             serial_number,
+                            certificate_type,
                             is_end_entity: true,
                         });
                     }
@@ -1277,7 +1284,8 @@ pub struct CertificateChainInfo {
     pub subject: String,
     pub issuer: String,
     pub serial_number: String,
-    pub is_end_entity: bool,
+    pub certificate_type: String, // "end_entity", "intermediate_ca", "root_ca"
+    pub is_end_entity: bool, // Keep for backward compatibility
 }
 
 #[derive(Serialize, JsonSchema, Debug)]
@@ -1380,16 +1388,19 @@ pub(crate) async fn get_ca_details(
                                 subject: format!("{:?}", chain_subject),
                                 issuer: format!("{:?}", chain_issuer),
                                 serial_number,
-                                is_end_entity: index == 0, // First certificate in chain is end-entity
+                                certificate_type: determine_certificate_type(&chain_cert, index, ca.cert_chain.len()),
+                                is_end_entity: index == 0,
                             });
                         }
                         Err(e) => {
                             warn!("Failed to get serial number for certificate {} in chain: {}", index + 1, e);
                             // Add entry with invalid serial
+                            let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                             chain_certificates.push(CertificateChainInfo {
                                 subject: format!("{:?}", chain_subject),
                                 issuer: format!("{:?}", chain_issuer),
                                 serial_number: "Invalid".to_string(),
+                                certificate_type,
                                 is_end_entity: index == 0,
                             });
                         }
@@ -1402,6 +1413,7 @@ pub(crate) async fn get_ca_details(
                         subject: format!("Certificate {}: Failed to parse - {:?}", index + 1, e),
                         issuer: "Unknown".to_string(),
                         serial_number: "Unknown".to_string(),
+                        certificate_type: "unknown".to_string(),
                         is_end_entity: index == 0,
                     });
                 }
@@ -2379,6 +2391,121 @@ fn extract_aia_and_cdp_urls(cert: &X509) -> Result<(Option<String>, Option<Strin
     }
 
     Ok((aia_url, cdp_url))
+}
+
+/// Determine the certificate type based on position in chain and certificate properties
+fn determine_certificate_type(cert: &X509, index: usize, total_certs: usize) -> String {
+    // Check if this certificate has CA:TRUE basic constraint
+    let is_ca = || -> bool {
+        // Use openssl command-line to check basic constraints
+        let pem_result = cert.to_pem();
+        if let Ok(pem_data) = pem_result {
+            if let Ok(pem_str) = String::from_utf8(pem_data) {
+                let temp_cert_path = std::env::temp_dir().join(format!("cert_ca_check_{}.pem", std::process::id()));
+                if std::fs::write(&temp_cert_path, &pem_str).is_ok() {
+                    let openssl_result = std::process::Command::new("openssl")
+                        .args(&[
+                            "x509",
+                            "-in", &temp_cert_path.to_string_lossy(),
+                            "-text",
+                            "-noout"
+                        ])
+                        .output();
+
+                    let _ = std::fs::remove_file(&temp_cert_path);
+
+                    if let Ok(output) = openssl_result {
+                        if output.status.success() {
+                            if let Ok(text_output) = String::from_utf8(output.stdout) {
+                                // Check for CA:TRUE in basic constraints
+                                if text_output.contains("CA:TRUE") {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    };
+
+    // Check if this is a self-signed certificate (root CA)
+    let is_self_signed = {
+        let subject = cert.subject_name();
+        let issuer = cert.issuer_name();
+
+        // Compare subject and issuer by converting to DER and comparing bytes
+        let subject_der = subject.to_der();
+        let issuer_der = issuer.to_der();
+
+        subject_der.is_ok() && issuer_der.is_ok() &&
+           subject_der.as_ref().unwrap() == issuer_der.as_ref().unwrap()
+    };
+
+    // Determine certificate type based on CA status and chain position
+    if is_ca() {
+        if is_self_signed && index == total_certs - 1 {
+            return "root_ca".to_string();
+        } else if is_ca() {
+            return "intermediate_ca".to_string();
+        }
+    }
+
+    // Check if this is a leaf certificate (at the beginning of the chain)
+    if index == 0 {
+        return "end_entity".to_string();
+    }
+
+    // For certificates that are not end entity (index > 0), check if they're CAs
+    // Use openssl command-line to check basic constraints (workaround for Rust OpenSSL bindings limitation)
+    let pem_result = cert.to_pem();
+    if let Ok(pem_data) = pem_result {
+        if let Ok(pem_str) = String::from_utf8(pem_data) {
+            let temp_cert_path = std::env::temp_dir().join(format!("cert_check_{}.pem", std::process::id()));
+            if std::fs::write(&temp_cert_path, &pem_str).is_ok() {
+                let openssl_result = std::process::Command::new("openssl")
+                    .args(&[
+                        "x509",
+                        "-in", &temp_cert_path.to_string_lossy(),
+                        "-text",
+                        "-noout"
+                    ])
+                    .output();
+
+                let _ = std::fs::remove_file(&temp_cert_path);
+
+                if let Ok(output) = openssl_result {
+                    if output.status.success() {
+                        if let Ok(text_output) = String::from_utf8(output.stdout) {
+                            // Check for CA:TRUE in basic constraints
+                            if text_output.contains("CA:TRUE") {
+                                // If this is the last certificate in the chain, check if it's self-signed
+                                if index == total_certs - 1 {
+                                    let subject = cert.subject_name();
+                                    let issuer = cert.issuer_name();
+
+                                    // Compare subject and issuer by converting to DER and comparing bytes
+                                    let subject_der = subject.to_der();
+                                    let issuer_der = issuer.to_der();
+
+                                    if subject_der.is_ok() && issuer_der.is_ok() &&
+                                       subject_der.as_ref().unwrap() == issuer_der.as_ref().unwrap() {
+                                        return "root_ca".to_string();
+                                    }
+                                }
+                                // Otherwise, it's an intermediate CA
+                                return "intermediate_ca".to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // If we can't determine type, default to intermediate (shouldn't happen in normal PKI scenarios)
+    "intermediate_ca".to_string()
 }
 
 /// Format an X509Name as a proper DN string (RFC 4514 format)

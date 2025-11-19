@@ -613,8 +613,8 @@
                         <div class="certificate-card shadow-sm border rounded p-3">
                           <div class="d-flex align-items-center gap-3 mb-2">
                             <div class="certificate-number">{{ index + 1 }}</div>
-                            <span class="badge small" :class="cert.is_end_entity ? 'bg-primary' : 'bg-info'">
-                              {{ cert.is_end_entity ? 'End Entity' : 'Intermediate' }}
+                            <span class="badge small" :class="getCertificateTypeClass(cert.certificate_type)">
+                              {{ getCertificateTypeLabel(cert.certificate_type) }}
                             </span>
                           </div>
                           <div class="certificate-info">
@@ -1005,6 +1005,32 @@ const formatSerialNumber = (serial: string): string => {
     return serial;
   }
   return serial.match(/.{1,4}/g)?.join(' ') || serial;
+};
+
+const getCertificateTypeClass = (certificateType: string): string => {
+  switch (certificateType) {
+    case 'end_entity':
+      return 'bg-primary';
+    case 'intermediate_ca':
+      return 'bg-info';
+    case 'root_ca':
+      return 'bg-warning text-dark';
+    default:
+      return 'bg-secondary';
+  }
+};
+
+const getCertificateTypeLabel = (certificateType: string): string => {
+  switch (certificateType) {
+    case 'end_entity':
+      return 'End Entity';
+    case 'intermediate_ca':
+      return 'Intermediate CA';
+    case 'root_ca':
+      return 'Root CA';
+    default:
+      return 'Unknown';
+  }
 };
 
 const formatCertificateName = (subject: string): string => {
