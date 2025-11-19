@@ -45,6 +45,7 @@ zip = { version = "2.1", default-features = false, features = ["deflate"] }
 hex = "0.4"
 base64 = "0.22"
 md5 = "0.7"
+der = "0.7.10"
 
 [dev-dependencies]
 x509-parser = "0.17"

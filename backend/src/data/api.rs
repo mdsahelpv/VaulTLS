@@ -93,7 +93,12 @@ pub struct CreateUserCertificateRequest {
     pub cert_type: Option<CertificateType>,
     pub dns_names: Option<Vec<String>>,
     pub renew_method: Option<CertificateRenewMethod>,
-    pub ca_id: Option<i64>
+    pub ca_id: Option<i64>,
+    pub key_type: Option<String>,
+    pub key_size: Option<String>,
+    pub hash_algorithm: Option<String>,
+    pub aia_url: Option<String>,
+    pub cdp_url: Option<String>
 }
 
 #[derive(Deserialize, Serialize, Debug)]

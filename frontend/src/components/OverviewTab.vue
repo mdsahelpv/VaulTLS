@@ -264,11 +264,13 @@
               >
                 <i :class="advancedConfigExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'"></i>
                 Advanced Certificate Configuration
-                <small class="text-muted ms-1">(Key Type, Key Size, Hash Algorithm)</small>
+                <small class="text-muted ms-1">(Key Type, Key Size, Hash Algorithm, URLs)</small>
               </button>
             </div>
 
             <div v-if="advancedConfigExpanded" class="border rounded p-3 mb-3 bg-light">
+              <!-- Cryptographic Parameters -->
+              <h6 class="mb-3">Cryptographic Parameters</h6>
               <div class="mb-3">
                 <label class="form-label">Key Type</label>
                 <div class="form-check">
@@ -299,8 +301,8 @@
                 </div>
               </div>
 
-              <div class="row">
-                <div class="col-md-6 mb-3">
+              <div class="row mb-3">
+                <div class="col-md-6">
                   <label for="keySize-overview" class="form-label">Key Size</label>
                   <select
                     class="form-select"
@@ -314,7 +316,7 @@
                     <option v-if="certReq.key_type === 'ECDSA'" value="P-521">P-521</option>
                   </select>
                 </div>
-                <div class="col-md-6 mb-3">
+                <div class="col-md-6">
                   <label for="hashAlgorithm-overview" class="form-label">Hash Algorithm</label>
                   <select
                     class="form-select"
@@ -328,9 +330,45 @@
                 </div>
               </div>
 
+              <!-- Certificate URLs -->
+              <h6 class="mb-3">Certificate Extensions URLs</h6>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label for="aiaUrl-overview" class="form-label">AIA URL (Authority Information Access)</label>
+                  <input
+                    type="url"
+                    class="form-control"
+                    id="aiaUrl-overview"
+                    v-model="certReq.aia_url"
+                    placeholder="https://your-ca.example.com/certs/ca.cert.pem"
+                    :title="certReq.aia_url ? 'Custom AIA URL' : 'Will inherit from selected CA'"
+                  />
+                  <small class="text-muted">
+                    URL where the CA certificate can be downloaded for client validation.
+                    <strong v-if="!certReq.aia_url">Default: inherited from CA</strong>
+                  </small>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label for="cdpUrl-overview" class="form-label">CDP URL (Certificate Revocation List)</label>
+                  <input
+                    type="url"
+                    class="form-control"
+                    id="cdpUrl-overview"
+                    v-model="certReq.cdp_url"
+                    placeholder="https://your-ca.example.com/crl/ca.crl.pem"
+                    :title="certReq.cdp_url ? 'Custom CDP URL' : 'Will inherit from selected CA'"
+                  />
+                  <small class="text-muted">
+                    URL where the Certificate Revocation List can be downloaded.
+                    <strong v-if="!certReq.cdp_url">Default: inherited from CA</strong>
+                  </small>
+                </div>
+              </div>
+
               <div class="alert alert-info">
                 <i class="bi bi-info-circle me-2"></i>
-                These settings configure the cryptographic parameters for this certificate, including key type, key size, and hash algorithm for signing. By default, these match your selected CA's parameters.
+                These settings configure the cryptographic parameters and certificate extensions for this certificate.
+                By default, these values match your selected CA's parameters and URLs.
               </div>
             </div>
             <div class="mb-3" v-if="certReq.cert_type == CertificateType.Server">
@@ -953,6 +991,8 @@ const certReq = reactive<CertificateRequirements>({
   key_type: 'RSA',
   key_size: '2048',
   hash_algorithm: 'sha256',
+  aia_url: '',
+  cdp_url: '',
 });
 
 const isMailValid = computed(() => {
@@ -1021,6 +1061,10 @@ watch(selectedCA, (newSelectedCA: CAAndCertificate | undefined) => {
     } else if (sigAlgStr.includes('SHA256') || sigAlgStr.includes('sha256')) {
       certReq.hash_algorithm = 'sha256';
     }
+
+    // Set AIA and CDP URLs from the selected CA (can be overridden by user)
+    certReq.aia_url = newSelectedCA.aia_url || '';
+    certReq.cdp_url = newSelectedCA.cdp_url || '';
   }
 });
 
@@ -1053,6 +1097,8 @@ const closeGenerateModal = () => {
   certReq.validity_in_years = 1;
   certReq.pkcs12_password = '';
   certReq.notify_user = false;
+  certReq.aia_url = '';
+  certReq.cdp_url = '';
 };
 
 const createCertificate = async () => {
@@ -1061,6 +1107,12 @@ const createCertificate = async () => {
 };
 
 const confirmDeletion = (cert: Certificate) => {
+  // Check if certificate is revoked
+  if (cert.is_revoked) {
+    alert('Cannot delete revoked certificate. Revoked certificates cannot be deleted to maintain audit trail integrity.');
+    return;
+  }
+
   certToDelete.value = cert;
   isDeleteModalVisible.value = true;
 };

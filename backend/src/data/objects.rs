@@ -119,6 +119,7 @@ pub(crate) struct CertificateRevocation {
     pub revocation_date: i64,
     pub revocation_reason: CertificateRevocationReason,
     pub revoked_by_user_id: Option<i64>,
+    pub custom_reason: Option<String>,
 }
 
 

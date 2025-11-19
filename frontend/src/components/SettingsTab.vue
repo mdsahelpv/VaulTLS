@@ -158,20 +158,16 @@
             </div>
           </div>
           <div class="mb-3">
-            <label for="crl-distribution-url" class="form-label">CRL Distribution URL</label>
+            <label for="crl-distribution-url" class="form-label">CRL Distribution URL (optional)</label>
             <input
                 id="crl-distribution-url"
-                v-model="computedCrlUrl"
+                v-model="settings.crl.distribution_url"
                 type="url"
                 class="form-control"
-                placeholder="https://your-ca.example.com/api/certificates/crl"
-                readonly
+                :placeholder="computedCrlUrl || 'https://your-ca.example.com/api/certificates/crl'"
             />
             <div class="form-text">
-              This VaulTLS instance serves as the CRL distribution point.
-            </div>
-            <div class="form-text text-muted">
-              You can set this URL in certificate extensions as the CRL Distribution Point.
+              Custom URL for CRL distribution. If empty, VaulTLS will use the default URL.
             </div>
           </div>
         </div>
@@ -502,5 +498,37 @@ onMounted(async () => {
   background-color: rgba(25, 135, 84, 0.1);
   border-color: rgba(25, 135, 84, 0.2);
   color: #75b798;
+}
+
+/* Custom text styling */
+.text-info {
+  color: #0dcaf0;
+}
+
+[data-theme="dark"] .settings-tab ::v-deep(.text-info) {
+  color: #0dcaf0;
+}
+
+/* Badge styling */
+.badge {
+  display: inline-block;
+  padding: 0.25em 0.5em;
+  font-size: 0.75em;
+  font-weight: 500;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: baseline;
+  border-radius: 0.25rem;
+}
+
+.badge.bg-warning {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+[data-theme="dark"] .settings-tab ::v-deep(.badge.bg-warning) {
+  background-color: #ffc107;
+  color: #212529;
 }
 </style>

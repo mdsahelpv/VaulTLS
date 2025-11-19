@@ -10,6 +10,7 @@ use tokio::io::AsyncReadExt;
 use tracing::{trace, debug, info, warn, error};
 use openssl::x509::X509;
 use openssl::pkey::PKey;
+use der::Encode;
 use serde::Serialize;
 use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
@@ -1513,20 +1514,21 @@ pub(crate) async fn get_certificate_details(
     }
 
     let cert = Certificate {
-        id,
+        id: -1,
         name,
         created_on,
         valid_until,
         certificate_type,
-        user_id,
-        renew_method,
-        pkcs12,
+        pkcs12: pkcs12.to_der().map_err(|e| ApiError::Other(format!("Failed to convert PKCS#12 to DER: {}", e)))?,
         pkcs12_password,
         ca_id,
-        is_revoked: false, // This will be determined by the database query
+        user_id,
+        renew_method,
+        is_revoked: false,
         revoked_on: None,
         revoked_reason: None,
         revoked_by: None,
+        custom_revocation_reason: None,
     };
 
     let details = crate::cert::get_certificate_details(&cert)?;
@@ -1830,6 +1832,7 @@ pub(crate) async fn delete_user(
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 pub struct RevokeCertificateRequest {
     pub reason: crate::data::enums::CertificateRevocationReason,
+    pub custom_reason: Option<String>,
     pub notify_user: Option<bool>,
 }
 
@@ -1840,6 +1843,7 @@ pub struct RevocationHistoryEntry {
     pub certificate_name: String,
     pub revocation_date: i64,
     pub revocation_reason: crate::data::enums::CertificateRevocationReason,
+    pub custom_reason: Option<String>,
     pub revoked_by_user_id: Option<i64>,
 }
 
@@ -1859,15 +1863,8 @@ pub struct RevocationHistoryEntry {
 ///
 /// Revocation reasons:
 /// - 0: Unspecified
-/// - 1: Key Compromise
-/// - 2: CA Compromise
-/// - 3: Affiliation Changed
-/// - 4: Superseded
-/// - 5: Cessation of Operation
-/// - 6: Certificate Hold
-/// - 8: Remove from CRL
-/// - 9: Privilege Withdrawn
-/// - 10: AA Compromise
+/// - 1: Certificate Hold
+/// - 2: Specify (custom reason)
 pub(crate) async fn revoke_certificate(
     state: &State<AppState>,
     id: i64,
@@ -1885,8 +1882,18 @@ pub(crate) async fn revoke_certificate(
         return Err(ApiError::BadRequest("Certificate is already revoked".to_string()));
     }
 
+    // Validate that if reason is Specify, custom_reason must be provided
+    let custom_reason_to_store = if payload.reason == crate::data::enums::CertificateRevocationReason::Specify {
+        if payload.custom_reason.as_deref().unwrap_or("").trim().is_empty() {
+            return Err(ApiError::BadRequest("Custom reason must be provided when selecting 'Specify' as revocation reason".to_string()));
+        }
+        payload.custom_reason.clone()
+    } else {
+        None
+    };
+
     // Revoke the certificate
-    state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id)).await?;
+    state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id), custom_reason_to_store).await?;
 
     // Clear CRL cache since revocation list has changed
     let mut cache = state.crl_cache.lock().await;
@@ -2003,6 +2010,7 @@ pub(crate) async fn get_revocation_history(
             certificate_name,
             revocation_date: record.revocation_date,
             revocation_reason: record.revocation_reason,
+            custom_reason: record.custom_reason,
             revoked_by_user_id: record.revoked_by_user_id,
         });
     }
@@ -2010,28 +2018,7 @@ pub(crate) async fn get_revocation_history(
     Ok(Json(history_entries))
 }
 
-#[openapi(tag = "Certificates")]
-#[delete("/certificates/revocation-history")]
-/// Clear all certificate revocation history. Requires admin role.
-/// This permanently deletes all revocation records from the database.
-/// Use with caution as this action cannot be undone.
-pub(crate) async fn clear_revocation_history(
-    state: &State<AppState>,
-    _authentication: AuthenticatedPrivileged
-) -> Result<(), ApiError> {
-    debug!("Clearing all certificate revocation history");
 
-    state.db.clear_all_revocation_records().await?;
-
-    // Clear CRL cache since revocation list has changed
-    let mut cache = state.crl_cache.lock().await;
-    *cache = None;
-    debug!("CRL cache cleared due to revocation history clearance");
-
-    info!("All certificate revocation history cleared successfully");
-
-    Ok(())
-}
 
 #[openapi(tag = "Certificates")]
 #[delete("/certificates/cert/<id>/revoke")]

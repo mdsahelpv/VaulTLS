@@ -1,7 +1,7 @@
 use std::{env, fs};
 use std::path::Path;
 use serde::Serializer;
-use base64;
+use base64::{Engine, engine::general_purpose};
 use crate::auth::password_auth::Password;
 
 /// Serializes a Password to a boolean
@@ -32,7 +32,7 @@ pub fn get_secret(name: &str) -> anyhow::Result<String> {
             if name == "VAULTLS_API_SECRET" {
                 // Rocket requires the secret_key to be base64-encoded
                 // Use a fixed base64-encoded 32-byte development secret for consistency during development
-                Ok(base64::encode("0123456789abcdef0123456789abcdef"))
+                Ok(general_purpose::STANDARD.encode("0123456789abcdef0123456789abcdef"))
             } else {
                 Err(anyhow::anyhow!("Secret '{}' not found in environment variable, file, or Docker secrets", name))
             }

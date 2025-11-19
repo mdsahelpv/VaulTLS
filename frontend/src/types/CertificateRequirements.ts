@@ -14,4 +14,6 @@ export interface CertificateRequirements {
     key_type?: string;
     key_size?: string;
     hash_algorithm?: string;
+    aia_url?: string;
+    cdp_url?: string;
 }

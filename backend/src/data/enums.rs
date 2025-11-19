@@ -134,15 +134,8 @@ impl CertificateFormat {
 pub enum CertificateRevocationReason {
     #[default]
     Unspecified = 0,
-    KeyCompromise = 1,
-    CACompromise = 2,
-    AffiliationChanged = 3,
-    Superseded = 4,
-    CessationOfOperation = 5,
-    CertificateHold = 6,
-    RemoveFromCRL = 8,
-    PrivilegeWithdrawn = 9,
-    AACompromise = 10,
+    CertificateHold = 1,
+    Specify = 2,
 }
 
 impl FromSql for CertificateRevocationReason {

@@ -85,65 +85,19 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button
-              v-if="revocationHistory.length > 0"
-              type="button"
-              class="btn btn-danger me-auto"
-              @click="confirmClearHistory"
-          >
-            <i class="bi bi-trash me-1"></i>
-            Clear History
-          </button>
           <button type="button" class="btn btn-secondary" @click="close">Close</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Clear History Confirmation Modal -->
-  <div
-      v-if="showClearConfirmation"
-      class="modal show d-block"
-      tabindex="-1"
-      style="background: rgba(0, 0, 0, 0.5); z-index: 1060"
-  >
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title text-danger">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-            Clear Revocation History
-          </h5>
-          <button type="button" class="btn-close" @click="cancelClearHistory"></button>
-        </div>
-        <div class="modal-body">
-          <p class="mb-3">
-            Are you sure you want to clear all certificate revocation history?
-          </p>
-          <div class="alert alert-warning">
-            <strong>Warning:</strong> This action cannot be undone. All revocation records will be permanently deleted from the database.
-          </div>
-          <p class="text-muted mb-0">
-            This will affect {{ revocationHistory.length }} revocation record{{ revocationHistory.length !== 1 ? 's' : '' }}.
-          </p>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" @click="cancelClearHistory">Cancel</button>
-          <button type="button" class="btn btn-danger" @click="executeClearHistory">
-            <i class="bi bi-trash me-1"></i>
-            Clear History
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">
 import {ref, onMounted, computed, watch} from 'vue';
 import {useCertificateStore} from '@/stores/certificates';
 import {useUserStore} from '@/stores/users';
-import {getRevocationHistory, clearRevocationHistory} from '@/api/certificates';
+import {getRevocationHistory} from '@/api/certificates';
 
 interface RevocationRecord {
   id: number;
@@ -171,7 +125,6 @@ const userStore = useUserStore();
 const revocationHistory = ref<RevocationRecord[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
-const showClearConfirmation = ref(false);
 
 // Computed properties for certificate and user name lookups
 const certificates = computed(() => certificateStore.certificates);
@@ -236,29 +189,8 @@ const loadRevocationHistory = async () => {
   }
 };
 
-const confirmClearHistory = () => {
-  showClearConfirmation.value = true;
-};
-
-const cancelClearHistory = () => {
-  showClearConfirmation.value = false;
-};
-
-const executeClearHistory = async () => {
-  try {
-    await clearRevocationHistory();
-    showClearConfirmation.value = false;
-    // Reload the history to show it's now empty
-    await loadRevocationHistory();
-  } catch (err) {
-    console.error('Failed to clear revocation history:', err);
-    alert('Failed to clear revocation history. Please try again.');
-  }
-};
-
 const close = () => {
   emit('close');
-  showClearConfirmation.value = false;
 };
 
 // Load data when modal becomes visible

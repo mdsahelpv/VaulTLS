@@ -254,6 +254,7 @@ impl VaulTLSDB {
             })
             .collect()?)
         })
+
     }
 
     /// Retrieve a specific CA by ID from the database
@@ -302,8 +303,8 @@ impl VaulTLSDB {
     pub(crate) async fn get_all_user_cert(&self, user_id: Option<i64>) -> Result<Vec<Certificate>> {
         db_do!(self.pool, |conn: &Connection| {
             let query = match user_id {
-                Some(_) => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.user_id = ?1",
-                None => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id"
+                Some(_) => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id, cr.custom_reason FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.user_id = ?1",
+                None => "SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id, cr.custom_reason FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id"
             };
             let mut stmt = conn.prepare(query)?;
             let rows = match user_id {
@@ -326,10 +327,12 @@ impl VaulTLSDB {
                     revoked_on: row.get(11).ok(),
                     revoked_reason: row.get(12).ok().map(|r: u8| CertificateRevocationReason::try_from(r).unwrap_or(CertificateRevocationReason::Unspecified)),
                     revoked_by: row.get(13).ok(),
+                    custom_revocation_reason: row.get(14).ok(),
                 })
             })
             .collect()?)
         })
+
     }
 
     /// Retrieve the certificate's PKCS12  data with id from the database
@@ -371,7 +374,7 @@ impl VaulTLSDB {
     /// Retrieve a single user certificate as a Certificate struct
     pub(crate) async fn get_user_cert_by_id(&self, id: i64) -> Result<Certificate> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.id = ?1")?;
+            let mut stmt = conn.prepare("SELECT uc.id, uc.name, uc.created_on, uc.valid_until, uc.pkcs12, uc.pkcs12_password, uc.user_id, uc.type, uc.renew_method, uc.ca_id, uc.is_revoked, cr.revocation_date, cr.revocation_reason, cr.revoked_by_user_id, cr.custom_reason FROM user_certificates uc LEFT JOIN certificate_revocation cr ON uc.id = cr.certificate_id WHERE uc.id = ?1")?;
 
             stmt.query_row(params![id], |row| {
                 Ok(Certificate {
@@ -389,6 +392,7 @@ impl VaulTLSDB {
                     revoked_on: row.get(11).ok(),
                     revoked_reason: row.get(12).ok().map(|r: u8| CertificateRevocationReason::try_from(r).unwrap_or(CertificateRevocationReason::Unspecified)),
                     revoked_by: row.get(13).ok(),
+                    custom_revocation_reason: row.get(14).ok(),
                 })
             }).map_err(|e| anyhow!("Certificate with id {} not found: {}", id, e))
         })
@@ -629,7 +633,7 @@ impl VaulTLSDB {
     }
 
     /// Revoke a certificate by adding it to the revocation table and updating the is_revoked flag
-    pub(crate) async fn revoke_certificate(&self, certificate_id: i64, revocation_reason: CertificateRevocationReason, revoked_by_user_id: Option<i64>) -> Result<i64> {
+    pub(crate) async fn revoke_certificate(&self, certificate_id: i64, revocation_reason: CertificateRevocationReason, revoked_by_user_id: Option<i64>, custom_reason: Option<String>) -> Result<i64> {
         db_do!(self.pool, |conn: &Connection| {
             let revocation_date = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -644,13 +648,13 @@ impl VaulTLSDB {
 
             // Then add the revocation record for audit purposes
             conn.execute(
-                "INSERT INTO certificate_revocation (certificate_id, revocation_date, revocation_reason, revoked_by_user_id) VALUES (?1, ?2, ?3, ?4)",
-                params![certificate_id, revocation_date, revocation_reason as u8, revoked_by_user_id],
+                "INSERT INTO certificate_revocation (certificate_id, revocation_date, revocation_reason, revoked_by_user_id, custom_reason) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![certificate_id, revocation_date, revocation_reason as u8, revoked_by_user_id, custom_reason],
             )?;
 
             let revocation_id = conn.last_insert_rowid();
 
-            info!("Certificate {} revoked by user {:?} with reason {:?}", certificate_id, revoked_by_user_id, revocation_reason);
+            info!("Certificate {} revoked by user {:?} with reason {:?}, custom: {:?}", certificate_id, revoked_by_user_id, revocation_reason, custom_reason);
 
             Ok(revocation_id)
         })
@@ -672,7 +676,7 @@ impl VaulTLSDB {
     pub(crate) async fn get_certificate_revocation(&self, certificate_id: i64) -> Result<Option<CertificateRevocation>> {
         db_do!(self.pool, |conn: &Connection| {
             let result = conn.query_row(
-                "SELECT id, certificate_id, revocation_date, revocation_reason, revoked_by_user_id FROM certificate_revocation WHERE certificate_id = ?1",
+                "SELECT id, certificate_id, revocation_date, revocation_reason, revoked_by_user_id, custom_reason FROM certificate_revocation WHERE certificate_id = ?1",
                 params![certificate_id],
                 |row| {
                     let reason_value: u8 = row.get(3)?;
@@ -682,6 +686,7 @@ impl VaulTLSDB {
                         revocation_date: row.get(2)?,
                         revocation_reason: CertificateRevocationReason::try_from(reason_value).unwrap_or(CertificateRevocationReason::Unspecified),
                         revoked_by_user_id: row.get(4)?,
+                        custom_reason: row.get(5)?,
                     })
                 }
             );
@@ -697,7 +702,7 @@ impl VaulTLSDB {
     /// Get all revocation records (for audit purposes)
     pub(crate) async fn get_all_revocation_records(&self) -> Result<Vec<CertificateRevocation>> {
         db_do!(self.pool, |conn: &Connection| {
-            let mut stmt = conn.prepare("SELECT id, certificate_id, revocation_date, revocation_reason, revoked_by_user_id FROM certificate_revocation ORDER BY revocation_date DESC")?;
+            let mut stmt = conn.prepare("SELECT id, certificate_id, revocation_date, revocation_reason, revoked_by_user_id, custom_reason FROM certificate_revocation ORDER BY revocation_date DESC")?;
             let rows = stmt.query([])?;
             Ok(rows.map(|row| {
                 let reason_value: u8 = row.get(3)?;
@@ -707,6 +712,7 @@ impl VaulTLSDB {
                     revocation_date: row.get(2)?,
                     revocation_reason: CertificateRevocationReason::try_from(reason_value).unwrap_or(CertificateRevocationReason::Unspecified),
                     revoked_by_user_id: row.get(4)?,
+                    custom_reason: row.get(5)?,
                 })
             })
             .collect()?)
