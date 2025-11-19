@@ -310,7 +310,7 @@
                 class="form-control"
                 id="aiaUrl"
                 v-model="aiaUrl"
-                placeholder="http://your-ca.example.com/certs/ca.cert.pem"
+                :placeholder="`${getCurrentBaseUrl()}/api/certificates/ca/download`"
             />
             <small class="text-muted">Optional. Used by clients to download the CA certificate.</small>
           </div>
@@ -322,7 +322,7 @@
                 class="form-control"
                 id="cdpUrl"
                 v-model="cdpUrl"
-                placeholder="http://your-ca.example.com/crl/ca.crl.pem"
+                :placeholder="`${getCurrentBaseUrl()}/api/certificates/crl`"
             />
             <!-- <small class="text-muted">URL where Certificate Revocation List can be downloaded</small> -->
           </div>
@@ -458,8 +458,16 @@ watch(ca_type, (newCaType: string) => {
 });
 const crlValidityDays = ref(30);
 const pathLength = ref(1);
-const aiaUrl = ref('http://rootca.abc.io/certs/ca.cert.pem');
-const cdpUrl = ref('http://rootca.abc.io/crl/ca.crl.pem');
+
+// Function to get current base URL
+const getCurrentBaseUrl = () => {
+  const origin = window.location.origin;
+  return origin || 'http://localhost:8000';
+};
+
+// Auto-fill CRL and AIA URLs with actual application endpoints
+const cdpUrl = ref(`${getCurrentBaseUrl()}/api/certificates/crl`);
+const aiaUrl = ref(`${getCurrentBaseUrl()}/api/certificates/ca/download`);
 
 const handleFileChange = (event: Event) => {
   const target = event.target as HTMLInputElement;
