@@ -457,6 +457,7 @@ pub(crate) async fn login(
 pub(crate) async fn change_password(
     state: &State<AppState>,
     change_pass_req: Json<ChangePasswordRequest>,
+    jar: &CookieJar<'_>,
     authentication: Authenticated
 ) -> Result<(), ApiError> {
     let user_id = authentication.claims.id;
@@ -478,9 +479,12 @@ pub(crate) async fn change_password(
 
     let password_hash = Password::new_server_hash(&change_pass_req.new_password)?;
     state.db.set_user_password(user_id, password_hash).await?;
-    // todo unset
 
-    info!(user=user.name, "Password Change: Success");
+    // Invalidate current session after password change for security
+    // This removes the auth token cookie from the request to force re-authentication
+    jar.remove_private(Cookie::build(("auth_token")));
+
+    info!(user=user.name, "Password Change: Success - session invalidated");
 
     Ok(())
 }
