@@ -18,9 +18,14 @@ export const useAuthStore = defineStore('auth', {
     },
     actions: {
         async init() {
-            this.isAuthenticated = localStorage.getItem('is_authenticated') === 'true';
-            if (this.isAuthenticated) {
-                await this.fetchCurrentUser();
+            const wasAuthenticated = localStorage.getItem('is_authenticated') === 'true';
+            if (wasAuthenticated) {
+                try {
+                    await this.fetchCurrentUser();
+                } catch {
+                    // Clear stale authentication state without API calls
+                    this.setAuthentication(false);
+                }
             }
         },
 
@@ -103,7 +108,7 @@ export const useAuthStore = defineStore('auth', {
             } catch (err) {
                 this.error = 'Failed to fetch current user.';
                 console.error(err);
-                await this.logout();
+                throw err; // Let caller handle the error
             }
         },
 
@@ -126,14 +131,12 @@ export const useAuthStore = defineStore('auth', {
 
         // Log out the user and clear the authentication state
         async logout() {
+            // Clear local state first
+            this.setAuthentication(false);
             try {
-                this.error = null;
                 await logout()
-                this.setAuthentication(false);
             } catch (err) {
-                // Can't fail
-                this.error = 'Failed to logout.';
-                console.error(err);
+                // Ignore logout failures - we're already logged out locally
             }
         },
     },

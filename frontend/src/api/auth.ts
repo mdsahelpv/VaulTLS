@@ -94,4 +94,20 @@ export const logout = async (): Promise<void> => {
 
 export const current_user = async (): Promise<User> => {
     return await ApiClient.get<User>('/auth/me');
+};
+
+export interface PfxValidationResponse {
+    valid: boolean;
+    error?: string;
 }
+
+export const validate_pfx = async (file: File, password?: string): Promise<PfxValidationResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (password) {
+        formData.append('password', password);
+    }
+    return await ApiClient.post<PfxValidationResponse>('/server/setup/validate-pfx', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    });
+};

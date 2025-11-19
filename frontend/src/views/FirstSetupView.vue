@@ -312,7 +312,7 @@
                 v-model="aiaUrl"
                 placeholder="http://your-ca.example.com/certs/ca.cert.pem"
             />
-            <!-- <small class="text-muted">URL </small> -->
+            <small class="text-muted">Optional. Used by clients to download the CA certificate.</small>
           </div>
 
           <div class="mb-3">
@@ -360,9 +360,33 @@
           />
         </div>
 
-        <button type="submit" class="btn btn-primary w-100">
+        <!-- Certificate Validation for Upload Option -->
+        <div v-if="ca_type === 'upload'" class="mb-3">
+          <button
+              type="button"
+              @click="validateCertificate"
+              :disabled="!pfx_file || isValidating"
+              class="btn btn-outline-secondary me-2"
+          >
+            <span v-if="isValidating" class="spinner-border spinner-border-sm me-2" role="status"></span>
+            {{ isValidating ? 'Validating...' : 'Validate Certificate' }}
+          </button>
+          <small class="text-muted">Validate your PKCS#12 file before proceeding with setup</small>
+          <div v-if="validationStatus === 'success'" class="alert alert-success mt-2">
+            <i class="bi bi-check-circle me-2"></i>Certificate validated successfully!
+          </div>
+          <div v-if="validationStatus === 'error'" class="alert alert-danger mt-2">
+            <i class="bi bi-exclamation-triangle me-2"></i>{{ validationError }}
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100" :disabled="ca_type === 'upload' && validationStatus !== 'success'">
           Complete Setup
         </button>
+
+        <div v-if="ca_type === 'upload' && validationStatus !== 'success'" class="text-muted mt-2">
+          <i class="bi bi-info-circle me-2"></i>Please validate your certificate first
+        </div>
 
         <p v-if="errorMessage" class="text-danger mt-3">
           {{ errorMessage }}
@@ -375,7 +399,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import router from '../router/router';
-import { setup } from "@/api/auth.ts";
+import { setup, validate_pfx } from "@/api/auth.ts";
 import {useSetupStore} from "@/stores/setup.ts";
 import {hashPassword} from "@/utils/hash.ts";
 
@@ -392,6 +416,11 @@ const is_root_ca = ref(false);
 const pfx_file = ref<File | null>(null);
 const pfx_password = ref('');
 const selectedFileName = ref<string>('');
+
+// Certificate validation state
+const isValidating = ref(false);
+const validationStatus = ref<'none' | 'success' | 'error'>('none');
+const validationError = ref('');
 
 // DN fields with defaults from openssl_rootca.cnf
 const countryName = ref('QA');
@@ -472,6 +501,44 @@ const triggerFileInput = () => {
   }
 };
 
+// Reset validation when file changes
+watch(pfx_file, () => {
+  validationStatus.value = 'none';
+  validationError.value = '';
+});
+
+// Reset validation when password changes
+watch(pfx_password, () => {
+  validationStatus.value = 'none';
+  validationError.value = '';
+});
+
+const validateCertificate = async () => {
+  if (!pfx_file.value) {
+    return;
+  }
+
+  isValidating.value = true;
+  validationStatus.value = 'none';
+  validationError.value = '';
+
+  try {
+    const result = await validate_pfx(pfx_file.value, pfx_password.value || undefined);
+
+    if (result.valid) {
+      validationStatus.value = 'success';
+    } else {
+      validationStatus.value = 'error';
+      validationError.value = result.error || 'Unknown validation error';
+    }
+  } catch (err) {
+    validationStatus.value = 'error';
+    validationError.value = err instanceof Error ? err.message : 'Failed to validate certificate';
+  } finally {
+    isValidating.value = false;
+  }
+};
+
 const setupPassword = async () => {
   try {
     // Validate required fields for upload option
@@ -520,6 +587,11 @@ const setupPassword = async () => {
       organizationalUnitName: ca_type.value === 'self_signed' ? organizationalUnitName.value : undefined,
       commonName: ca_type.value === 'self_signed' ? commonName.value : undefined,
       emailAddress: ca_type.value === 'self_signed' ? emailAddress.value : undefined,
+      // Certificate extensions for CA
+      aia_url: ca_type.value === 'self_signed' ? aiaUrl.value : undefined,
+      cdp_url: ca_type.value === 'self_signed' ? cdpUrl.value : undefined,
+      crl_validity_days: ca_type.value === 'self_signed' ? crlValidityDays.value : undefined,
+      path_length: ca_type.value === 'self_signed' ? pathLength.value : undefined,
       // Root CA mode
       is_root_ca: is_root_ca.value,
     };

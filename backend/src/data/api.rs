@@ -38,6 +38,11 @@ pub struct SetupRequest {
     pub organizationalUnitName: Option<String>,
     pub commonName: Option<String>,
     pub emailAddress: Option<String>,
+    // Certificate extensions for CA
+    pub aia_url: Option<String>,
+    pub cdp_url: Option<String>,
+    pub crl_validity_days: Option<u64>,
+    pub path_length: Option<u32>,
     // Root CA mode
     #[serde(default)]
     pub is_root_ca: bool,

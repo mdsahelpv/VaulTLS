@@ -3,6 +3,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome, Request};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use const_format::concatcp;
 use rocket_okapi::r#gen::OpenApiGenerator;
@@ -42,6 +43,21 @@ macro_rules! impl_openapi_auth {
     };
 }
 
+/// Authentication error for request guards
+#[derive(Debug)]
+pub enum AuthenticationError {
+    InvalidToken,
+    InsufficientPrivileges,
+}
+
+impl fmt::Display for AuthenticationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AuthenticationError::InvalidToken | AuthenticationError::InsufficientPrivileges => write!(f, ""),
+        }
+    }
+}
+
 /// Struct for Rocket guard
 pub struct Authenticated {
     pub claims: Claims,
@@ -63,12 +79,12 @@ pub(crate) struct Claims {
 /// Authenticate user through auth_token cookie
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for Authenticated {
-    type Error = ();
+    type Error = AuthenticationError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         match authenticate_auth_token(request) {
             Some(claims) => Outcome::Success(Authenticated { claims }),
-            None => Outcome::Error((Status::Unauthorized, ()))
+            None => Outcome::Error((Status::Unauthorized, AuthenticationError::InvalidToken))
         }
     }
 }
@@ -79,14 +95,14 @@ impl_openapi_auth!(Authenticated, "UserRole::User");
 /// Authenticate user through auth_token cookie, requiring UserRole::Admin
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for AuthenticatedPrivileged {
-    type Error = ();
+    type Error = AuthenticationError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let Some(claims) =  authenticate_auth_token(request) else { return Outcome::Error((Status::Unauthorized, ())) };
+        let Some(claims) =  authenticate_auth_token(request) else { return Outcome::Error((Status::Unauthorized, AuthenticationError::InvalidToken)) };
         if claims.role == UserRole::Admin {
             Outcome::Success(AuthenticatedPrivileged { _claims: claims })
         } else {
-            Outcome::Error((Status::Forbidden, ()))
+            Outcome::Error((Status::Forbidden, AuthenticationError::InsufficientPrivileges))
         }
     }
 }

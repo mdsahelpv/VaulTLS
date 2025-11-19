@@ -108,6 +108,10 @@ pub(crate) async fn setup_json(
         setup_req.organizationalUnitName.clone(),
         setup_req.commonName.clone(),
         setup_req.emailAddress.clone(),
+        setup_req.aia_url.clone(),
+        setup_req.cdp_url.clone(),
+        setup_req.crl_validity_days,
+        setup_req.path_length,
         setup_req.is_root_ca,
     ).await
 }
@@ -121,7 +125,54 @@ pub(crate) async fn setup_form(
     let mut pfx_data = Vec::new();
     let mut reader = setup_req.pfx_file.open().await.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {}", e)))?;
     reader.read_to_end(&mut pfx_data).await.map_err(|e| ApiError::Other(format!("Failed to read PFX file: {}", e)))?;
-    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone(), setup_req.key_type.clone(), setup_req.key_size.clone(), None, None, None, None, None, None, None, None, setup_req.is_root_ca).await
+    setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone(), setup_req.key_type.clone(), setup_req.key_size.clone(), None, None, None, None, None, None, None, None, None, None, None, None, setup_req.is_root_ca).await
+}
+
+#[openapi(tag = "Setup")]
+#[post("/server/setup/validate-pfx", data = "<validation_req>")]
+/// Validate a PKCS#12 certificate file and password without completing setup.
+/// Returns success if the PFX file can be parsed with the provided password.
+pub(crate) async fn validate_pfx(
+    validation_req: Form<PfxValidationRequest<'_>>
+) -> Result<Json<PfxValidationResponse>, ApiError> {
+    let mut buffer = Vec::new();
+    let file = validation_req.file.open().await.map_err(|e| ApiError::Other(format!("Failed to open file: {}", e)))?;
+    let mut reader = tokio::io::BufReader::new(file);
+    reader.read_to_end(&mut buffer).await.map_err(|e| ApiError::Other(format!("Failed to read file: {}", e)))?;
+
+    // Validate file type
+    if !buffer.starts_with(b"\x30") && !buffer.starts_with(b"-----BEGIN PKCS12") {
+        return Ok(Json(PfxValidationResponse {
+            valid: false,
+            error: Some("File does not appear to be a valid PKCS#12 file".to_string())
+        }));
+    }
+
+    // Try to validate the PKCS#12 file
+    match CertificateBuilder::from_pfx(&buffer, validation_req.password.as_deref(), validation_req.name.as_deref()) {
+        Ok(_) => Ok(Json(PfxValidationResponse {
+            valid: true,
+            error: None
+        })),
+        Err(e) => Ok(Json(PfxValidationResponse {
+            valid: false,
+            error: Some(format!("Failed to validate PKCS#12 file: {}. Please check the password is correct.", e))
+        }))
+    }
+}
+
+#[derive(FromForm, JsonSchema, Debug)]
+pub struct PfxValidationRequest<'r> {
+    pub password: Option<String>,
+    pub name: Option<String>,
+    #[schemars(skip)]
+    pub file: rocket::fs::TempFile<'r>,
+}
+
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct PfxValidationResponse {
+    pub valid: bool,
+    pub error: Option<String>,
 }
 
 async fn setup_common(
@@ -144,6 +195,11 @@ async fn setup_common(
     organizational_unit_name: Option<String>,
     common_name: Option<String>,
     email_address: Option<String>,
+    // Certificate extensions for CA
+    aia_url: Option<String>,
+    cdp_url: Option<String>,
+    crl_validity_days: Option<u64>,
+    path_length: Option<u32>,
     // Root CA mode
     is_root_ca: bool
 ) -> Result<(), ApiError> {
@@ -181,34 +237,17 @@ async fn setup_common(
         password_hash = Some(Password::new_server_hash(password)?.to_string());
     }
 
-    debug!("Creating user with name: {}, email: {}", name, email);
-    let user = User{
-        id: -1,
-        name: name.clone(),
-        email: email.clone(),
-        password_hash,
-        oidc_id: None,
-        role: UserRole::Admin,
-    };
-
-    match state.db.insert_user(user).await {
-        Ok(_) => debug!("User created successfully"),
-        Err(e) => {
-            error!("Failed to create user: {}", e);
-            return Err(ApiError::Other(format!("Failed to create user: {}", e)))
-        }
-    }
-
+    // Validate CA certificate first before creating user
     let ca = if let Some(pfx_data) = pfx_data {
-        debug!("Importing CA from PFX file (size: {} bytes)", pfx_data.len());
+        debug!("Validating CA from PFX file (size: {} bytes)", pfx_data.len());
         match CertificateBuilder::from_pfx(&pfx_data, pfx_password.as_deref(), Some(&ca_name)) {
             Ok(ca) => {
-                debug!("CA imported successfully from PFX");
+                debug!("CA validated successfully from PFX");
                 ca
             },
             Err(e) => {
-                error!("Failed to import CA from PFX: {}", e);
-                return Err(ApiError::Other(format!("Failed to import CA from PFX file: {}. Please check that the file is valid and the password is correct.", e)))
+                error!("Failed to validate CA from PFX: {}", e);
+                return Err(ApiError::Other(format!("Failed to validate CA from PFX file: {}. Please check that the file is valid and the password is correct.", e)))
             }
         }
     } else {
@@ -245,6 +284,14 @@ async fn setup_common(
             builder = builder.set_email(&email)?;
         }
 
+        // Set AIA and CDP extensions if provided
+        if let Some(aia_url) = aia_url.clone() {
+            builder = builder.set_authority_info_access(&aia_url)?;
+        }
+        if let Some(cdp_url) = cdp_url.clone() {
+            builder = builder.set_crl_distribution_points(&cdp_url)?;
+        }
+
         match builder.build_ca() {
             Ok(ca) => {
                 debug!("Self-signed CA generated successfully");
@@ -257,11 +304,36 @@ async fn setup_common(
         }
     };
 
+    // Now that CA validation is successful, create the user
+    debug!("Creating user with name: {}, email: {}", name, email);
+    let user = User{
+        id: -1,
+        name: name.clone(),
+        email: email.clone(),
+        password_hash,
+        oidc_id: None,
+        role: UserRole::Admin,
+    };
+
+    match state.db.insert_user(user).await {
+        Ok(_) => debug!("User created successfully"),
+        Err(e) => {
+            error!("Failed to create user: {}", e);
+            return Err(ApiError::Other(format!("Failed to create user: {}", e)))
+        }
+    }
+
     debug!("Saving CA certificate");
     match save_ca(&ca) {
         Ok(_) => debug!("CA saved successfully"),
         Err(e) => {
             error!("Failed to save CA: {}", e);
+            // Clean up: delete the user if CA save fails
+            if let Ok(user_to_delete) = state.db.get_user_by_email(email.clone()).await {
+                if let Err(cleanup_err) = state.db.delete_user(user_to_delete.id).await {
+                    warn!("Failed to clean up user after CA save failure: {}", cleanup_err);
+                }
+            }
             return Err(ApiError::Other(format!("Failed to save CA certificate: {}", e)))
         }
     }
@@ -271,12 +343,26 @@ async fn setup_common(
         Ok(_) => debug!("CA inserted into database successfully"),
         Err(e) => {
             error!("Failed to insert CA into database: {}", e);
+            // Clean up: delete the user if CA insertion fails
+            if let Ok(user_to_delete) = state.db.get_user_by_email(email.clone()).await {
+                if let Err(cleanup_err) = state.db.delete_user(user_to_delete.id).await {
+                    warn!("Failed to clean up user after CA insertion failure: {}", cleanup_err);
+                }
+            }
             return Err(ApiError::Other(format!("Failed to save CA to database: {}", e)))
         }
     }
 
     // Set the Root CA mode in settings
-    state.settings.set_is_root_ca(is_root_ca)?;
+    if let Err(e) = state.settings.set_is_root_ca(is_root_ca) {
+        // Clean up: delete the user if settings save fails
+        if let Ok(user_to_delete) = state.db.get_user_by_email(email.clone()).await {
+            if let Err(cleanup_err) = state.db.delete_user(user_to_delete.id).await {
+                warn!("Failed to clean up user after settings failure: {}", cleanup_err);
+            }
+        }
+        return Err(ApiError::Other(format!("Failed to save settings: {}", e)))
+    }
 
     if is_root_ca {
         info!("VaulTLS set up as Root CA Server - only subordinate CA certificates can be issued");
@@ -408,10 +494,16 @@ pub(crate) async fn logout(
 ) -> Result<(), ApiError> {
     jar.remove_private(Cookie::build(("name", "auth_token")));
 
+    // Get user details for audit logging
+    let user_name = match state.db.get_user(authentication.claims.id).await {
+        Ok(user) => user.name.clone(),
+        Err(_) => format!("User {}", authentication.claims.id), // Fallback if user lookup fails
+    };
+
     // Audit log user logout
     if let Err(e) = state.audit.log_authentication(
         Some(authentication.claims.id), // User logging out
-        None, // TODO: get actual user name
+        Some(user_name), // Actual user name or fallback
         None, // TODO: extract IP from request
         None, // TODO: extract User-Agent from request
         "logout",
@@ -602,12 +694,15 @@ pub(crate) async fn create_user_certificate(
     trace!("{:?}", cert);
 
     // Get user name for audit logging
-    let admin_user_name = state.db.get_user(_authentication._claims.id).await.ok().map(|u| u.name);
+    let admin_user_name = state.db.get_user(_authentication._claims.id).await
+        .ok()
+        .map(|u| u.name)
+        .unwrap_or_else(|| format!("User {}", _authentication._claims.id));
 
     // Audit log certificate creation
     if let Err(e) = state.audit.log_certificate_operation(
         Some(_authentication._claims.id), // Admin ID doing the operation
-        admin_user_name, // Now includes actual user name instead of None
+        Some(admin_user_name), // Actual user name or fallback
         None, // TODO: extract IP from request
         None, // TODO: extract User-Agent from request
         cert.id,
@@ -708,9 +803,14 @@ pub(crate) async fn create_self_signed_ca(
     info!(ca=?ca, "Self-signed CA created");
 
     // Audit log CA creation
+    let admin_user_name = state.db.get_user(authentication._claims.id).await
+        .ok()
+        .map(|u| u.name)
+        .unwrap_or_else(|| format!("User {}", authentication._claims.id));
+
     if let Err(e) = state.audit.log_ca_operation(
         Some(authentication._claims.id), // Admin doing the operation
-        None, // TODO: get actual admin user name
+        Some(admin_user_name), // Actual admin user name
         None, // TODO: extract IP from request
         None, // TODO: extract User-Agent from request
         ca,
@@ -1008,6 +1108,9 @@ pub(crate) async fn get_ca_list(
             .map(|s| s.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
 
+        // Extract AIA and CDP extensions from certificate
+        let (aia_url, cdp_url) = extract_aia_and_cdp_urls(&cert)?;
+
         // Convert to PEM
         let pem = get_pem(&ca)?;
         let certificate_pem = String::from_utf8(pem)
@@ -1103,6 +1206,8 @@ pub(crate) async fn get_ca_list(
             chain_length,
             chain_certificates,
             can_create_subordinate_ca: ca.can_create_subordinate_ca,
+            aia_url,
+            cdp_url,
         };
 
         ca_details.push(ca_detail);
@@ -1186,6 +1291,8 @@ pub struct CADetails {
     pub chain_length: usize,
     pub chain_certificates: Vec<CertificateChainInfo>,
     pub can_create_subordinate_ca: bool,
+    pub aia_url: Option<String>,
+    pub cdp_url: Option<String>,
 }
 
 #[openapi(tag = "Certificates")]
@@ -1296,6 +1403,9 @@ pub(crate) async fn get_ca_details(
             }
         }
 
+        // Extract AIA and CDP extensions from certificate
+        let (aia_url, cdp_url) = extract_aia_and_cdp_urls(&cert)?;
+
     let ca_details = CADetails {
         id: ca.id,
         name,
@@ -1311,6 +1421,8 @@ pub(crate) async fn get_ca_details(
         chain_length,
         chain_certificates,
         can_create_subordinate_ca: ca.can_create_subordinate_ca,
+        aia_url,
+        cdp_url,
     };
 
     Ok(Json(ca_details))
@@ -2192,6 +2304,91 @@ pub(crate) async fn download_crl_backup(
 //     // Process the request
 //     process_ocsp_request(state, &request_data).await
 // }
+
+/// Extract AIA (Authority Information Access) and CDP (CRL Distribution Point) URLs from certificate extensions
+fn extract_aia_and_cdp_urls(cert: &X509) -> Result<(Option<String>, Option<String>), ApiError> {
+    let mut aia_url: Option<String> = None;
+    let mut cdp_url: Option<String> = None;
+
+    // Convert certificate to PEM and then use openssl command-line to extract extensions
+    // This is a workaround since the Rust OpenSSL bindings don't expose extension parsing easily
+    let pem = cert.to_pem()
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))?;
+
+    let pem_str = String::from_utf8(pem)
+        .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {}", e)))?;
+
+    // Write certificate to a temporary file
+    let temp_cert_path = std::env::temp_dir().join(format!("cert_ext_{}.pem", std::process::id()));
+    std::fs::write(&temp_cert_path, &pem_str)
+        .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {}", e)))?;
+
+    // Use openssl command to extract extensions
+    let output = std::process::Command::new("openssl")
+        .args(&[
+            "x509",
+            "-in", &temp_cert_path.to_string_lossy(),
+            "-text",
+            "-noout"
+        ])
+        .output()
+        .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {}", e)))?;
+
+    // Clean up temp file
+    let _ = std::fs::remove_file(&temp_cert_path);
+
+    if !output.status.success() {
+        return Err(ApiError::Other("Failed to extract certificate extensions".to_string()));
+    }
+
+    let text_output = String::from_utf8(output.stdout)
+        .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {}", e)))?;
+
+    // Parse the text output to find AIA and CDP URLs
+    for line in text_output.lines() {
+        let line_trimmed = line.trim();
+
+        // Extract any URI line containing http
+        if let Some(http_start) = line_trimmed.find("URI:") {
+            if let Some(url_start_pos) = line_trimmed[http_start..].find("http") {
+                let actual_url_start = http_start + url_start_pos;
+                let url = &line_trimmed[actual_url_start..];
+
+                // Check what type of URL this is
+                if url.contains("ca.cert") || line_trimmed.contains("CA Issuers") || line_trimmed.contains("caIssuers") {
+                    // This is an AIA (Authority Information Access) URL
+                    if aia_url.is_none() { // Only set if not already set
+                        aia_url = Some(url.to_string());
+                    }
+                } else if url.contains("ca.crl") || line_trimmed.contains("CRL Distribution Points") {
+                    // This is a CDP (CRL Distribution Points) URL
+                    if cdp_url.is_none() { // Only set if not already set
+                        cdp_url = Some(url.to_string());
+                    }
+                }
+            }
+        }
+
+        // Also check for lines that directly contain http without "URI:" prefix
+        if !line_trimmed.contains("URI:") && line_trimmed.contains("http") {
+            if let Some(http_start) = line_trimmed.find("http") {
+                let url = &line_trimmed[http_start..];
+
+                if url.contains("ca.cert") {
+                    if aia_url.is_none() {
+                        aia_url = Some(url.to_string());
+                    }
+                } else if url.contains("ca.crl") {
+                    if cdp_url.is_none() {
+                        cdp_url = Some(url.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((aia_url, cdp_url))
+}
 
 /// Format an X509Name as a proper DN string (RFC 4514 format)
 fn format_subject_name(name: &openssl::x509::X509NameRef) -> String {

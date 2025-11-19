@@ -19,7 +19,9 @@ class ApiClient {
         this.client.interceptors.response.use(
             (response) => response,
             (error) => {
-                if (error.response?.status === 401) {
+                // Don't logout on auth endpoints to prevent loops
+                const isAuthEndpoint = error.config?.url?.includes('/auth/');
+                if (error.response?.status === 401 && !isAuthEndpoint) {
                     const authStore = useAuthStore();
                     authStore.logout();
                 }

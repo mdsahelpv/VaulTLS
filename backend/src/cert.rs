@@ -158,6 +158,9 @@ pub struct CertificateBuilder {
     // Advanced PKI extensions
     certificate_policies_oid: Option<String>,
     certificate_policies_cps_url: Option<String>,
+    // AIA and CDP extensions for CA certificates
+    authority_info_access: Option<String>,
+    crl_distribution_points: Option<String>,
 }
 
 impl CertificateBuilder {
@@ -412,6 +415,8 @@ impl CertificateBuilder {
             email: None,
             certificate_policies_oid: None,
             certificate_policies_cps_url: None,
+            authority_info_access: None,
+            crl_distribution_points: None,
         })
     }
 
@@ -539,6 +544,16 @@ impl CertificateBuilder {
 
     pub fn set_hash_algorithm(mut self, hash_algorithm: &str) -> Result<Self, anyhow::Error> {
         self.hash_algorithm = Some(hash_algorithm.to_string());
+        Ok(self)
+    }
+
+    pub fn set_authority_info_access(mut self, aia_url: &str) -> Result<Self, anyhow::Error> {
+        self.authority_info_access = Some(aia_url.to_string());
+        Ok(self)
+    }
+
+    pub fn set_crl_distribution_points(mut self, cdp_url: &str) -> Result<Self, anyhow::Error> {
+        self.crl_distribution_points = Some(cdp_url.to_string());
         Ok(self)
     }
 
@@ -683,11 +698,20 @@ keyUsage = critical, digitalSignature, cRLSign, keyCertSign
             config_content.push_str(&format!("certificatePolicies = {}\n", oid));
         }
 
-        // Add CPS URL if provided
-        if let Some(cps_url) = &self.certificate_policies_cps_url {
-            config_content.push_str(&format!("authorityInfoAccess = caIssuers;URI:http://pki.yawal.io/certs/ca.cert.pem, OCSP;URI:http://pki.yawal.io/ocsp, caRepository;URI:{}\n", cps_url));
+        // Add AIA and CDP extensions using the configured URLs
+        config_content.push_str("authorityInfoAccess = ");
+
+        if let Some(aia_url) = &self.authority_info_access {
+            config_content.push_str(&format!("caIssuers;URI:{}\n", aia_url));
         } else {
-            config_content.push_str("authorityInfoAccess = caIssuers;URI:http://pki.yawal.io/certs/ca.cert.pem, OCSP;URI:http://pki.yawal.io/ocsp\n");
+            config_content.push_str("caIssuers;URI:http://pki.yawal.io/certs/ca.cert.pem\n");
+        }
+
+        // Add CDP extension
+        if let Some(cdp_url) = &self.crl_distribution_points {
+            config_content.push_str(&format!("crlDistributionPoints = URI:{}\n", cdp_url));
+        } else {
+            config_content.push_str("crlDistributionPoints = URI:http://pki.yawal.io/crl/ca.crl.pem\n");
         }
 
         config_content.push_str(r#"

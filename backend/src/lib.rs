@@ -199,6 +199,7 @@ pub async fn create_rocket() -> Rocket<Build> {
                 is_setup,
                 setup_json,
                 setup_form,
+                validate_pfx,
                 login,
                 change_password,
                 logout,

@@ -25,6 +25,8 @@ export interface CA {
     chain_length: number;          // Total number of certificates in the chain
     chain_certificates: CertificateChainInfo[]; // Details of each certificate in the chain
     can_create_subordinate_ca?: boolean; // Whether this CA can create subordinate CAs
+    aia_url?: string;              // Authority Information Access URL
+    cdp_url?: string;              // Certificate Revocation List Distribution Point URL
 }
 
 export interface CAAndCertificate extends CA {

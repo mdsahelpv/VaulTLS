@@ -544,6 +544,54 @@
                 </div>
               </div>
 
+              <!-- Authority Information Access (AIA) URL -->
+              <div class="col-lg-6 mb-4">
+                <div class="card h-100">
+                  <div class="card-header">
+                    <h6 class="mb-0">
+                      <i class="bi bi-link-45deg me-2"></i>
+                      Authority Information Access URL
+                    </h6>
+                  </div>
+                  <div class="card-body">
+                    <div v-if="viewingCA.aia_url" class="mb-2">
+                      <a :href="viewingCA.aia_url" target="_blank" class="text-break small link-primary text-decoration-none">
+                        {{ viewingCA.aia_url }}
+                        <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                      </a>
+                    </div>
+                    <div v-else class="text-muted small">
+                      <i class="bi bi-dash-circle me-1"></i>
+                      Not configured
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Certificate Revocation List (CDP) URL -->
+              <div class="col-lg-6 mb-4">
+                <div class="card h-100">
+                  <div class="card-header">
+                    <h6 class="mb-0">
+                      <i class="bi bi-arrow-repeat me-2"></i>
+                      CRL Distribution Point URL
+                    </h6>
+                  </div>
+                  <div class="card-body">
+                    <div v-if="viewingCA.cdp_url" class="mb-2">
+                      <a :href="viewingCA.cdp_url" target="_blank" class="text-break small link-primary text-decoration-none">
+                        {{ viewingCA.cdp_url }}
+                        <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                      </a>
+                    </div>
+                    <div v-else class="text-muted small">
+                      <i class="bi bi-dash-circle me-1"></i>
+                      Not configured
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- Certificate Chain Information -->
               <div class="col-12 mb-4">
                 <div class="card">
