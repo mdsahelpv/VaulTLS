@@ -191,8 +191,8 @@ impl VaulTLSDB {
             let cert_chain_json = serde_json::to_string(&ca.cert_chain)?;
 
             conn.execute(
-                "INSERT INTO ca_certificates (created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![ca.created_on, ca.valid_until, ca.cert, ca.key, ca.creation_source, cert_chain_json, ca.can_create_subordinate_ca],
+                "INSERT INTO ca_certificates (created_on, valid_until, certificate, key, creation_source, cert_chain, can_create_subordinate_ca, aia_url, cdp_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![ca.created_on, ca.valid_until, ca.cert, ca.key, ca.creation_source, cert_chain_json, ca.can_create_subordinate_ca, ca.aia_url, ca.cdp_url],
             )?;
 
             Ok(conn.last_insert_rowid())

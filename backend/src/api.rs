@@ -242,8 +242,11 @@ async fn setup_common(
     let ca = if let Some(pfx_data) = pfx_data {
         debug!("Validating CA from PFX file (size: {} bytes)", pfx_data.len());
         match CertificateBuilder::from_pfx(&pfx_data, pfx_password.as_deref(), Some(&ca_name)) {
-            Ok(ca) => {
+            Ok(mut ca) => {
                 debug!("CA validated successfully from PFX");
+                // Set URLs for imported CA
+                ca.aia_url = aia_url.clone();
+                ca.cdp_url = cdp_url.clone();
                 ca
             },
             Err(e) => {

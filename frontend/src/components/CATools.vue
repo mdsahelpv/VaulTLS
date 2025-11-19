@@ -60,8 +60,8 @@
                   <small class="text-muted">{{ ca.serial_number }}</small>
                 </td>
                 <td>
-                  <span class="badge" :class="ca.is_self_signed ? 'bg-success' : 'bg-info'">
-                    {{ ca.is_self_signed ? 'Self-Signed' : 'Imported' }}
+                  <span class="badge" :class="getCATypeText(ca) === 'Self-Signed' ? 'bg-success' : 'bg-info'">
+                    {{ getCATypeText(ca) }}
                   </span>
                 </td>
                 <td>
@@ -473,8 +473,8 @@
                     <div class="row">
                       <div class="col-sm-4"><strong>Type:</strong></div>
                       <div class="col-sm-8">
-                        <span class="badge" :class="viewingCA.is_self_signed ? 'bg-success' : 'bg-info'">
-                          {{ viewingCA.is_self_signed ? 'Self-Signed' : 'Imported' }}
+                        <span class="badge" :class="getCATypeText(viewingCA) === 'Self-Signed' ? 'bg-success' : 'bg-info'">
+                          {{ getCATypeText(viewingCA) }}
                         </span>
                       </div>
                     </div>
@@ -1051,6 +1051,24 @@ const formatCertificateName = (subject: string): string => {
   }
 
   return subject.length > 50 ? subject.substring(0, 50) + '...' : subject;
+};
+
+const getCATypeText = (ca: CA): string => {
+  if (ca.is_self_signed) {
+    return 'Self-Signed';
+  }
+
+  // Check if imported CA has intermediate CA and root CA in chain
+  if (ca.chain_certificates) {
+    const hasIntermediateCA = ca.chain_certificates.some(cert => cert.certificate_type === 'intermediate_ca');
+    const hasRootCA = ca.chain_certificates.some(cert => cert.certificate_type === 'root_ca');
+
+    if (hasIntermediateCA && hasRootCA) {
+      return 'Imported SubCA';
+    }
+  }
+
+  return 'Imported';
 };
 
 onMounted(() => {
