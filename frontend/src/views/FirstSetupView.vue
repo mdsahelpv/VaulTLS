@@ -631,8 +631,8 @@ const setupPassword = async () => {
       commonName: ca_type.value === 'self_signed' ? commonName.value : undefined,
       emailAddress: ca_type.value === 'self_signed' ? emailAddress.value : undefined,
       // Certificate extensions for CA
-      aia_url: ca_type.value === 'self_signed' ? aiaUrl.value : undefined,
-      cdp_url: ca_type.value === 'self_signed' ? cdpUrl.value : undefined,
+      aia_url: ca_type.value === 'self_signed' ? (aiaUrl.value || `${getCurrentBaseUrl()}/api/certificates/ca/download`) : undefined,
+      cdp_url: ca_type.value === 'self_signed' ? (cdpUrl.value || `${getCurrentBaseUrl()}/api/certificates/crl`) : undefined,
       crl_validity_days: ca_type.value === 'self_signed' ? crlValidityDays.value : undefined,
       path_length: ca_type.value === 'self_signed' ? pathLength.value : undefined,
       // Root CA mode

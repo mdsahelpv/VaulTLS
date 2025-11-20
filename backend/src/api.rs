@@ -677,13 +677,19 @@ pub(crate) async fn create_user_certificate(
         return Err(ApiError::BadRequest("Root CA Server can only issue subordinate CA certificates".to_string()));
     }
 
-    let cert_builder = CertificateBuilder::new_with_ca(Some(&ca))?
+    let mut cert_builder = CertificateBuilder::new_with_ca(Some(&ca))?
         .set_name(&payload.cert_name)?
         .set_valid_until(payload.validity_in_years.unwrap_or(1))?
         .set_renew_method(payload.renew_method.unwrap_or_default())?
         .set_pkcs12_password(&pkcs12_password)?
         .set_ca(&ca)?
         .set_user_id(payload.user_id)?;
+
+    // Apply user-selected hash algorithm if provided (so subordinate CA and other certs
+    // are signed with the requested digest instead of always defaulting to SHA-256)
+    if let Some(hash_alg) = &payload.hash_algorithm {
+        cert_builder = cert_builder.set_hash_algorithm(hash_alg)?;
+    }
     let mut cert = match payload.cert_type.unwrap_or_default() {
         CertificateType::Client => {
             let user = state.db.get_user(payload.user_id).await?;
@@ -871,8 +877,19 @@ pub struct CreateCASelfSignedRequest {
     pub certificate_policies_oid: Option<String>,
     #[serde(default)]
     pub certificate_policies_cps_url: Option<String>,
+    #[serde(default)]
+    pub aia_url: Option<String>,
+    #[serde(default)]
+    pub cdp_url: Option<String>,
 }
 
+#[derive(FromForm, JsonSchema, Debug)]
+pub struct ImportCARequest<'r> {
+    pub password: Option<String>,
+    pub name: Option<String>,
+    #[schemars(skip)]
+    pub file: rocket::fs::TempFile<'r>,
+}
 
 #[openapi(tag = "Certificates")]
 #[post("/certificates/ca/import", data = "<upload>")]
@@ -919,14 +936,6 @@ pub(crate) async fn import_ca_from_file(
     }
 
     Ok(Json(ca_id))
-}
-
-#[derive(FromForm, JsonSchema, Debug)]
-pub struct ImportCARequest<'r> {
-    pub password: Option<String>,
-    pub name: Option<String>,
-    #[schemars(skip)]
-    pub file: rocket::fs::TempFile<'r>,
 }
 
 #[openapi(tag = "Certificates")]

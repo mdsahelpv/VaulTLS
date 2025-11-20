@@ -75,6 +75,8 @@ export const setup = async (setupReq: SetupReq): Promise<void> => {
             commonName: setupReq.commonName,
             emailAddress: setupReq.emailAddress,
             is_root_ca: setupReq.is_root_ca,
+            aia_url: setupReq.aia_url,
+            cdp_url: setupReq.cdp_url,
         };
         return await ApiClient.post<void>('/server/setup', jsonData);
     }

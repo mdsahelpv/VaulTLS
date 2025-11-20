@@ -1,4 +1,6 @@
 export interface SetupReq {
+    aia_url?: string;
+    cdp_url?: string;
     name: string,
     email: string,
     ca_name: string,
