@@ -235,7 +235,7 @@ async fn setup_common(
     if let Some(password) = password {
         debug!("Setting password authentication enabled");
         state.settings.set_password_enabled(true)?;
-        password_hash = Some(Password::new_server_hash(password)?.to_string());
+        password_hash = Some(Password::new_double_hash(password)?.to_string());
     }
 
     // Validate CA certificate first before creating user
@@ -429,17 +429,7 @@ pub(crate) async fn login(
                 warn!("Failed to log authentication audit event: {}", e);
             }
 
-            if let Password::V1(_) = password_hash {
-                info!(user=user.name, "Migrating a user' password to V2.");
-                let migration_password = Password::new_double_hash(&login_req_opt.password)?;
-                state.db.set_user_password(user.id, migration_password).await?;
-            }
-
             return Ok(());
-        } else if let Password::V1(hash_string) = password_hash {
-            // User tried to supply a hashed password, but has not been migrated yet
-            // Require user to supply plaintext password to log in
-            return Err(ApiError::Conflict(hash_string.to_string()))
         }
     }
     warn!(user=user.name, "Invalid password");
@@ -487,7 +477,7 @@ pub(crate) async fn change_password(
         }
     }
 
-    let password_hash = Password::new_server_hash(&change_pass_req.new_password)?;
+    let password_hash = Password::new_double_hash(&change_pass_req.new_password)?;
     state.db.set_user_password(user_id, password_hash).await?;
 
     // Invalidate current session after password change for security
@@ -1716,7 +1706,7 @@ pub(crate) async fn create_user(
     };
 
     let password_hash: Option<String> = match password {
-        Some(p) => Some(Password::new_server_hash(p)?.to_string()),
+        Some(p) => Some(Password::new_double_hash(p)?.to_string()),
         None => None,
     };
 
