@@ -1180,60 +1180,215 @@ basicConstraints = CA:FALSE
         let user_id = self.user_id.ok_or(anyhow!("X509: user_id not set"))?;
         let ca = self.ca.ok_or(anyhow!("X509: CA not set"))?;
 
+        // Collect fields that will be moved before using the certificate builder
+        let common_name = self.common_name.as_deref().unwrap_or(&name);
+        let aia_url = self.authority_info_access.clone();
+        let cdp_url = self.crl_distribution_points.clone();
+
+        // Use OpenSSL CLI to generate subordinate CA certificate with proper extensions
+        // This ensures AIA and CDP URLs are properly included
+        use std::process::Command;
+
+        // Create temporary files for certificate generation
+        let temp_dir = std::env::temp_dir();
+        let ca_cert_path = temp_dir.join(format!("ca_cert_sub_{}.pem", self.created_on));
+        let ca_key_path = temp_dir.join(format!("ca_key_sub_{}.pem", self.created_on));
+        let cert_req_path = temp_dir.join(format!("cert_req_sub_{}.csr", self.created_on));
+        let cert_path = temp_dir.join(format!("cert_sub_{}.pem", self.created_on));
+        let config_path = temp_dir.join(format!("cert_sub_config_{}.cnf", self.created_on));
+
+        let cleanup_temp_files = || {
+            let _ = std::fs::remove_file(&ca_cert_path);
+            let _ = std::fs::remove_file(&ca_key_path);
+            let _ = std::fs::remove_file(&cert_req_path);
+            let _ = std::fs::remove_file(&cert_path);
+            let _ = std::fs::remove_file(&config_path);
+        };
+
         let ca_cert = X509::from_der(&ca.cert)?;
         let ca_key = PKey::private_key_from_der(&ca.key)?;
 
-        // Set issuer to the parent CA
-        self.x509.set_issuer_name(ca_cert.subject_name())?;
+        // Write CA certificate to PEM
+        let ca_cert_pem = ca_cert.to_pem()
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to encode CA certificate to PEM: {e}")
+            })?;
+        std::fs::write(&ca_cert_path, &ca_cert_pem)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to write CA certificate to temp file: {e}")
+            })?;
 
-        // Basic constraints for subordinate CA (CA=true, pathLenConstraint not set)
-        let basic_constraints = BasicConstraints::new().ca().build()?;
-        self.x509.append_extension(basic_constraints)?;
+        // Write CA private key to PEM
+        let ca_key_pem = ca_key.private_key_to_pem_pkcs8()
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to encode CA private key to PEM: {e}")
+            })?;
+        std::fs::write(&ca_key_path, &ca_key_pem)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to write CA private key to temp file: {e}")
+            })?;
 
-        // Key usage for subordinate CA
-        let key_usage = KeyUsage::new()
-            .key_cert_sign()
-            .crl_sign()
-            .digital_signature()
-            .build()?;
-        self.x509.append_extension(key_usage)?;
+        // Create certificate signing request (CSR)
+        let mut req_builder = openssl::x509::X509ReqBuilder::new()?;
+        req_builder.set_version(0)?;
 
-        // Subject Key Identifier
-        let subject_key_identifier = SubjectKeyIdentifier::new().build(&self.x509.x509v3_context(None, None))?;
-        self.x509.append_extension(subject_key_identifier)?;
+        // Build subject name
+        let mut subject_builder = openssl::x509::X509NameBuilder::new()?;
+        if let Some(country) = &self.country {
+            subject_builder.append_entry_by_text("C", country)?;
+        }
+        if let Some(state) = &self.state {
+            subject_builder.append_entry_by_text("ST", state)?;
+        }
+        if let Some(locality) = &self.locality {
+            subject_builder.append_entry_by_text("L", locality)?;
+        }
+        if let Some(organization) = &self.organization {
+            subject_builder.append_entry_by_text("O", organization)?;
+        }
+        if let Some(org_unit) = &self.organizational_unit {
+            subject_builder.append_entry_by_text("OU", org_unit)?;
+        }
+        subject_builder.append_entry_by_text("CN", common_name)?;
+        if let Some(email) = &self.email {
+            subject_builder.append_entry_by_text("emailAddress", email)?;
+        }
+        let subject_name = subject_builder.build();
 
-        // Authority Key Identifier (points to parent CA)
-        let authority_key_identifier = AuthorityKeyIdentifier::new().keyid(true).build(&self.x509.x509v3_context(None, None))?;
-        self.x509.append_extension(authority_key_identifier)?;
+        req_builder.set_subject_name(&subject_name)?;
+        req_builder.set_pubkey(&self.private_key)?;
+        req_builder.sign(&self.private_key, MessageDigest::sha256())?;
+        let cert_req = req_builder.build();
 
-        // Add Authority Information Access (AIA) extension if provided
-        if let Some(ref aia_url) = self.authority_info_access {
-            let aia = self.x509.x509v3_context(None, None);
-            let aia_extension = AuthorityKeyIdentifier::new().keyid(true).build(&aia)?;
-            // For now, we'll add the basic authority key identifier
-            // Full AIA extension support would require more complex ASN.1 handling
-            self.x509.append_extension(aia_extension)?;
+        let cert_req_pem = cert_req.to_pem()
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to encode certificate request to PEM: {e}")
+            })?;
+        std::fs::write(&cert_req_path, &cert_req_pem)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to write certificate request to temp file: {e}")
+            })?;
+
+        // Create OpenSSL configuration for subordinate CA certificate
+        let mut config_content = r#"[ req ]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+string_mask = utf8only
+default_md = sha256
+
+[ req_distinguished_name ]
+countryName = Country Name (2 letter code)
+countryName_default = QA
+
+[ v3_req ]
+basicConstraints = CA:TRUE
+keyUsage = critical, digitalSignature, keyCertSign, cRLSign
+
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir = /tmp/ca_temp
+certs = $dir/certs
+new_certs_dir = $dir/newcerts
+database = $dir/index.txt
+serial = $dir/serial.txt
+default_md = sha256
+policy = policy_anything
+email_in_dn = no
+unique_subject = no
+copy_extensions = copy
+
+[ policy_anything ]
+countryName = optional
+stateOrProvinceName = optional
+localityName = optional
+organizationName = optional
+organizationalUnitName = optional
+commonName = supplied
+emailAddress = optional
+
+[ v3_ca ]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, digitalSignature, keyCertSign, cRLSign
+"#.to_string();
+
+        // Add AIA extension if provided
+        if let Some(ref aia) = aia_url {
+            config_content.push_str(&format!("authorityInfoAccess = caIssuers;URI:{aia}\n"));
         }
 
-        // Add CRL Distribution Points extension if provided
-        if let Some(ref cdp_url) = self.crl_distribution_points {
-            let cdp = SubjectAlternativeName::new()
-                .uri(cdp_url)
-                .build(&self.x509.x509v3_context(None, None))?;
-            // CRL Distribution Points would need proper ASN.1 encoding
-            // For now, we add it as an alternative name (simplified)
-            self.x509.append_extension(cdp)?;
+        // Add CDP extension if provided
+        if let Some(ref cdp) = cdp_url {
+            config_content.push_str(&format!("crlDistributionPoints = URI:{cdp}\n"));
         }
 
-        // Sign with the selected hash algorithm
-        let digest = match self.hash_algorithm.as_deref() {
-            Some("sha256") | Some("sha-256") | Some("SHA-256") | Some("SHA256") => MessageDigest::sha256(),
-            Some("sha512") | Some("sha-512") | Some("SHA-512") | Some("SHA512") => MessageDigest::sha512(),
-            _ => MessageDigest::sha256(), // Default to SHA256
-        };
+        std::fs::write(&config_path, &config_content)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to write OpenSSL config file: {e}")
+            })?;
 
-        self.x509.sign(&ca_key, digest)?;
-        let cert = self.x509.build();
+        // Sign the certificate with the parent CA using OpenSSL CLI
+        let validity_days = ((valid_until - self.created_on) / (1000 * 60 * 60 * 24)) as u32;
+        let validity_days = validity_days.max(1);
+
+        debug!("Executing OpenSSL x509 command for subordinate CA with validity_days: {}, aia_url: {:?}, cdp_url: {:?}", validity_days, aia_url, cdp_url);
+
+        let output = Command::new("openssl")
+            .args([
+                "x509",
+                "-req",
+                "-in", &cert_req_path.to_string_lossy(),
+                "-CA", &ca_cert_path.to_string_lossy(),
+                "-CAkey", &ca_key_path.to_string_lossy(),
+                "-CAcreateserial",
+                "-out", &cert_path.to_string_lossy(),
+                "-days", &validity_days.to_string(),
+                "-sha256",
+                "-extfile", &config_path.to_string_lossy(),
+                "-extensions", "v3_ca",
+            ])
+            .output()
+            .map_err(|e| {
+                error!("Failed to execute openssl x509 command: {e}");
+                cleanup_temp_files();
+                anyhow!("Failed to execute openssl x509 command: {e}")
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            error!("OpenSSL certificate signing failed. Exit code: {:?}", output.status.code());
+            error!("OpenSSL stderr: {stderr}");
+            error!("OpenSSL stdout: {stdout}");
+            cleanup_temp_files();
+            return Err(anyhow!("OpenSSL certificate signing failed: {stderr}\nStdout: {stdout}"));
+        }
+
+        debug!("OpenSSL certificate signing successful");
+
+        // Read and convert the signed certificate
+        let cert_pem = std::fs::read(&cert_path)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to read signed certificate: {e}")
+            })?;
+        let cert = X509::from_pem(&cert_pem)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to parse signed certificate: {e}")
+            })?;
+
+        cleanup_temp_files();
 
         // Build certificate chain: [parent CA cert, parent's parent if any, ...]
         let mut ca_stack = Stack::new()?;
@@ -1265,8 +1420,8 @@ basicConstraints = CA:FALSE
             is_revoked: false,
             revoked_on: None,
             revoked_reason: None,
-                revoked_by: None,
-                custom_revocation_reason: None,
+            revoked_by: None,
+            custom_revocation_reason: None,
         })
     }
 }

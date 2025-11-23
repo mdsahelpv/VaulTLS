@@ -938,6 +938,15 @@ pub(crate) async fn create_user_certificate(
                 .build_common_with_extensions(Server, crl_url, ocsp_url)?
         }
         CertificateType::SubordinateCA => {
+            // For subordinate CA, set AIA and CDP URLs from request if provided
+            let mut cert_builder = cert_builder;
+            if let Some(aia_url) = &payload.aia_url {
+                cert_builder = cert_builder.set_authority_info_access(aia_url)?;
+            }
+            if let Some(cdp_url) = &payload.cdp_url {
+                cert_builder = cert_builder.set_crl_distribution_points(cdp_url)?;
+            }
+
             // For subordinate CA, we need to create a CA certificate signed by the parent CA
             cert_builder.build_subordinate_ca()?
         }

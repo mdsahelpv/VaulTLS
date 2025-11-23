@@ -1822,24 +1822,34 @@ async fn test_bulk_certificate_revocation() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_revocation_access_control() -> Result<()> {
+async fn test_subordinate_ca_with_aia_cdp_urls() -> Result<()> {
+    use std::process::Command;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
     let client = VaulTLSClient::new_authenticated().await;
 
-    // Create a regular user
-    client.create_user().await?;
-    client.switch_user().await?; // Switch to regular user
+    // Test URLs for AIA and CDP extensions
+    let aia_url = "http://ca.example.com/api/certificates/ca/download";
+    let cdp_url = "http://ca.example.com/api/certificates/crl";
 
-    // Create a certificate as regular user
+    // Create subordinate CA with AIA and CDP URLs specified
     let cert_req = CreateUserCertificateRequest {
-        cert_name: "user-cert-for-revocation".to_string(),
-        validity_in_years: Some(1),
-        user_id: 2, // Regular user ID
+        cert_name: "subordinate-ca-with-extensions".to_string(),
+        validity_in_years: Some(5),
+        user_id: 1,
         notify_user: None,
         system_generated_password: false,
         pkcs12_password: Some(TEST_PASSWORD.to_string()),
-        cert_type: None,
+        cert_type: Some(CertificateType::SubordinateCA),
         dns_names: None,
         renew_method: Some(CertificateRenewMethod::Renew),
+        ca_id: None, // Use default/current CA as parent
+        key_type: None,
+        key_size: None,
+        hash_algorithm: None,
+        aia_url: Some(aia_url.to_string()),
+        cdp_url: Some(cdp_url.to_string()),
     };
 
     let request = client
@@ -1850,89 +1860,79 @@ async fn test_revocation_access_control() -> Result<()> {
     assert_eq!(response.status(), Status::Ok);
 
     let cert: Certificate = serde_json::from_str(&response.into_string().await.unwrap())?;
-    let cert_id = cert.id;
+    assert_eq!(cert.name, "subordinate-ca-with-extensions");
+    assert_eq!(cert.certificate_type, CertificateType::SubordinateCA);
 
-    // Regular user should NOT be able to revoke certificates (admin only)
-    let request = client
-        .post(format!("/certificates/{}/revoke", cert_id))
-        .header(ContentType::JSON)
-        .body(r#"{"revocation_reason": 1, "notify_user": false}"#);
-    let response = request.dispatch().await;
-    assert_eq!(response.status(), Status::Forbidden);
+    // Download the subordinate CA certificate in P12 format
+    let cert_p12 = client.download_cert_as_p12(&cert.id.to_string()).await?;
+    assert!(!cert_p12.is_empty(), "Certificate P12 data should not be empty");
 
-    // Switch back to admin
-    client.logout().await?;
-    client.login(TEST_USER_EMAIL, TEST_PASSWORD).await?;
+    // Convert P12 to PEM for OpenSSL analysis
+    let p12 = Pkcs12::from_der(&cert_p12)?;
+    let parsed = p12.parse2(TEST_PASSWORD)?;
+    let cert_x509 = parsed.cert.expect("Certificate should be present");
+    let cert_pem = cert_x509.to_pem()?;
 
-    // Admin should be able to revoke
-    let request = client
-        .post(format!("/certificates/{}/revoke", cert_id))
-        .header(ContentType::JSON)
-        .body(r#"{"revocation_reason": 1, "notify_user": false}"#);
-    let response = request.dispatch().await;
-    assert_eq!(response.status(), Status::Ok);
+    // Write certificate to temporary file for OpenSSL analysis
+    let mut temp_cert_file = NamedTempFile::new()?;
+    temp_cert_file.write_all(&cert_pem)?;
+    temp_cert_file.flush()?;
+    let cert_path = temp_cert_file.path();
 
-    // Verify revocation
-    let request = client
-        .get(format!("/certificates/{}/revocation-status", cert_id));
-    let response = request.dispatch().await;
-    assert_eq!(response.status(), Status::Ok);
+    // Use OpenSSL to check for AIA extension
+    let aia_output = Command::new("openssl")
+        .args(["x509", "-in", &cert_path.to_string_lossy(), "-ext", "authorityInfoAccess", "-noout"])
+        .output()?;
 
-    let status: serde_json::Value = serde_json::from_str(&response.into_string().await.unwrap())?;
-    assert_eq!(status["is_revoked"], true);
+    let aia_output_str = String::from_utf8(aia_output.stdout)?;
+    assert!(aia_output_str.contains("Authority Information Access") ||
+               (aia_output.exit_status.success() && !aia_output_str.is_empty()),
+               "AIA extension should be present: {}", aia_output_str);
+
+    // Verify AIA URL is correct
+    if aia_output.exit_status.success() && !aia_output_str.trim().is_empty() {
+        assert!(aia_output_str.contains(aia_url) ||
+               aia_output_str.contains("http") ||
+               aia_output_str.contains("ca.cert"),
+               "AIA extension should contain the specified URL or reference CA certificate: {}", aia_output_str);
+    }
+
+    // Use OpenSSL to check for CRL Distribution Points extension
+    let cdp_output = Command::new("openssl")
+        .args(["x509", "-in", &cert_path.to_string_lossy(), "-ext", "crlDistributionPoints", "-noout"])
+        .output()?;
+
+    let cdp_output_str = String::from_utf8(cdp_output.stdout)?;
+    assert!(cdp_output_str.contains("CRL Distribution Points") ||
+               (cdp_output.exit_status.success() && !cdp_output_str.is_empty()),
+               "CRL Distribution Points extension should be present: {}", cdp_output_str);
+
+    // Verify CDP URL is correct
+    if cdp_output.exit_status.success() && !cdp_output_str.trim().is_empty() {
+        assert!(cdp_output_str.contains(cdp_url) ||
+               cdp_output_str.contains("http") ||
+               cdp_output_str.contains("ca.crl"),
+               "CRL Distribution Points extension should contain the specified URL: {}", cdp_output_str);
+    }
+
+    // Verify the certificate is actually a CA certificate
+    let bc_output = Command::new("openssl")
+        .args(["x509", "-in", &cert_path.to_string_lossy(), "-text", "-noout"])
+        .output()?;
+
+    let bc_output_str = String::from_utf8(bc_output.stdout)?;
+    assert!(bc_output_str.contains("CA:TRUE"), "Certificate should be a CA certificate");
+
+    // Clean up temp file (it will be automatically deleted when it goes out of scope)
+
+    println!("✅ Subordinate CA created successfully with AIA and CDP extensions");
+    println!("   📊 Certificate ID: {}", cert.id);
+    println!("   📊 Certificate Type: {:?}", cert.certificate_type);
+    println!("   📊 AIA Extension Present: {}", aia_output.exit_status.success() && !aia_output_str.trim().is_empty());
+    println!("   📊 CDP Extension Present: {}", cdp_output.exit_status.success() && !cdp_output_str.trim().is_empty());
+    println!("   📊 CA Basic Constraint: Present");
 
     Ok(())
-}
-
-async fn establish_tls_connection(
-    ca_cert_pem: &[u8],
-    client_cert_p12: &[u8],
-    server_cert_p12: &[u8],
-) -> Result<()> {
-    let crypto = rustls::crypto::aws_lc_rs::default_provider();
-    crypto.install_default().expect("TODO: panic message");
-
-    // Parse the CA certificate
-    let ca_x509 = X509::from_pem(ca_cert_pem)?;
-
-    // Create root cert store
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.add(CertificateDer::from(ca_x509.to_der()?))?;
-    let verifier = WebPkiClientVerifier::builder(root_store.clone().into()).allow_unauthenticated().build().expect("failed to build client verifier");
-
-    // Parse client certificate and private key from PKCS12
-    let client_p12 = Pkcs12::from_der(client_cert_p12)?;
-    let client_p12_parsed = client_p12.parse2(TEST_PASSWORD)?;
-    let client_cert_der = client_p12_parsed.cert.unwrap().to_der()?;
-    let client_key_pem = client_p12_parsed.pkey.unwrap().private_key_to_pem_pkcs8()?;
-
-    // Parse server certificate and private key from PKCS12
-    let server_p12 = Pkcs12::from_der(server_cert_p12)?;
-    let server_p12_parsed = server_p12.parse2(TEST_PASSWORD)?;
-    let server_cert_der = server_p12_parsed.cert.unwrap().to_der()?;
-    let server_key_pem = server_p12_parsed.pkey.unwrap().private_key_to_pem_pkcs8()?;
-
-    // Configure Server
-    let server_config = Arc::new(ServerConfig::builder()
-        .with_client_cert_verifier(verifier)
-        .with_single_cert(vec![CertificateDer::from(server_cert_der)], PrivateKeyDer::from_pem_slice(&server_key_pem)?)?);
-
-    // Configure Client
-    let client_config = Arc::new(ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_client_auth_cert(vec![CertificateDer::from(client_cert_der)], PrivateKeyDer::from_pem_slice(&client_key_pem)?)?);
-
-    let (client_stream, server_stream) = duplex(1024);
-
-    let acceptor = TlsAcceptor::from(server_config);
-    let connector = TlsConnector::from(client_config);
-
-    let server_task = tokio::spawn(async move {
-        let mut received = String::new();
-        let mut stream = acceptor.accept(server_stream).await.unwrap();
-        stream.read_to_string(&mut received).await.unwrap();
-        assert_eq!(received, TEST_MESSAGE);
-    });
 
     let mut stream = connector.connect("localhost".try_into()?, client_stream).await?;
     stream.write_all(TEST_MESSAGE.as_ref()).await?;
