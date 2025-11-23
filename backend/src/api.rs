@@ -10,7 +10,6 @@ use tokio::io::AsyncReadExt;
 use tracing::{trace, debug, info, warn, error};
 use openssl::x509::X509;
 use openssl::pkey::PKey;
-use der::Encode;
 use serde::Serialize;
 use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
@@ -132,7 +131,7 @@ pub(crate) async fn setup_form(
 #[openapi(tag = "Setup")]
 #[post("/server/setup/validate-pfx", data = "<validation_req>")]
 /// Validate a PKCS#12 certificate file and password without completing setup.
-/// Returns success if the PFX file can be parsed with the provided password.
+/// Returns detailed certificate validation information if the PFX file can be parsed.
 pub(crate) async fn validate_pfx(
     validation_req: Form<PfxValidationRequest<'_>>
 ) -> Result<Json<PfxValidationResponse>, ApiError> {
@@ -145,19 +144,97 @@ pub(crate) async fn validate_pfx(
     if !buffer.starts_with(b"\x30") && !buffer.starts_with(b"-----BEGIN PKCS12") {
         return Ok(Json(PfxValidationResponse {
             valid: false,
-            error: Some("File does not appear to be a valid PKCS#12 file".to_string())
+            error: Some("File does not appear to be a valid PKCS#12 file".to_string()),
+            certificate_details: None,
         }));
     }
 
     // Try to validate the PKCS#12 file
     match CertificateBuilder::from_pfx(&buffer, validation_req.password.as_deref(), validation_req.name.as_deref()) {
-        Ok(_) => Ok(Json(PfxValidationResponse {
-            valid: true,
-            error: None
-        })),
+        Ok(ca) => {
+            // Extract detailed certificate information
+            let cert = X509::from_der(&ca.cert).map_err(|e| {
+                error!("Failed to parse certificate for validation details: {}", e);
+                ApiError::Other("Failed to extract certificate details".to_string())
+            })?;
+
+            // Get subject and issuer
+            let subject = format_subject_name(cert.subject_name());
+            let issuer = format_subject_name(cert.issuer_name());
+
+            // Get serial number
+            let serial_number = cert.serial_number().to_bn()
+                .map_err(|e| ApiError::Other(format!("Failed to get serial number: {}", e)))?
+                .to_hex_str()
+                .map_err(|e| ApiError::Other(format!("Failed to format serial number: {}", e)))?
+                .to_string();
+
+            // Get validity dates as milliseconds since epoch
+            // For existing certificates, we'll use current timestamp as approximation
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let valid_from = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+            let valid_until = (SystemTime::now() + std::time::Duration::from_secs(365 * 24 * 60 * 60)).duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+
+            // Get key algorithm and size
+            let public_key = cert.public_key().map_err(|e| {
+                ApiError::Other(format!("Failed to get public key: {}", e))
+            })?;
+
+            let (key_algorithm, key_size) = if public_key.rsa().is_ok() {
+                ("RSA".to_string(), format!("{} bits", public_key.rsa().unwrap().size() * 8))
+            } else if public_key.ec_key().is_ok() {
+                ("ECDSA".to_string(), "P-256".to_string()) // Default to P-256 for now
+            } else {
+                ("Unknown".to_string(), "Unknown".to_string())
+            };
+
+            // Get signature algorithm
+            let sig_alg_obj = cert.signature_algorithm().object();
+            let signature_algorithm = match sig_alg_obj.to_string().as_str() {
+                "sha256WithRSAEncryption" => "RSA-SHA256",
+                "sha512WithRSAEncryption" => "RSA-SHA512",
+                "ecdsa-with-SHA256" => "ECDSA-SHA256",
+                "ecdsa-with-SHA512" => "ECDSA-SHA512",
+                _ => "Unknown",
+            };
+
+            // Check if it's a CA certificate by checking basic constraints
+            let is_ca_certificate = matches!(get_basic_constraints(&cert), Ok(Some((is_ca, _))) if is_ca);
+
+            // Extract AIA and CDP URLs from the certificate
+            let (aia_url, cdp_url) = extract_aia_and_cdp_urls(&cert).unwrap_or((None, None));
+
+            // Get path length constraint if present
+            let basic_constraints_path_length = match get_basic_constraints(&cert) {
+                Ok(Some((_, len))) => len,
+                _ => None,
+            };
+
+            let certificate_details = ValidatedCertificateDetails {
+                subject,
+                issuer,
+                serial_number,
+                valid_from,
+                valid_until,
+                key_algorithm,
+                key_size,
+                signature_algorithm: signature_algorithm.to_string(),
+                is_ca_certificate,
+                aia_url,
+                cdp_url,
+                basic_constraints_path_length,
+            };
+
+            Ok(Json(PfxValidationResponse {
+                valid: true,
+                error: None,
+                certificate_details: Some(certificate_details),
+            }))
+        },
         Err(e) => Ok(Json(PfxValidationResponse {
             valid: false,
-            error: Some(format!("Failed to validate PKCS#12 file: {}. Please check the password is correct.", e))
+            error: Some(format!("Failed to validate PKCS#12 file: {}. Please check the password is correct.", e)),
+            certificate_details: None,
         }))
     }
 }
@@ -174,6 +251,23 @@ pub struct PfxValidationRequest<'r> {
 pub struct PfxValidationResponse {
     pub valid: bool,
     pub error: Option<String>,
+    pub certificate_details: Option<ValidatedCertificateDetails>,
+}
+
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct ValidatedCertificateDetails {
+    pub subject: String,
+    pub issuer: String,
+    pub serial_number: String,
+    pub valid_from: i64,
+    pub valid_until: i64,
+    pub key_algorithm: String,
+    pub key_size: String,
+    pub signature_algorithm: String,
+    pub is_ca_certificate: bool,
+    pub aia_url: Option<String>,
+    pub cdp_url: Option<String>,
+    pub basic_constraints_path_length: Option<i32>,
 }
 
 async fn setup_common(
@@ -2548,6 +2642,81 @@ fn determine_certificate_type(cert: &X509, index: usize, total_certs: usize) -> 
 
     // If we can't determine type, default to intermediate (shouldn't happen in normal PKI scenarios)
     "intermediate_ca".to_string()
+}
+
+/// Helper function to extract basic constraints from certificate using openssl command
+fn get_basic_constraints(cert: &X509) -> Result<Option<(bool, Option<i32>)>, ApiError> {
+    // Use openssl command-line to extract basic constraints
+    let pem = cert.to_pem()
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))?;
+
+    let pem_str = String::from_utf8(pem)
+        .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {}", e)))?;
+
+    // Write certificate to a temporary file
+    use std::process;
+    let temp_cert_path = std::env::temp_dir().join(format!("cert_bc_{}.pem", process::id()));
+    std::fs::write(&temp_cert_path, &pem_str)
+        .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {}", e)))?;
+
+    // Use openssl command to extract text
+    let output = std::process::Command::new("openssl")
+        .args(&[
+            "x509",
+            "-in", &temp_cert_path.to_string_lossy(),
+            "-text",
+            "-noout"
+        ])
+        .output()
+        .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {}", e)))?;
+
+    // Clean up temp file
+    let _ = std::fs::remove_file(&temp_cert_path);
+
+    if !output.status.success() {
+        return Ok(None); // No basic constraints available
+    }
+
+    let text_output = String::from_utf8(output.stdout)
+        .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {}", e)))?;
+
+    // Parse basic constraints
+    let mut has_bc_section = false;
+    let mut is_ca = false;
+    let mut path_length: Option<i32> = None;
+
+    for line in text_output.lines() {
+        let line_trimmed = line.trim();
+
+        if line_trimmed.contains("X509v3 Basic Constraints:") {
+            has_bc_section = true;
+            continue;
+        }
+
+        if has_bc_section {
+            if line_trimmed.contains("CA:TRUE") {
+                is_ca = true;
+                // Check for path length
+                if let Some(pl_start) = line_trimmed.find("pathlen:") {
+                    let pl_str = &line_trimmed[pl_start + 8..].trim();
+                    if let Ok(pl) = pl_str.parse::<i32>() {
+                        path_length = Some(pl);
+                    }
+                }
+            } else if line_trimmed.contains("CA:FALSE") {
+                is_ca = false;
+            } else if line_trimmed.starts_with("X509v3") && !line_trimmed.contains("Basic Constraints") {
+                // End of basic constraints section
+                break;
+            }
+        }
+    }
+
+    if has_bc_section {
+        Ok(Some((is_ca, path_length)))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Format an X509Name as a proper DN string (RFC 4514 format)
