@@ -171,7 +171,7 @@ impl VaulTLSDB {
                     if password.verify("") {
                         // Password stored is empty
                         info!("Password for user {} is empty, disabling password", user_name);
-                        conn.execute("UPDATE users SET password_hash = NULL WHERE id = ?", &[&user_id])?;
+                        conn.execute("UPDATE users SET password_hash = NULL WHERE id = ?", [&user_id])?;
                     }
                 }
             }
@@ -299,7 +299,7 @@ impl VaulTLSDB {
                     aia_url: row.get(8)?, // From database
                     cdp_url: row.get(9)?, // From database
                 })
-            }).map_err(|e| anyhow!("CA with id {} not found: {}", id, e))
+            }).map_err(|e| anyhow!("CA with id {id} not found: {e}"))
         })
     }
 
@@ -411,7 +411,7 @@ impl VaulTLSDB {
                     revoked_by: row.get(13).ok(),
                     custom_revocation_reason: row.get(14).ok(),
                 })
-            }).map_err(|e| anyhow!("Certificate with id {} not found: {}", id, e))
+            }).map_err(|e| anyhow!("Certificate with id {id} not found: {e}"))
         })
     }
 
@@ -711,7 +711,7 @@ impl VaulTLSDB {
             match result {
                 Ok(revocation) => Ok(Some(revocation)),
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(anyhow!("Database error: {}", e)),
+                Err(e) => Err(anyhow!("Database error: {e}")),
             }
         })
     }
@@ -861,7 +861,7 @@ impl VaulTLSDB {
 
             if let Some(ref search_term) = search_term_filter {
                 conditions.push("(details LIKE ? OR resource_name LIKE ? OR user_name LIKE ? OR error_message LIKE ?)");
-                let search_pattern = format!("%{}%", search_term);
+                let search_pattern = format!("%{search_term}%");
                 params.extend(vec![search_pattern.clone(), search_pattern.clone(), search_pattern.clone(), search_pattern]);
             }
 
@@ -872,7 +872,7 @@ impl VaulTLSDB {
             };
 
             // Get total count
-            let count_query = format!("SELECT COUNT(*) FROM audit_logs {}", where_clause);
+            let count_query = format!("SELECT COUNT(*) FROM audit_logs {where_clause}");
             let total_count: i64 = {
                 let mut stmt = conn.prepare(&count_query)?;
                 let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
@@ -883,8 +883,7 @@ impl VaulTLSDB {
             let offset = (page_val - 1) * limit_val;
 
             let data_query = format!(
-                "SELECT id, timestamp, event_type, event_category, user_id, user_name, ip_address, user_agent, resource_type, resource_id, resource_name, action, success, details, old_values, new_values, error_message, session_id, source FROM audit_logs {} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                where_clause
+                "SELECT id, timestamp, event_type, event_category, user_id, user_name, ip_address, user_agent, resource_type, resource_id, resource_name, action, success, details, old_values, new_values, error_message, session_id, source FROM audit_logs {where_clause} ORDER BY timestamp DESC LIMIT ? OFFSET ?"
             );
 
             params.push(limit_val.to_string());
@@ -1122,7 +1121,7 @@ impl VaulTLSDB {
                     // Create default settings if none exist
                     Ok(AuditSettings::default())
                 }
-                Err(e) => Err(anyhow!("Database error: {}", e)),
+                Err(e) => Err(anyhow!("Database error: {e}")),
             }
         })
     }

@@ -123,8 +123,8 @@ pub(crate) async fn setup_form(
     setup_req: Form<SetupFormRequest<'_>>
 ) -> Result<(), ApiError> {
     let mut pfx_data = Vec::new();
-    let mut reader = setup_req.pfx_file.open().await.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {}", e)))?;
-    reader.read_to_end(&mut pfx_data).await.map_err(|e| ApiError::Other(format!("Failed to read PFX file: {}", e)))?;
+    let mut reader = setup_req.pfx_file.open().await.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {e}")))?;
+    reader.read_to_end(&mut pfx_data).await.map_err(|e| ApiError::Other(format!("Failed to read PFX file: {e}")))?;
     setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone(), setup_req.key_type.clone(), setup_req.key_size.clone(), None, None, None, None, None, None, None, None, None, None, None, None, setup_req.is_root_ca).await
 }
 
@@ -135,22 +135,100 @@ pub(crate) async fn setup_form(
 pub(crate) async fn validate_pfx(
     validation_req: Form<PfxValidationRequest<'_>>
 ) -> Result<Json<PfxValidationResponse>, ApiError> {
-    let mut buffer = Vec::new();
-    let file = validation_req.file.open().await.map_err(|e| ApiError::Other(format!("Failed to open file: {}", e)))?;
-    let mut reader = tokio::io::BufReader::new(file);
-    reader.read_to_end(&mut buffer).await.map_err(|e| ApiError::Other(format!("Failed to read file: {}", e)))?;
+    let mut validations = Vec::new();
 
-    // Validate file type
-    if !buffer.starts_with(b"\x30") && !buffer.starts_with(b"-----BEGIN PKCS12") {
+    // Step 1: Check file reading
+    let mut buffer = Vec::new();
+    let file_result = validation_req.file.open().await;
+    let file_passed = file_result.is_ok();
+    validations.push(ValidationCheck {
+        check_name: "File Access".to_string(),
+        description: format!("{} Open and read uploaded file", if file_passed { "✓" } else { "✗" }),
+        passed: file_passed,
+        details: if file_passed {
+            Some("✅ File access successful".to_string())
+        } else {
+            Some(format!("❌ Failed to open file: {}", file_result.as_ref().err().unwrap()))
+        },
+    });
+
+    if file_result.is_err() {
+        return Ok(Json(PfxValidationResponse {
+            valid: false,
+            error: Some("Failed to open file".to_string()),
+            certificate_details: None,
+            validation_result: Some(CertificateValidationResult {
+                overall_valid: false,
+                error: Some("File access failed".to_string()),
+                validations,
+                certificate_details: None,
+            }),
+        }));
+    }
+
+    let mut reader = tokio::io::BufReader::new(file_result.unwrap());
+    let read_result = reader.read_to_end(&mut buffer).await;
+    validations.push(ValidationCheck {
+        check_name: "File Reading".to_string(),
+        description: "Read complete file contents".to_string(),
+        passed: read_result.is_ok(),
+        details: read_result.as_ref().err().map(|e| format!("Failed to read file: {e}")),
+    });
+
+    if read_result.is_err() {
+        return Ok(Json(PfxValidationResponse {
+            valid: false,
+            error: Some("Failed to read file".to_string()),
+            certificate_details: None,
+            validation_result: Some(CertificateValidationResult {
+                overall_valid: false,
+                error: Some("File reading failed".to_string()),
+                validations,
+                certificate_details: None,
+            }),
+        }));
+    }
+
+    // Step 2: Check file format
+    let is_der_format = buffer.starts_with(b"\x30");
+    let is_pem_format = buffer.starts_with(b"-----BEGIN PKCS12");
+    validations.push(ValidationCheck {
+        check_name: "PKCS#12 Format".to_string(),
+        description: "File is in valid PKCS#12 (.pfx/.p12) format".to_string(),
+        passed: is_der_format || is_pem_format,
+        details: if is_der_format {
+            Some("Valid PKCS#12 DER format detected".to_string())
+        } else if is_pem_format {
+            Some("Valid PKCS#12 PEM format detected".to_string())
+        } else {
+            Some("File is not in PKCS#12 format".to_string())
+        },
+    });
+
+    if !is_der_format && !is_pem_format {
         return Ok(Json(PfxValidationResponse {
             valid: false,
             error: Some("File does not appear to be a valid PKCS#12 file".to_string()),
             certificate_details: None,
+            validation_result: Some(CertificateValidationResult {
+                overall_valid: false,
+                error: Some("Invalid file format".to_string()),
+                validations,
+                certificate_details: None,
+            }),
         }));
     }
 
-    // Try to validate the PKCS#12 file
-    match CertificateBuilder::from_pfx(&buffer, validation_req.password.as_deref(), validation_req.name.as_deref()) {
+    // Step 3: Try to parse PKCS#12 file and validate password
+    let pfx_parse_result = CertificateBuilder::from_pfx(&buffer, validation_req.password.as_deref(), validation_req.name.as_deref());
+    validations.push(ValidationCheck {
+        check_name: "PKCS#12 Parsing".to_string(),
+        description: "Parse PKCS#12 structure and decrypt with provided password".to_string(),
+        passed: pfx_parse_result.is_ok(),
+        details: pfx_parse_result.as_ref().err().map(|e| format!("Failed to parse PKCS#12: {e}")),
+    });
+
+    match pfx_parse_result {
         Ok(ca) => {
             // Extract detailed certificate information
             let cert = X509::from_der(&ca.cert).map_err(|e| {
@@ -164,9 +242,9 @@ pub(crate) async fn validate_pfx(
 
             // Get serial number
             let serial_number = cert.serial_number().to_bn()
-                .map_err(|e| ApiError::Other(format!("Failed to get serial number: {}", e)))?
+                .map_err(|e| ApiError::Other(format!("Failed to get serial number: {e}")))?
                 .to_hex_str()
-                .map_err(|e| ApiError::Other(format!("Failed to format serial number: {}", e)))?
+                .map_err(|e| ApiError::Other(format!("Failed to format serial number: {e}")))?
                 .to_string();
 
             // Get validity dates as milliseconds since epoch
@@ -177,7 +255,7 @@ pub(crate) async fn validate_pfx(
 
             // Get key algorithm and size
             let public_key = cert.public_key().map_err(|e| {
-                ApiError::Other(format!("Failed to get public key: {}", e))
+                ApiError::Other(format!("Failed to get public key: {e}"))
             })?;
 
             let (key_algorithm, key_size) = if public_key.rsa().is_ok() {
@@ -210,6 +288,38 @@ pub(crate) async fn validate_pfx(
                 _ => None,
             };
 
+
+            // Step 4: Certificate parsing and extraction
+            validations.push(ValidationCheck {
+                check_name: "Certificate Parsing".to_string(),
+                description: "Extract and parse X.509 certificate from PKCS#12".to_string(),
+                passed: true,
+                details: Some(format!("Certificate subject: {subject}")),
+            });
+
+            validations.push(ValidationCheck {
+                check_name: "CA Certificate Check".to_string(),
+                description: "Verify certificate has CA basic constraints".to_string(),
+                passed: is_ca_certificate,
+                details: if is_ca_certificate {
+                    Some("Certificate has CA:TRUE basic constraints".to_string())
+                } else {
+                    Some("Certificate lacks CA basic constraints - may not be a CA certificate".to_string())
+                },
+            });
+
+            validations.push(ValidationCheck {
+                check_name: "Extensions Check".to_string(),
+                description: "Extract AIA and CDP URLs from certificate extensions".to_string(),
+                passed: aia_url.is_some() || cdp_url.is_some(),
+                details: match (aia_url.as_ref(), cdp_url.as_ref()) {
+                    (Some(aia), Some(cdp)) => Some(format!("Found both AIA ({aia}) and CDP ({cdp}) URLs")),
+                    (Some(aia), None) => Some(format!("Found AIA URL ({aia}) but no CDP URL")),
+                    (None, Some(cdp)) => Some(format!("Found CDP URL ({cdp}) but no AIA URL")),
+                    (None, None) => Some("No AIA or CDP URLs found in certificate".to_string()),
+                },
+            });
+
             let certificate_details = ValidatedCertificateDetails {
                 subject,
                 issuer,
@@ -225,17 +335,40 @@ pub(crate) async fn validate_pfx(
                 basic_constraints_path_length,
             };
 
+            let validation_result = CertificateValidationResult {
+                overall_valid: true,
+                error: None,
+                validations: validations.clone(),
+                certificate_details: Some(certificate_details.clone()),
+            };
+
             Ok(Json(PfxValidationResponse {
                 valid: true,
                 error: None,
                 certificate_details: Some(certificate_details),
+                validation_result: Some(validation_result),
             }))
         },
-        Err(e) => Ok(Json(PfxValidationResponse {
-            valid: false,
-            error: Some(format!("Failed to validate PKCS#12 file: {}. Please check the password is correct.", e)),
-            certificate_details: None,
-        }))
+        Err(e) => {
+            validations.push(ValidationCheck {
+                check_name: "PKCS#12 Processing".to_string(),
+                description: "Complete PKCS#12 parsing and certificate extraction".to_string(),
+                passed: false,
+                details: Some(format!("Failed: {e}")),
+            });
+
+            Ok(Json(PfxValidationResponse {
+                valid: false,
+                error: Some(format!("Failed to validate PKCS#12 file: {e}. Please check the password is correct.")),
+                certificate_details: None,
+                validation_result: Some(CertificateValidationResult {
+                    overall_valid: false,
+                    error: Some("PKCS#12 file could not be processed".to_string()),
+                    validations,
+                    certificate_details: None,
+                }),
+            }))
+        }
     }
 }
 
@@ -247,14 +380,31 @@ pub struct PfxValidationRequest<'r> {
     pub file: rocket::fs::TempFile<'r>,
 }
 
+#[derive(Serialize, JsonSchema, Debug, Clone)]
+pub struct ValidationCheck {
+    pub check_name: String,
+    pub description: String,
+    pub passed: bool,
+    pub details: Option<String>,
+}
+
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct CertificateValidationResult {
+    pub overall_valid: bool,
+    pub error: Option<String>,
+    pub validations: Vec<ValidationCheck>,
+    pub certificate_details: Option<ValidatedCertificateDetails>,
+}
+
 #[derive(Serialize, JsonSchema, Debug)]
 pub struct PfxValidationResponse {
     pub valid: bool,
     pub error: Option<String>,
     pub certificate_details: Option<ValidatedCertificateDetails>,
+    pub validation_result: Option<CertificateValidationResult>,
 }
 
-#[derive(Serialize, JsonSchema, Debug)]
+#[derive(Serialize, JsonSchema, Debug, Clone)]
 pub struct ValidatedCertificateDetails {
     pub subject: String,
     pub issuer: String,
@@ -345,7 +495,7 @@ async fn setup_common(
             },
             Err(e) => {
                 error!("Failed to validate CA from PFX: {}", e);
-                return Err(ApiError::Other(format!("Failed to validate CA from PFX file: {}. Please check that the file is valid and the password is correct.", e)))
+                return Err(ApiError::Other(format!("Failed to validate CA from PFX file: {e}. Please check that the file is valid and the password is correct.")))
             }
         }
     } else {
@@ -397,7 +547,7 @@ async fn setup_common(
             },
             Err(e) => {
                 error!("Failed to generate self-signed CA: {}", e);
-                return Err(ApiError::Other(format!("Failed to generate self-signed CA: {}", e)))
+                return Err(ApiError::Other(format!("Failed to generate self-signed CA: {e}")))
             }
         }
     };
@@ -417,7 +567,7 @@ async fn setup_common(
         Ok(_) => debug!("User created successfully"),
         Err(e) => {
             error!("Failed to create user: {}", e);
-            return Err(ApiError::Other(format!("Failed to create user: {}", e)))
+            return Err(ApiError::Other(format!("Failed to create user: {e}")))
         }
     }
 
@@ -432,7 +582,7 @@ async fn setup_common(
                     warn!("Failed to clean up user after CA save failure: {}", cleanup_err);
                 }
             }
-            return Err(ApiError::Other(format!("Failed to save CA certificate: {}", e)))
+            return Err(ApiError::Other(format!("Failed to save CA certificate: {e}")))
         }
     }
 
@@ -448,7 +598,7 @@ async fn setup_common(
                     warn!("Failed to clean up user after CA insertion failure: {}", cleanup_err);
                 }
             }
-            return Err(ApiError::Other(format!("Failed to save CA to database: {}", e)))
+            return Err(ApiError::Other(format!("Failed to save CA to database: {e}")))
         }
     };
 
@@ -466,7 +616,7 @@ async fn setup_common(
                 warn!("Failed to clean up user after settings failure: {}", cleanup_err);
             }
         }
-        return Err(ApiError::Other(format!("Failed to save settings: {}", e)))
+        return Err(ApiError::Other(format!("Failed to save settings: {e}")))
     }
 
     if is_root_ca {
@@ -576,7 +726,7 @@ pub(crate) async fn change_password(
 
     // Invalidate current session after password change for security
     // This removes the auth token cookie from the request to force re-authentication
-    jar.remove_private(Cookie::build(("auth_token")));
+    jar.remove_private(Cookie::build("auth_token"));
 
     info!(user=user.name, "Password Change: Success - session invalidated");
 
@@ -986,9 +1136,9 @@ pub(crate) async fn import_ca_from_file(
     debug!("Importing CA from PKCS#12 file");
 
     let mut buffer = Vec::new();
-    let file = upload.file.open().await.map_err(|e| ApiError::Other(format!("Failed to open file: {}", e)))?;
+    let file = upload.file.open().await.map_err(|e| ApiError::Other(format!("Failed to open file: {e}")))?;
     let mut reader = tokio::io::BufReader::new(file);
-    reader.read_to_end(&mut buffer).await.map_err(|e| ApiError::Other(format!("Failed to read file: {}", e)))?;
+    reader.read_to_end(&mut buffer).await.map_err(|e| ApiError::Other(format!("Failed to read file: {e}")))?;
 
     let ca = CertificateBuilder::from_pfx(&buffer, upload.password.as_deref(), upload.name.as_deref())?;
     let ca_id = ca.id;
@@ -1062,9 +1212,9 @@ pub(crate) async fn download_ca_key_pair_by_id(
 
     // Get private key PEM
     let private_key = PKey::private_key_from_der(&ca.key)
-        .map_err(|e| ApiError::Other(format!("Failed to load CA private key: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to load CA private key: {e}")))?;
     let key_pem = private_key.private_key_to_pem_pkcs8()
-        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {e}")))?;
 
     // Combine certificate and private key
     let mut combined_pem = Vec::new();
@@ -1122,9 +1272,9 @@ pub(crate) async fn download_ca_key_pair(
 
     // Get private key PEM
     let private_key = PKey::private_key_from_der(&ca.key)
-        .map_err(|e| ApiError::Other(format!("Failed to load CA private key: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to load CA private key: {e}")))?;
     let key_pem = private_key.private_key_to_pem_pkcs8()
-        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {e}")))?;
 
     // Combine certificate and private key
     let mut combined_pem = Vec::new();
@@ -1249,7 +1399,7 @@ pub(crate) async fn get_ca_list(
         // Convert to PEM
         let pem = get_pem(&ca)?;
         let certificate_pem = String::from_utf8(pem)
-            .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {}", e)))?;
+            .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {e}")))?;
 
         // Extract chain information
         let chain_length = ca.cert_chain.len();
@@ -1268,8 +1418,8 @@ pub(crate) async fn get_ca_list(
 
                             let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                         chain_certificates.push(CertificateChainInfo {
-                            subject: format!("{:?}", chain_subject),
-                            issuer: format!("{:?}", chain_issuer),
+                            subject: format!("{chain_subject:?}"),
+                            issuer: format!("{chain_issuer:?}"),
                             serial_number,
                             certificate_type,
                             is_end_entity: index == 0,
@@ -1280,8 +1430,8 @@ pub(crate) async fn get_ca_list(
                             // Add entry with invalid serial
                             let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                             chain_certificates.push(CertificateChainInfo {
-                                subject: format!("{:?}", chain_subject),
-                                issuer: format!("{:?}", chain_issuer),
+                                subject: format!("{chain_subject:?}"),
+                                issuer: format!("{chain_issuer:?}"),
                                 serial_number: "Invalid".to_string(),
                                 certificate_type,
                                 is_end_entity: index == 0,
@@ -1317,8 +1467,8 @@ pub(crate) async fn get_ca_list(
                             .unwrap_or_else(|_| "Invalid".to_string());
                         let certificate_type = determine_certificate_type(&main_cert, 0, 1);
                         chain_certificates.push(CertificateChainInfo {
-                            subject: format!("{:?}", main_subject),
-                            issuer: format!("{:?}", main_issuer),
+                            subject: format!("{main_subject:?}"),
+                            issuer: format!("{main_issuer:?}"),
                             serial_number,
                             certificate_type,
                             is_end_entity: true,
@@ -1497,7 +1647,7 @@ pub(crate) async fn get_ca_details(
     // Convert to PEM
     let pem = get_pem(&ca)?;
     let certificate_pem = String::from_utf8(pem)
-        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {e}")))?;
 
         // Extract chain information
         let chain_length = ca.cert_chain.len();
@@ -1515,8 +1665,8 @@ pub(crate) async fn get_ca_details(
                                 .unwrap_or_else(|_| "Invalid".to_string());
 
                             chain_certificates.push(CertificateChainInfo {
-                                subject: format!("{:?}", chain_subject),
-                                issuer: format!("{:?}", chain_issuer),
+                                subject: format!("{chain_subject:?}"),
+                                issuer: format!("{chain_issuer:?}"),
                                 serial_number,
                                 certificate_type: determine_certificate_type(&chain_cert, index, ca.cert_chain.len()),
                                 is_end_entity: index == 0,
@@ -1527,8 +1677,8 @@ pub(crate) async fn get_ca_details(
                             // Add entry with invalid serial
                             let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                             chain_certificates.push(CertificateChainInfo {
-                                subject: format!("{:?}", chain_subject),
-                                issuer: format!("{:?}", chain_issuer),
+                                subject: format!("{chain_subject:?}"),
+                                issuer: format!("{chain_issuer:?}"),
                                 serial_number: "Invalid".to_string(),
                                 certificate_type,
                                 is_end_entity: index == 0,
@@ -1624,11 +1774,11 @@ pub(crate) async fn download_certificate(
                 let mut zip_writer = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buffer));
 
                 // Add certificate file
-                zip_writer.start_file::<_, ()>(format!("{}.pem", name), Default::default())?;
+                zip_writer.start_file::<_, ()>(format!("{name}.pem"), Default::default())?;
                 zip_writer.write_all(&cert_pem)?;
 
                 // Add private key file
-                zip_writer.start_file::<_, ()>(format!("{}.key", name), Default::default())?;
+                zip_writer.start_file::<_, ()>(format!("{name}.key"), Default::default())?;
                 zip_writer.write_all(&cert_key)?;
             }
 
@@ -2248,7 +2398,7 @@ pub(crate) async fn download_crl(
         // Extract serial number from certificate
         let serial_number = if let Ok(details) = crate::cert::get_certificate_details(&cert) {
             // Parse the hex serial number back to bytes
-            hex::decode(&details.serial_number.trim_start_matches("0x").trim_start_matches("0X"))
+            hex::decode(details.serial_number.trim_start_matches("0x").trim_start_matches("0X"))
                 .unwrap_or_else(|_| Vec::new())
         } else {
             Vec::new()
@@ -2443,26 +2593,26 @@ pub(crate) async fn download_crl_backup(
             // Convert certificate to PEM and then use openssl command-line to extract extensions
             // This is a workaround since the Rust OpenSSL bindings don't expose extension parsing easily
             let pem = cert.to_pem()
-                .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))?;
+                .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {e}")))?;
 
             let pem_str = String::from_utf8(pem)
-                .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {}", e)))?;
+                .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {e}")))?;
 
             // Write certificate to a temporary file
             let temp_cert_path = std::env::temp_dir().join(format!("cert_ext_{}.pem", std::process::id()));
             std::fs::write(&temp_cert_path, &pem_str)
-                .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {}", e)))?;
+                .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {e}")))?;
 
             // Use openssl command to extract extensions
             let output = std::process::Command::new("openssl")
-                .args(&[
+                .args([
                     "x509",
                     "-in", &temp_cert_path.to_string_lossy(),
                     "-text",
                     "-noout"
                 ])
                 .output()
-                .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {}", e)))?;
+                .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {e}")))?;
 
             // Clean up temp file
             let _ = std::fs::remove_file(&temp_cert_path);
@@ -2473,7 +2623,7 @@ pub(crate) async fn download_crl_backup(
             }
 
             let text_output = String::from_utf8(output.stdout)
-                .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {}", e)))?;
+                .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {e}")))?;
 
             debug!("Extracted certificate text: {} characters", text_output.len());
 
@@ -2514,12 +2664,11 @@ pub(crate) async fn download_crl_backup(
                                 debug!("Found AIA URL (alternative): {}", url);
                                 aia_url = Some(url.to_string());
                             }
-                        } else if url.contains("ca.crl") {
-                            if cdp_url.is_none() {
+                        } else if url.contains("ca.crl")
+                            && cdp_url.is_none() {
                                 debug!("Found CDP URL (alternative): {}", url);
                                 cdp_url = Some(url.to_string());
                             }
-                        }
                     }
                 }
             }
@@ -2540,7 +2689,7 @@ fn determine_certificate_type(cert: &X509, index: usize, total_certs: usize) -> 
                 let temp_cert_path = std::env::temp_dir().join(format!("cert_ca_check_{}.pem", std::process::id()));
                 if std::fs::write(&temp_cert_path, &pem_str).is_ok() {
                     let openssl_result = std::process::Command::new("openssl")
-                        .args(&[
+                        .args([
                             "x509",
                             "-in", &temp_cert_path.to_string_lossy(),
                             "-text",
@@ -2601,7 +2750,7 @@ fn determine_certificate_type(cert: &X509, index: usize, total_certs: usize) -> 
             let temp_cert_path = std::env::temp_dir().join(format!("cert_check_{}.pem", std::process::id()));
             if std::fs::write(&temp_cert_path, &pem_str).is_ok() {
                 let openssl_result = std::process::Command::new("openssl")
-                    .args(&[
+                    .args([
                         "x509",
                         "-in", &temp_cert_path.to_string_lossy(),
                         "-text",
@@ -2648,27 +2797,27 @@ fn determine_certificate_type(cert: &X509, index: usize, total_certs: usize) -> 
 fn get_basic_constraints(cert: &X509) -> Result<Option<(bool, Option<i32>)>, ApiError> {
     // Use openssl command-line to extract basic constraints
     let pem = cert.to_pem()
-        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {e}")))?;
 
     let pem_str = String::from_utf8(pem)
-        .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {e}")))?;
 
     // Write certificate to a temporary file
     use std::process;
     let temp_cert_path = std::env::temp_dir().join(format!("cert_bc_{}.pem", process::id()));
     std::fs::write(&temp_cert_path, &pem_str)
-        .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {e}")))?;
 
     // Use openssl command to extract text
     let output = std::process::Command::new("openssl")
-        .args(&[
+        .args([
             "x509",
             "-in", &temp_cert_path.to_string_lossy(),
             "-text",
             "-noout"
         ])
         .output()
-        .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {e}")))?;
 
     // Clean up temp file
     let _ = std::fs::remove_file(&temp_cert_path);
@@ -2678,7 +2827,7 @@ fn get_basic_constraints(cert: &X509) -> Result<Option<(bool, Option<i32>)>, Api
     }
 
     let text_output = String::from_utf8(output.stdout)
-        .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {e}")))?;
 
     // Parse basic constraints
     let mut has_bc_section = false;

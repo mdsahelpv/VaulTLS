@@ -129,7 +129,7 @@ impl From<std::io::Error> for ApiError {
 
 impl From<zip::result::ZipError> for ApiError {
     fn from(error: zip::result::ZipError) -> Self {
-        ApiError::Other(format!("ZIP error: {}", error))
+        ApiError::Other(format!("ZIP error: {error}"))
     }
 }
 

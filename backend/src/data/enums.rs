@@ -124,7 +124,7 @@ impl CertificateFormat {
             "pem" => Ok(CertificateFormat::PEM),
             "der" => Ok(CertificateFormat::DER),
             "pem_key" => Ok(CertificateFormat::PemKey),
-            _ => Err(format!("Invalid certificate format: {}", s)),
+            _ => Err(format!("Invalid certificate format: {s}")),
         }
     }
 }

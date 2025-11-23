@@ -98,9 +98,40 @@ export const current_user = async (): Promise<User> => {
     return await ApiClient.get<User>('/auth/me');
 };
 
+interface ValidationCheck {
+    check_name: string;
+    description: string;
+    passed: boolean;
+    details?: string;
+}
+
+interface CertificateValidationResult {
+    overall_valid: boolean;
+    error?: string;
+    validations: ValidationCheck[];
+    certificate_details?: ValidatedCertificateDetails;
+}
+
+interface ValidatedCertificateDetails {
+    subject: string;
+    issuer: string;
+    serial_number: string;
+    valid_from: number;
+    valid_until: number;
+    key_algorithm: string;
+    key_size: string;
+    signature_algorithm: string;
+    is_ca_certificate: boolean;
+    aia_url?: string;
+    cdp_url?: string;
+    basic_constraints_path_length?: number;
+}
+
 export interface PfxValidationResponse {
     valid: boolean;
     error?: string;
+    certificate_details?: ValidatedCertificateDetails;
+    validation_result?: CertificateValidationResult;
 }
 
 export const validate_pfx = async (file: File, password?: string): Promise<PfxValidationResponse> => {

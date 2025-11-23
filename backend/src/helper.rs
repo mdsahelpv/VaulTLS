@@ -34,7 +34,7 @@ pub fn get_secret(name: &str) -> anyhow::Result<String> {
                 // Use a fixed base64-encoded 32-byte development secret for consistency during development
                 Ok(general_purpose::STANDARD.encode("0123456789abcdef0123456789abcdef"))
             } else {
-                Err(anyhow::anyhow!("Secret '{}' not found in environment variable, file, or Docker secrets", name))
+                Err(anyhow::anyhow!("Secret '{name}' not found in environment variable, file, or Docker secrets"))
             }
         }
     }

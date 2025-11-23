@@ -403,11 +403,37 @@
             {{ isValidating ? 'Validating...' : 'Validate Certificate' }}
           </button>
           <small class="text-muted">Validate your PKCS#12 file before proceeding with setup</small>
-          <div v-if="validationStatus === 'success'" class="alert alert-success mt-2">
+          <div v-if="validationStatus === 'success' && !detailedValidation.validations" class="alert alert-success mt-2">
             <i class="bi bi-check-circle me-2"></i>Certificate validated successfully!
           </div>
+          <div v-else-if="validationStatus === 'success' && detailedValidation.validations" class="alert alert-success mt-2">
+            <i class="bi bi-check-circle me-2"></i>
+            <strong>Certificate Validated Successfully!</strong>
+            <div class="mt-2">
+              <small class="text-success">Validation completed with the following checks:</small>
+              <div class="validation-steps mt-2">
+                <div v-for="check in detailedValidation.validations" :key="check.check_name" class="validation-step">
+                  <span v-if="check.passed" class="validation-status-success">✓</span>
+                  <span v-else class="validation-status-error">✗</span>
+                  {{ check.description }}
+                </div>
+              </div>
+            </div>
+          </div>
           <div v-if="validationStatus === 'error'" class="alert alert-danger mt-2">
-            <i class="bi bi-exclamation-triangle me-2"></i>{{ validationError }}
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            <strong>Certificate Validation Failed</strong>
+            <div v-if="validationError">{{ validationError }}</div>
+            <div v-else-if="detailedValidation.validations" class="mt-2">
+              <small class="text-danger">Validation failed with the following issues:</small>
+              <div class="validation-steps mt-2">
+                <div v-for="check in detailedValidation.validations" :key="check.check_name" class="validation-step">
+                  <span v-if="check.passed" class="validation-status-success">✓</span>
+                  <span v-else class="validation-status-error">✗</span>
+                  {{ check.description }}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -456,6 +482,7 @@ const selectedFileName = ref<string>('');
 const isValidating = ref(false);
 const validationStatus = ref<'none' | 'success' | 'error'>('none');
 const validationError = ref('');
+const detailedValidation = ref<{ validations?: any[]; error?: string }>({});
 
 // DN fields with defaults from openssl_rootca.cnf
 const countryName = ref('QA');
@@ -564,19 +591,28 @@ const validateCertificate = async () => {
   isValidating.value = true;
   validationStatus.value = 'none';
   validationError.value = '';
+  detailedValidation.value = {};
 
   try {
     const result = await validate_pfx(pfx_file.value, pfx_password.value || undefined);
 
     if (result.valid) {
       validationStatus.value = 'success';
+      detailedValidation.value = {
+        validations: result.validation_result?.validations || [],
+      };
     } else {
       validationStatus.value = 'error';
       validationError.value = result.error || 'Unknown validation error';
+      detailedValidation.value = {
+        validations: result.validation_result?.validations || [],
+        error: result.validation_result?.error || result.error
+      };
     }
   } catch (err) {
     validationStatus.value = 'error';
     validationError.value = err instanceof Error ? err.message : 'Failed to validate certificate';
+    detailedValidation.value = { error: err instanceof Error ? err.message : 'Unknown error' };
   } finally {
     isValidating.value = false;
   }
@@ -692,5 +728,44 @@ const setupPassword = async () => {
 
 .file-input-custom .btn {
   flex-shrink: 0;
+}
+
+.validation-steps {
+  /* Remove max-height and scrolling */
+}
+
+.validation-step {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.125rem;
+  padding: 0.125rem 0;
+  font-size: 0.875rem;
+  line-height: 1.3;
+}
+
+.validation-step:hover {
+  background-color: rgba(0,0,0,0.03);
+}
+
+.validation-status-success {
+  color: #198754;
+  font-weight: bold;
+  margin-right: 0.375rem;
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.validation-status-error {
+  color: #dc3545;
+  font-weight: bold;
+  margin-right: 0.375rem;
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.validation-details {
+  margin-left: 0.75rem;
+  margin-top: 0.0625rem;
+  font-size: 0.8rem;
 }
 </style>

@@ -181,7 +181,7 @@ impl CertificateBuilder {
         let pkcs12 = Pkcs12::from_der(pfx_data)
             .map_err(|e| {
                 error!("Failed to parse PKCS#12 DER data: {}", e);
-                anyhow!("Invalid PKCS#12 file format: {}", e)
+                anyhow!("Invalid PKCS#12 file format: {e}")
             })?;
 
         debug!("PKCS#12 file parsed successfully");
@@ -234,7 +234,7 @@ impl CertificateBuilder {
         // Start with the end-entity certificate
         cert_chain.push(cert.to_der().map_err(|e| {
             error!("Failed to encode end-entity certificate to DER: {}", e);
-            anyhow!("Failed to process end-entity certificate: {}", e)
+            anyhow!("Failed to process end-entity certificate: {e}")
         })?);
 
         // Add any intermediate certificates from the PFX chain
@@ -321,12 +321,12 @@ impl CertificateBuilder {
 
         let ca_cert_der = cert.to_der().map_err(|e| {
             error!("Failed to encode certificate to DER: {}", e);
-            anyhow!("Failed to process certificate: {}", e)
+            anyhow!("Failed to process certificate: {e}")
         })?;
 
         let ca_key_der = pkey.private_key_to_der().map_err(|e| {
             error!("Failed to encode private key to DER: {}", e);
-            anyhow!("Failed to process private key: {}", e)
+            anyhow!("Failed to process private key: {e}")
         })?;
 
         debug!("CA certificate and key processed successfully");
@@ -700,18 +700,18 @@ keyUsage = critical, digitalSignature, cRLSign, keyCertSign
 
         // Add certificate policies if provided
         if let Some(oid) = &self.certificate_policies_oid {
-            config_content.push_str(&format!("certificatePolicies = {}\n", oid));
+            config_content.push_str(&format!("certificatePolicies = {oid}\n"));
         }
 
         // Add AIA and CDP extensions using the configured URLs (only if provided)
         if let Some(aia_url) = &self.authority_info_access {
             config_content.push_str("authorityInfoAccess = ");
-            config_content.push_str(&format!("caIssuers;URI:{}\n", aia_url));
+            config_content.push_str(&format!("caIssuers;URI:{aia_url}\n"));
         }
 
         // Add CDP extension (only if provided)
         if let Some(cdp_url) = &self.crl_distribution_points {
-            config_content.push_str(&format!("crlDistributionPoints = URI:{}\n", cdp_url));
+            config_content.push_str(&format!("crlDistributionPoints = URI:{cdp_url}\n"));
         }
 
         config_content.push_str(r#"
@@ -750,12 +750,11 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
         let common_name = self.common_name.as_deref().unwrap_or(&name);
         let email = self.email.as_deref().unwrap_or("pki@abc.io");
 
-        let subject = format!("/C={}/ST={}/L={}/O={}/CN={}/emailAddress={}",
-            country, state, locality, organization, common_name, email);
+        let subject = format!("/C={country}/ST={state}/L={locality}/O={organization}/CN={common_name}/emailAddress={email}");
 
         // Also include organizational unit if provided
         let subject = if let Some(org_unit) = &self.organizational_unit {
-            subject.replace("/CN=", &format!("/OU={}/CN=", org_unit))
+            subject.replace("/CN=", &format!("/OU={org_unit}/CN="))
         } else {
             subject
         };
@@ -798,11 +797,11 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
         let output = Command::new("openssl")
             .args(&openssl_args)
             .output()
-            .map_err(|e| anyhow!("Failed to execute openssl command: {}", e))?;
+            .map_err(|e| anyhow!("Failed to execute openssl command: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("OpenSSL command failed: {}", stderr));
+            return Err(anyhow!("OpenSSL command failed: {stderr}"));
         }
 
         // Read the generated certificate
@@ -911,23 +910,23 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             let ca_cert_pem = ca_cert.to_pem()
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to encode CA certificate to PEM: {}", e)
+                    anyhow!("Failed to encode CA certificate to PEM: {e}")
                 })?;
             std::fs::write(&ca_cert_path, &ca_cert_pem)
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to write CA certificate to temp file: {}", e)
+                    anyhow!("Failed to write CA certificate to temp file: {e}")
                 })?;
 
             let ca_key_pem = ca_key.private_key_to_pem_pkcs8()
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to encode CA private key to PEM: {}", e)
+                    anyhow!("Failed to encode CA private key to PEM: {e}")
                 })?;
             std::fs::write(&ca_key_path, &ca_key_pem)
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to write CA private key to temp file: {}", e)
+                    anyhow!("Failed to write CA private key to temp file: {e}")
                 })?;
 
             let mut req_builder = openssl::x509::X509ReqBuilder::new()?;
@@ -940,16 +939,16 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             let cert_req_der = cert_req.to_der()
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to encode certificate request to DER: {}", e)
+                    anyhow!("Failed to encode certificate request to DER: {e}")
                 })?;
             std::fs::write(&cert_req_path, &cert_req_der)
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to write certificate request to temp file: {}", e)
+                    anyhow!("Failed to write certificate request to temp file: {e}")
                 })?;
 
             // Create OpenSSL configuration for certificate with extensions
-            let mut config_content = format!(r#"[ req ]
+            let mut config_content = r#"[ req ]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
 string_mask = utf8only
@@ -962,7 +961,7 @@ countryName_default = QA
 [ v3_req ]
 basicConstraints = CA:FALSE
 keyUsage = nonRepudiation, digitalSignature, keyEncipherment
-"#);
+"#.to_string();
 
             // Add extended key usage based on certificate type
             match certificate_type {
@@ -977,12 +976,12 @@ keyUsage = nonRepudiation, digitalSignature, keyEncipherment
 
             // Add CRL Distribution Points extension if requested
             if let Some(crl_url) = crl_url {
-                config_content.push_str(&format!("crlDistributionPoints = URI:{}\n", crl_url));
+                config_content.push_str(&format!("crlDistributionPoints = URI:{crl_url}\n"));
             }
 
             // Add Authority Information Access (OCSP) extension if requested
             if let Some(ocsp_url) = ocsp_url {
-                config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{}\n", ocsp_url));
+                config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{ocsp_url}\n"));
             }
 
             config_content.push_str(r#"
@@ -1019,16 +1018,16 @@ basicConstraints = CA:FALSE
 
             // Add the same extensions to the CA section for signing
             if let Some(crl_url) = crl_url {
-                config_content.push_str(&format!("crlDistributionPoints = URI:{}\n", crl_url));
+                config_content.push_str(&format!("crlDistributionPoints = URI:{crl_url}\n"));
             }
             if let Some(ocsp_url) = ocsp_url {
-                config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{}\n", ocsp_url));
+                config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{ocsp_url}\n"));
             }
 
             std::fs::write(&config_path, &config_content)
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to write OpenSSL config file: {}", e)
+                    anyhow!("Failed to write OpenSSL config file: {e}")
                 })?;
 
             // Sign the certificate with OpenSSL CLI to include extensions
@@ -1036,7 +1035,7 @@ basicConstraints = CA:FALSE
             let validity_days = validity_days.max(1);
 
             let output = Command::new("openssl")
-                .args(&[
+                .args([
                     "x509",
                     "-req",
                     "-in", &cert_req_path.to_string_lossy(),
@@ -1052,25 +1051,25 @@ basicConstraints = CA:FALSE
                 .output()
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to execute openssl x509 command: {}", e)
+                    anyhow!("Failed to execute openssl x509 command: {e}")
                 })?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 cleanup_temp_files();
-                return Err(anyhow!("OpenSSL certificate signing failed: {}", stderr));
+                return Err(anyhow!("OpenSSL certificate signing failed: {stderr}"));
             }
 
             // Read and convert the signed certificate
             let cert_pem = std::fs::read(&cert_path)
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to read signed certificate: {}", e)
+                    anyhow!("Failed to read signed certificate: {e}")
                 })?;
             let cert = X509::from_pem(&cert_pem)
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to parse signed certificate: {}", e)
+                    anyhow!("Failed to parse signed certificate: {e}")
                 })?;
 
             cleanup_temp_files();
@@ -1141,7 +1140,7 @@ basicConstraints = CA:FALSE
                     ca_stack.push(chain_cert)?;
                 }
             }
-            if ca_stack.len() == 0 {
+            if ca_stack.is_empty() {
                 ca_stack.push(ca_cert.clone())?;
             }
 
@@ -1384,73 +1383,73 @@ pub(crate) fn get_dns_names(cert: &Certificate) -> Result<Vec<String>, anyhow::E
 /// Convert a user certificate from PKCS#12 to PEM format.
 pub(crate) fn certificate_pkcs12_to_pem(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
-        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
 
     let parsed = if cert.pkcs12_password.is_empty() {
         // Try without password first
         match encrypted_p12.parse2("") {
             Ok(parsed) => parsed,
-            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {}", e))),
+            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {e}"))),
         }
     } else {
         // Try with provided password
         encrypted_p12.parse2(&cert.pkcs12_password)
-            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {}", e)))?
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {e}")))?
     };
 
     let x509_cert = parsed.cert
         .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;
 
     x509_cert.to_pem()
-        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {e}")))
 }
 
 /// Convert a user certificate's private key from PKCS#12 to PEM format.
 pub(crate) fn certificate_pkcs12_to_key(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
-        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
 
     let parsed = if cert.pkcs12_password.is_empty() {
         // Try without password first
         match encrypted_p12.parse2("") {
             Ok(parsed) => parsed,
-            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {}", e))),
+            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {e}"))),
         }
     } else {
         // Try with provided password
         encrypted_p12.parse2(&cert.pkcs12_password)
-            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {}", e)))?
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {e}")))?
     };
 
     let private_key = parsed.pkey
         .ok_or_else(|| ApiError::Other("No private key found in PKCS#12".to_string()))?;
 
     private_key.private_key_to_pem_pkcs8()
-        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {}", e)))
+        .map_err(|e| ApiError::Other(format!("Failed to convert private key to PEM: {e}")))
 }
 
 /// Convert a user certificate from PKCS#12 to DER format.
 pub(crate) fn certificate_pkcs12_to_der(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
-        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
 
     let parsed = if cert.pkcs12_password.is_empty() {
         // Try without password first
         match encrypted_p12.parse2("") {
             Ok(parsed) => parsed,
-            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {}", e))),
+            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {e}"))),
         }
     } else {
         // Try with provided password
         encrypted_p12.parse2(&cert.pkcs12_password)
-            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {}", e)))?
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {e}")))?
     };
 
     let x509_cert = parsed.cert
         .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;
 
     x509_cert.to_der()
-        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to DER: {}", e)))
+        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to DER: {e}")))
 }
 
 /// Convert a CA certificate to DER format.
@@ -1478,18 +1477,18 @@ pub struct CertificateDetails {
 /// Extract detailed information from a user certificate's PKCS#12 data
 pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails, ApiError> {
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
-        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
 
     let parsed = if cert.pkcs12_password.is_empty() {
         // Try without password first
         match encrypted_p12.parse2("") {
             Ok(parsed) => parsed,
-            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {}", e))),
+            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {e}"))),
         }
     } else {
         // Try with provided password
         encrypted_p12.parse2(&cert.pkcs12_password)
-            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {}", e)))?
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {e}")))?
     };
 
     let x509_cert = parsed.cert
@@ -1502,7 +1501,7 @@ pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails,
 
     // Get key information from the certificate's public key
     let public_key = x509_cert.public_key()
-        .map_err(|e| ApiError::Other(format!("Failed to get public key: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to get public key: {e}")))?;
 
     let key_size = if public_key.rsa().is_ok() {
         format!("RSA {}", public_key.rsa().unwrap().size() * 8)
@@ -1537,20 +1536,20 @@ pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails,
     // Convert certificate to PEM format
     let certificate_pem = String::from_utf8(
         x509_cert.to_pem()
-            .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {}", e)))?
-    ).map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {}", e)))?;
+            .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {e}")))?
+    ).map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {e}")))?;
 
     Ok(CertificateDetails {
         id: cert.id,
         name: cert.name.clone(),
-        subject: format!("{:?}", subject_name),
-        issuer: format!("{:?}", issuer_name),
+        subject: format!("{subject_name:?}"),
+        issuer: format!("{issuer_name:?}"),
         created_on: cert.created_on,
         valid_until: cert.valid_until,
         serial_number: serial.to_bn()
-            .map_err(|e| ApiError::Other(format!("Failed to convert serial number: {}", e)))?
+            .map_err(|e| ApiError::Other(format!("Failed to convert serial number: {e}")))?
             .to_hex_str()
-            .map_err(|e| ApiError::Other(format!("Failed to format serial number: {}", e)))?
+            .map_err(|e| ApiError::Other(format!("Failed to format serial number: {e}")))?
             .to_string(),
         key_size,
         signature_algorithm: signature_algorithm.to_string(),
@@ -1589,37 +1588,37 @@ pub fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8
     let ca_cert = X509::from_der(&ca.cert)
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to load CA certificate: {}", e))
+            ApiError::Other(format!("Failed to load CA certificate: {e}"))
         })?;
 
     let ca_key = PKey::private_key_from_der(&ca.key)
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to load CA private key: {}", e))
+            ApiError::Other(format!("Failed to load CA private key: {e}"))
         })?;
 
     // Write CA certificate to PEM
     let ca_cert_pem = ca_cert.to_pem()
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to encode CA certificate to PEM: {}", e))
+            ApiError::Other(format!("Failed to encode CA certificate to PEM: {e}"))
         })?;
     std::fs::write(&ca_cert_path, &ca_cert_pem)
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to write CA certificate to temp file: {}", e))
+            ApiError::Other(format!("Failed to write CA certificate to temp file: {e}"))
         })?;
 
     // Write CA private key to PEM (PKCS#8 format for better compatibility)
     let ca_key_pem = ca_key.private_key_to_pem_pkcs8()
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to encode CA private key to PEM: {}", e))
+            ApiError::Other(format!("Failed to encode CA private key to PEM: {e}"))
         })?;
     std::fs::write(&ca_key_path, &ca_key_pem)
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to write CA private key to temp file: {}", e))
+            ApiError::Other(format!("Failed to write CA private key to temp file: {e}"))
         })?;
 
     // Create OpenSSL index file with revoked certificates
@@ -1645,41 +1644,36 @@ pub fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8
         let subject = format!("/CN=RevokedCertificate{}", i + 1);
 
         // Add entry for revoked certificate
-        index_content.push_str(&format!("R|{}|{}|{}|{}|{}\n",
-            far_future,        // Expiration (not relevant for CRL)
-            revocation_openssl, // Revocation date
-            serial_hex,        // Serial number in hex
-            filename,          // File name (not used)
-            subject            // Subject (simplified)
+        index_content.push_str(&format!("R|{far_future}|{revocation_openssl}|{serial_hex}|{filename}|{subject}\n"            // Subject (simplified)
         ));
     }
 
     std::fs::write(&index_path, &index_content)
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to write CRL index file: {}", e))
+            ApiError::Other(format!("Failed to write CRL index file: {e}"))
         })?;
 
     // Create serial file for CRL numbering
     let crl_serial_big_num = generate_serial_number()
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to generate CRL serial number: {}", e))
+            ApiError::Other(format!("Failed to generate CRL serial number: {e}"))
         })?
         .to_bn()
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to convert ASN.1 integer to BigNum: {}", e))
+            ApiError::Other(format!("Failed to convert ASN.1 integer to BigNum: {e}"))
         })?;
     let crl_serial = crl_serial_big_num.to_hex_str()
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to convert CRL serial to hex: {}", e))
+            ApiError::Other(format!("Failed to convert CRL serial to hex: {e}"))
         })?;
-    std::fs::write(&serial_path, format!("{}\n", crl_serial))
+    std::fs::write(&serial_path, format!("{crl_serial}\n"))
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to write CRL serial file: {}", e))
+            ApiError::Other(format!("Failed to write CRL serial file: {e}"))
         })?;
 
     // Create OpenSSL configuration for CRL generation
@@ -1700,12 +1694,12 @@ authorityKeyIdentifier=keyid:always
     std::fs::write(&config_path, &config_content)
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to write OpenSSL config file: {}", e))
+            ApiError::Other(format!("Failed to write OpenSSL config file: {e}"))
         })?;
 
     // Run OpenSSL command to generate CRL
     let output = Command::new("openssl")
-        .args(&[
+        .args([
             "ca",
             "-config", &config_path.to_string_lossy(),
             "-gencrl",
@@ -1717,13 +1711,13 @@ authorityKeyIdentifier=keyid:always
         .output()
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to execute openssl ca command: {}", e))
+            ApiError::Other(format!("Failed to execute openssl ca command: {e}"))
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         cleanup_temp_files();
-        return Err(ApiError::Other(format!("OpenSSL CRL generation failed: {}", stderr)));
+        return Err(ApiError::Other(format!("OpenSSL CRL generation failed: {stderr}")));
     }
 
     // The CRL is already generated in PEM format, now convert PEM to DER
@@ -1739,7 +1733,7 @@ authorityKeyIdentifier=keyid:always
     };
 
     let crl_der = Command::new("openssl")
-        .args(&[
+        .args([
             "crl",
             "-inform", "PEM",
             "-outform", "DER",
@@ -1749,20 +1743,20 @@ authorityKeyIdentifier=keyid:always
         .output()
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to convert CRL to DER: {}", e))
+            ApiError::Other(format!("Failed to convert CRL to DER: {e}"))
         })?;
 
     if !crl_der.status.success() {
         let stderr = String::from_utf8_lossy(&crl_der.stderr);
         cleanup_temp_files();
-        return Err(ApiError::Other(format!("CRL DER conversion failed: {}", stderr)));
+        return Err(ApiError::Other(format!("CRL DER conversion failed: {stderr}")));
     }
 
     // Read the DER encoded CRL
     let crl_der_data = std::fs::read(&crl_der_path)
         .map_err(|e| {
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to read DER CRL: {}", e))
+            ApiError::Other(format!("Failed to read DER CRL: {e}"))
         })?;
 
     cleanup_temp_files();
@@ -1811,7 +1805,7 @@ pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
     // Ensure CRL directory exists
     std::fs::create_dir_all(CRL_DIR_PATH).map_err(|e| {
         error!("Failed to create CRL directory: {}", e);
-        ApiError::Other(format!("Failed to create CRL directory: {}", e))
+        ApiError::Other(format!("Failed to create CRL directory: {e}"))
     })?;
 
     // Convert to PEM format for storage
@@ -1820,7 +1814,7 @@ pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
     // Save to current CRL file
     std::fs::write(CURRENT_CRL_FILE_PATH, &crl_pem).map_err(|e| {
         error!("Failed to write CRL file: {}", e);
-        ApiError::Other(format!("Failed to write CRL file: {}", e))
+        ApiError::Other(format!("Failed to write CRL file: {e}"))
     })?;
 
     // Create timestamped backup
@@ -1828,10 +1822,10 @@ pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis();
-    let backup_path = format!("{}/ca_{}_{}.crl", CRL_DIR_PATH, ca_id, timestamp);
+    let backup_path = format!("{CRL_DIR_PATH}/ca_{ca_id}_{timestamp}.crl");
     std::fs::write(&backup_path, &crl_pem).map_err(|e| {
         error!("Failed to write CRL backup file: {}", e);
-        ApiError::Other(format!("Failed to write CRL backup file: {}", e))
+        ApiError::Other(format!("Failed to write CRL backup file: {e}"))
     })?;
 
     debug!("Successfully saved CRL to file system (main: {}, backup: {})",
@@ -1852,7 +1846,7 @@ pub(crate) fn load_crl_from_file() -> Result<Vec<u8>, ApiError> {
     // Read the PEM-encoded CRL
     let crl_pem = std::fs::read(CURRENT_CRL_FILE_PATH).map_err(|e| {
         error!("Failed to read CRL file: {}", e);
-        ApiError::Other(format!("Failed to read CRL file: {}", e))
+        ApiError::Other(format!("Failed to read CRL file: {e}"))
     })?;
 
     // Extract DER data from PEM
@@ -1890,7 +1884,7 @@ pub fn get_crl_metadata(ca_id: i64) -> Result<CrlMetadata, ApiError> {
     }
 
     let metadata = file_path.metadata().map_err(|e| {
-        ApiError::Other(format!("Failed to get file metadata: {}", e))
+        ApiError::Other(format!("Failed to get file metadata: {e}"))
     })?;
 
     // Count backup files for this CA
@@ -1900,7 +1894,7 @@ pub fn get_crl_metadata(ca_id: i64) -> Result<CrlMetadata, ApiError> {
                 entry_result.ok().and_then(|entry| {
                     entry.file_name().to_str().and_then(|name| {
                         // Look for files that start with ca_{ca_id}_
-                        if name.starts_with(&format!("ca_{}_", ca_id)) && name.ends_with(".crl") {
+                        if name.starts_with(&format!("ca_{ca_id}_")) && name.ends_with(".crl") {
                             Some(())
                         } else {
                             None
@@ -1945,18 +1939,18 @@ pub fn list_crl_files() -> Result<Vec<CrlFileInfo>, ApiError> {
     // Create directory if it doesn't exist
     if !std::path::Path::new(CRL_DIR_PATH).exists() {
         std::fs::create_dir_all(CRL_DIR_PATH).map_err(|e| {
-            ApiError::Other(format!("Failed to create CRL directory: {}", e))
+            ApiError::Other(format!("Failed to create CRL directory: {e}"))
         })?;
         return Ok(crl_files);
     }
 
     let entries = std::fs::read_dir(CRL_DIR_PATH).map_err(|e| {
-        ApiError::Other(format!("Failed to read CRL directory: {}", e))
+        ApiError::Other(format!("Failed to read CRL directory: {e}"))
     })?;
 
     for entry_result in entries {
         let entry = entry_result.map_err(|e| {
-            ApiError::Other(format!("Failed to read directory entry: {}", e))
+            ApiError::Other(format!("Failed to read directory entry: {e}"))
         })?;
 
         let path = entry.path();
@@ -2021,7 +2015,7 @@ fn extract_der_from_pem(pem_str: &str) -> Result<Vec<u8>, ApiError> {
 
     use base64::{Engine as _, engine::general_purpose};
     general_purpose::STANDARD.decode(&clean_content)
-        .map_err(|e| ApiError::Other(format!("Failed to decode base64 PEM content: {}", e)))
+        .map_err(|e| ApiError::Other(format!("Failed to decode base64 PEM content: {e}")))
 }
 
 /// Parse an OCSP request from DER-encoded bytes
@@ -2047,12 +2041,12 @@ pub(crate) async fn generate_ocsp_response(
     // Check if the certificate is revoked
     let cert_id = extract_certificate_id_from_ocsp_request(request)?;
     let is_revoked = db.is_certificate_revoked(cert_id).await
-        .map_err(|e| ApiError::Other(format!("Database error checking revocation status: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Database error checking revocation status: {e}")))?;
 
     // Get revocation details if revoked
     let revocation_info = if is_revoked {
         db.get_certificate_revocation(cert_id).await
-            .map_err(|e| ApiError::Other(format!("Database error getting revocation details: {}", e)))?
+            .map_err(|e| ApiError::Other(format!("Database error getting revocation details: {e}")))?
     } else {
         None
     };
@@ -2117,21 +2111,21 @@ pub(crate) fn generate_ocsp_cert_id(
     let digest = match hash_algorithm {
         "sha1" => MessageDigest::sha1(),
         "sha256" => MessageDigest::sha256(),
-        _ => return Err(ApiError::Other(format!("Unsupported hash algorithm: {}", hash_algorithm))),
+        _ => return Err(ApiError::Other(format!("Unsupported hash algorithm: {hash_algorithm}"))),
     };
 
     // Hash the issuer name
     let issuer_name_der = issuer_cert.subject_name().to_der()
-        .map_err(|e| ApiError::Other(format!("Failed to encode issuer name: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to encode issuer name: {e}")))?;
     let issuer_name_hash = hash(digest, &issuer_name_der)
-        .map_err(|e| ApiError::Other(format!("Failed to hash issuer name: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to hash issuer name: {e}")))?;
 
     // Hash the issuer public key
     let issuer_key_der = issuer_cert.public_key()
         .and_then(|key| key.public_key_to_der())
-        .map_err(|e| ApiError::Other(format!("Failed to get issuer public key: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to get issuer public key: {e}")))?;
     let issuer_key_hash = hash(digest, &issuer_key_der)
-        .map_err(|e| ApiError::Other(format!("Failed to hash issuer key: {}", e)))?;
+        .map_err(|e| ApiError::Other(format!("Failed to hash issuer key: {e}")))?;
 
     Ok(OcspCertid {
         hash_algorithm: hash_algorithm.to_string(),
