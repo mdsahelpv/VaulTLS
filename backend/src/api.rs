@@ -443,8 +443,8 @@ async fn setup_common(
     // Certificate extensions for CA
     aia_url: Option<String>,
     cdp_url: Option<String>,
-    crl_validity_days: Option<u64>,
-    path_length: Option<u32>,
+    _crl_validity_days: Option<u64>,
+    _path_length: Option<u32>,
     // Root CA mode
     is_root_ca: bool
 ) -> Result<(), ApiError> {
