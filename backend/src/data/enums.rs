@@ -146,6 +146,34 @@ impl CertificateRevocationReason {
             CertificateRevocationReason::Specify => "Specify (custom reason)",
         }
     }
+
+    /// Convert u8 value from database to enum with backward compatibility for RFC5280 reasons
+    pub fn from_u8_with_rfc5280_support(value: u8, custom_reason: Option<String>) -> (Self, Option<String>) {
+        match value {
+            0 => (CertificateRevocationReason::Unspecified, custom_reason),
+            1 => (CertificateRevocationReason::CertificateHold, custom_reason),
+            2 => (CertificateRevocationReason::Specify, custom_reason),
+            // Map legacy RFC5280 reasons to appropriate current values
+            3 => (CertificateRevocationReason::Specify, Some("Affiliation Changed".to_string())), // affiliationChanged
+            4 => (CertificateRevocationReason::Specify, Some("Superseded".to_string())),          // superseded
+            5 => (CertificateRevocationReason::Specify, Some("Cessation of Operation".to_string())), // cessationOfOperation
+            6 => (CertificateRevocationReason::CertificateHold, custom_reason),                   // certificateHold
+            8 => (CertificateRevocationReason::Specify, Some("Remove from CRL".to_string())),      // removeFromCRL
+            9 => (CertificateRevocationReason::Specify, Some("Privilege Withdrawn".to_string())), // privilegeWithdrawn
+            10 => (CertificateRevocationReason::Specify, Some("AA Compromise".to_string())),       // aaCompromise
+            _ => (CertificateRevocationReason::Unspecified, custom_reason),
+        }
+    }
+
+    /// Get human-readable reason text with legacy RFC5280 support
+    pub fn human_readable_reason(&self, custom_reason: Option<&str>) -> String {
+        match (self, custom_reason) {
+            (CertificateRevocationReason::Unspecified, _) => "Unspecified".to_string(),
+            (CertificateRevocationReason::CertificateHold, _) => "Certificate Hold".to_string(),
+            (CertificateRevocationReason::Specify, Some(reason)) => format!("Specify - {}", reason),
+            (CertificateRevocationReason::Specify, None) => "Specify (custom reason)".to_string(),
+        }
+    }
 }
 
 impl FromSql for CertificateRevocationReason {

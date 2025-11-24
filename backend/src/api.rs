@@ -2338,7 +2338,7 @@ pub(crate) async fn get_revocation_history(
             certificate_name,
             revocation_date: record.revocation_date,
             revocation_reason: record.revocation_reason,
-            revocation_reason_text: record.revocation_reason.as_str().to_string(),
+            revocation_reason_text: record.revocation_reason.human_readable_reason(record.custom_reason.as_deref()),
             custom_reason: record.custom_reason,
             revoked_by_user_id: record.revoked_by_user_id,
         });

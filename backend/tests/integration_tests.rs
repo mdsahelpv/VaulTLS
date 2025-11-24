@@ -1,9 +1,80 @@
 use std::fs;
 use std::path::Path;
 use vaultls::data::enums::CertificateType;
+use vaultls::data::enums::CertificateRenewMethod;
+use vaultls::data::enums::CertificateRevocationReason;
 use vaultls::cert::CertificateBuilder;
+use vaultls::cert::get_certificate_details;
 use vaultls::create_test_rocket;
+use vaultls::data::api::CreateUserCertificateRequest;
+use vaultls::cert::Certificate;
 use rocket::local::asynchronous::Client;
+use rocket::http::ContentType;
+use rocket::http::Status;
+use serde_json::Value;
+use once_cell::sync::Lazy;
+
+/// Test password for integration tests
+const TEST_PASSWORD: &str = "testpassword123";
+
+/// Test client for integration tests
+struct VaulTLSClient {
+    client: Client,
+}
+
+impl VaulTLSClient {
+    async fn new_authenticated() -> Self {
+        let rocket = vaultls::create_test_rocket().await;
+        let client = Client::tracked(rocket).await.expect("Failed to create test client");
+
+        // Login to get authentication
+        let login_req = serde_json::json!({
+            "email": "admin@example.com",
+            "password": "adminpassword"
+        });
+
+        let response = client
+            .post("/auth/login")
+            .header(ContentType::JSON)
+            .body(login_req.to_string())
+            .dispatch()
+            .await;
+
+        if response.status() != Status::Ok {
+            panic!("Failed to authenticate test client: {}", response.status());
+        }
+
+        Self { client }
+    }
+
+    async fn get(&self, path: &str) -> rocket::local::asynchronous::LocalResponse<'_> {
+        self.client.get(path).dispatch().await
+    }
+
+    async fn post(&self, path: &str) -> rocket::local::asynchronous::LocalRequest<'_> {
+        self.client.post(path)
+    }
+
+    async fn put(&self, path: &str) -> rocket::local::asynchronous::LocalRequest<'_> {
+        self.client.put(path)
+    }
+
+    async fn get_settings(&self) -> Result<Value, serde_json::Error> {
+        let response = self.client.get("/settings").dispatch().await;
+        let body = response.into_string().await.unwrap();
+        serde_json::from_str(&body)
+    }
+
+    async fn put_settings(&self, settings: Value) -> Result<(), serde_json::Error> {
+        let request = self.client
+            .put("/settings")
+            .header(ContentType::JSON)
+            .body(settings.to_string());
+        let response = request.dispatch().await;
+        assert_eq!(response.status(), Status::Ok);
+        Ok(())
+    }
+}
 
 /// Test CA setup using yawal-ca.pfx and certificate issuance
 #[cfg(test)]
@@ -16,6 +87,44 @@ mod ca_setup_and_certificate_tests {
         // Create test rocket instance
         let rocket = create_test_rocket().await;
         let _client = Client::tracked(rocket).await.expect("Failed to create test client");
+
+        // Simple test - just create the client
+        // The real client for API calls is created below when needed
+        // let test_client = VaulTLSClient::new_authenticated().await;
+
+/// Test CA setup using yawal-ca.pfx and certificate issuance
+#[cfg(test)]
+mod ca_setup_and_certificate_tests {
+    use super::*;
+
+    /// Test CA setup from PFX file
+    #[tokio::test]
+    async fn test_ca_setup_from_pfx() {
+        // Create test rocket instance
+        let rocket = create_test_rocket().await;
+        let _client = Client::tracked(rocket).await.expect("Failed to create test client");
+
+        // Check if yawal-ca.pfx exists (from backend directory, need to go up one level)
+        let pfx_path = Path::new("../yawal-ca.pfx");
+        assert!(pfx_path.exists(), "yawal-ca.pfx file not found in root directory");
+
+        // Read the PFX file
+        let pfx_data = fs::read(pfx_path)
+            .expect("Failed to read yawal-ca.pfx file");
+
+        // Setup CA from PFX using the correct password
+        let ca = CertificateBuilder::from_pfx(&pfx_data, Some("P@ssw0rd"), Some("Test CA from PFX"))
+            .expect("Failed to create CA from PFX with correct password");
+
+        // Verify CA structure
+        assert!(ca.cert.len() > 0);
+        assert!(ca.key.len() > 0);
+        assert_eq!(ca.id, -1); // New CA hasn't been saved yet
+
+        println!("✅ CA setup from PFX successful - Cert size: {} bytes, Key size: {} bytes",
+                 ca.cert.len(), ca.key.len());
+    }
+}
 
         // Check if yawal-ca.pfx exists (from backend directory, need to go up one level)
         let pfx_path = Path::new("../yawal-ca.pfx");
@@ -346,6 +455,12 @@ mod certificate_renewal_tests {
             cert_type: None,
             dns_names: None,
             renew_method: Some(CertificateRenewMethod::Renew),
+            ca_id: None,
+            key_type: None,
+            key_size: None,
+            hash_algorithm: None,
+            aia_url: None,
+            cdp_url: None,
         };
 
         let request = client

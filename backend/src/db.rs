@@ -723,13 +723,15 @@ impl VaulTLSDB {
             let rows = stmt.query([])?;
             Ok(rows.map(|row| {
                 let reason_value: u8 = row.get(3)?;
+                let custom_reason: Option<String> = row.get(5)?;
+                let (revocation_reason, final_custom_reason) = CertificateRevocationReason::from_u8_with_rfc5280_support(reason_value, custom_reason);
                 Ok(CertificateRevocation {
                     id: row.get(0)?,
                     certificate_id: row.get(1)?,
                     revocation_date: row.get(2)?,
-                    revocation_reason: CertificateRevocationReason::try_from(reason_value).unwrap_or(CertificateRevocationReason::Unspecified),
+                    revocation_reason,
                     revoked_by_user_id: row.get(4)?,
-                    custom_reason: row.get(5)?,
+                    custom_reason: final_custom_reason,
                 })
             })
             .collect()?)
