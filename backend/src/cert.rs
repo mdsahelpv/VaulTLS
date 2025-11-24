@@ -448,9 +448,12 @@ impl CertificateBuilder {
     }
 
     pub fn new_with_ca_and_key_type_size(ca: Option<&CA>, key_type: Option<&str>, key_size: Option<&str>) -> Result<Self> {
-        let private_key = match ca {
-            Some(ca) => {
-                // Detect CA key type
+        let private_key = match (ca, key_type, key_size) {
+            // If no key type/size specified, default based on whether we have a CA or not
+            (None, None, _) | (None, _, None) => generate_rsa_private_key_of_size(2048)?,
+
+            // If CA is provided and no key params specified, use CA's key type for backward compatibility with sub-CAs
+            (Some(ca), None, _) | (Some(ca), _, None) => {
                 let ca_key = PKey::private_key_from_der(&ca.key)?;
                 if ca_key.rsa().is_ok() {
                     generate_rsa_private_key()?
@@ -460,32 +463,25 @@ impl CertificateBuilder {
                     return Err(anyhow!("Unsupported CA key type"));
                 }
             },
-            None => {
-                // Generate key based on specified key_type and key_size
 
-                match key_type {
-                    Some("RSA") | Some("rsa") => {
-                        let size = match key_size {
-                            Some("2048") => 2048,
-                            Some("4096") => 4096,
-                            _ => 2048, // Default to 2048
-                        };
-                        generate_rsa_private_key_of_size(size)?
-                    },
-                    Some("ECDSA") | Some("ecdsa") => {
-                        // ECDSA key size is determined by curve, not bit size
-                        // P-256, P-384, P-521 all use the same generation function
-                        
-                        let nid = match key_size {
-                            Some("p-256"|"P-256") => Nid::X9_62_PRIME256V1,
-                            Some("p-521"|"P-521") => Nid::SECP521R1,
-                            _ => Nid::X9_62_PRIME256V1, // Default to P-256
-                        };
-                        generate_ecdsa_private_key(nid)?
-                    },
-                    _ => generate_rsa_private_key_of_size(2048)?, // Default to RSA 2048
-                }
-            }
+            // User explicitly specified key type and size - use that regardless of CA
+            (_, Some("RSA") | Some("rsa"), key_size) => {
+                let size = match key_size {
+                    Some("2048") => 2048,
+                    Some("4096") => 4096,
+                    _ => 2048, // Default to 2048
+                };
+                generate_rsa_private_key_of_size(size)?
+            },
+            (_, Some("ECDSA") | Some("ecdsa"), key_size) => {
+                let nid = match key_size {
+                    Some("p-256"|"P-256") => Nid::X9_62_PRIME256V1,
+                    Some("p-521"|"P-521") => Nid::SECP521R1,
+                    _ => Nid::X9_62_PRIME256V1, // Default to P-256
+                };
+                generate_ecdsa_private_key(nid)?
+            },
+            (_, _, _) => generate_rsa_private_key_of_size(2048)?, // Default fallback
         };
         let asn1_serial = generate_serial_number()?;
         let (created_on_unix, created_on_openssl) = get_timestamp(0)?;

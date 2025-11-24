@@ -922,7 +922,11 @@ pub(crate) async fn create_user_certificate(
         return Err(ApiError::BadRequest("Root CA Server can only issue subordinate CA certificates".to_string()));
     }
 
-    let mut cert_builder = CertificateBuilder::new_with_ca(Some(&ca))?
+    let mut cert_builder = CertificateBuilder::new_with_ca_and_key_type_size(
+        Some(&ca),
+        payload.key_type.as_deref(),
+        payload.key_size.as_deref()
+    )?
         .set_name(&payload.cert_name)?
         .set_valid_until(payload.validity_in_years.unwrap_or(1))?
         .set_renew_method(payload.renew_method.unwrap_or_default())?
@@ -1026,8 +1030,8 @@ pub(crate) async fn create_user_certificate(
 }
 
 #[openapi(tag = "Certificates")]
-#[post("/certificates/ca/new", format = "json", data = "<payload>")]
-/// Create a new self-signed CA certificate. Requires admin role.
+#[post("/certificates/ca", format = "json", data = "<payload>")]
+/// Create a self-signed CA. Requires admin role.
 pub(crate) async fn create_self_signed_ca(
     state: &State<AppState>,
     payload: Json<CreateCASelfSignedRequest>,
