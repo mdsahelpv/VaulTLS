@@ -1,163 +1,227 @@
-## OCSP Implementation Completion
-### Research and Planning
-- [ ] Analyze OCSP RFC 6960 requirements
-- [ ] Design OCSP request/response workflow
-- [ ] Plan OCSP response signing and validation
-- [ ] Evaluate OCSP caching strategies
 
-### OCSP Request Processing
-- [ ] Implement `parse_ocsp_request()` function
-- [ ] Add OCSP request validation and error handling
-- [ ] Implement certificate ID extraction from requests
-- [ ] Add OCSP request extensions support
 
-### OCSP Response Generation
-- [ ] Implement `generate_ocsp_response()` function
-- [ ] Add OCSP response signing with CA certificate
-- [ ] Implement proper OCSP response status codes
-- [ ] Add OCSP response extensions and metadata
+## **📋 CSR SIGNING FEATURE IMPLEMENTATION**
 
-### OCSP Endpoints Activation
-- [ ] Uncomment and activate OCSP GET endpoint (`/ocsp?<request>`)
-- [ ] Uncomment and activate OCSP POST endpoint (`/ocsp`)
-- [ ] Add OCSP endpoint configuration and routing
-- [ ] Implement OCSP request rate limiting
+### **🔐 CSR Upload & Signing Feature Overview**
+**Goal**: Allow administrators to upload Certificate Signing Requests (CSRs) and sign them with selected Certificate Authorities
 
-### OCSP Certificate Extensions
-- [x] Implement Authority Information Access (AIA) extension
-- [x] Add OCSP responder URL configuration
-- [ ] Test OCSP extension validation
-- [ ] Handle multiple OCSP responder URLs
+**Business Value**:
+- Support traditional PKI workflows where users generate private keys externally
+- Enable integration with existing PKI infrastructure
+- Provide flexibility for enterprise certificate management
+- Allow CSR generation using OpenSSL, Java keytool, or other tools
 
-### OCSP Caching & Performance
-- [ ] Implement OCSP response caching (1-hour default)
-- [ ] Add cache invalidation on certificate revocation
-- [ ] Optimize OCSP response generation
-- [ ] Add OCSP response compression
+### **Phase 1: Backend API Development**
 
-### OCSP Testing & Validation
-- [ ] Test OCSP requests with OpenSSL client
-- [ ] Validate OCSP responses for different certificate states
-- [ ] Test OCSP with various client applications
-- [ ] Add OCSP protocol compliance tests
+#### **CSR Parsing & Validation**
+- [ ] Implement `parse_csr_from_pem()` function in `cert.rs`
+- [ ] Implement `parse_csr_from_der()` function for DER format support
+- [ ] Add CSR validation (signature verification, structure validation)
+- [ ] Extract public key from CSR for certificate building
+- [ ] Validate CSR subject DN and reject malicious content
+- [ ] Add CSR file format detection (auto-detect PEM vs DER)
 
----
+#### **CSR Certificate Generation**
+- [ ] Create `CertificateBuilder::from_csr()` constructor
+- [ ] Implement certificate creation from CSR public key
+- [ ] Preserve CSR extensions (SAN, key usage, etc.) in final certificate
+- [ ] Allow validity period override in CSR signing
+- [ ] Add certificate type validation (Client/Server/CA constraints)
+- [ ] Sign certificate with selected CA
 
-## Shared Infrastructure Improvements
+#### **API Endpoint Implementation**
+- [ ] Add `/api/certificates/cert/sign-csr` POST endpoint
+- [ ] Implement multipart form data handling for CSR file upload
+- [ ] Add CA selection parameter validation
+- [ ] Implement user assignment for signed certificates
+- [ ] Add admin-only authentication requirement
+- [ ] Return signed certificate in multiple formats (PKCS#12, PEM, DER)
 
-### OpenSSL Version Evaluation
-- [ ] Assess current OpenSSL version capabilities
-- [ ] Plan OpenSSL upgrade path if needed
-- [ ] Evaluate alternative crypto libraries
+#### **Request Structure & Validation**
+- [ ] Create `CsrSignRequest` struct with proper validation
+- [ ] Add file size limits and format validation
+- [ ] Implement CA permissions checking
+- [ ] Validate user assignment permissions
+- [ ] Add Root CA Server mode restrictions
 
-### External Tool Integration
-- [ ] Design OpenSSL CLI integration for CRL generation
-- [ ] Implement external tool process management
-- [ ] Add fallback mechanisms for missing functionality
-- [ ] Handle external tool errors and timeouts
+### **Phase 2: Security & Validation**
 
-### Certificate Extension Framework
-- [ ] Create unified extension addition system
-- [ ] Implement extension validation and testing
-- [ ] Add extension configuration management
-- [ ] Support custom certificate extensions
+#### **CSR Security Validation**
+- [ ] Implement CSR signature verification
+- [ ] Add public key strength validation (minimum RSA 2048, ECC P-256+)
+- [ ] Validate subject DN for prohibited characters/injections
+- [ ] Check for malicious certificate extensions
+- [ ] Implement CSR expiry checks and renewal validation
 
-### Error Handling & Logging
-- [ ] Add comprehensive error handling for CRL/OCSP operations
-- [ ] Implement detailed logging for debugging
-- [ ] Add metrics and monitoring for CRL/OCSP operations
-- [ ] Create user-friendly error messages
+#### **Certificate Authority Permissions**
+- [ ] Validate admin can sign with selected CA
+- [ ] Check CA validity and expiration status
+- [ ] Verify CA has signing capabilities
+- [ ] Add Root CA Server mode certificate type restrictions
+- [ ] Implement CA access control lists if needed
 
-### Configuration Management
-- [ ] Add CRL/OCSP settings validation
-- [ ] Implement dynamic configuration reloading
-- [ ] Add environment variable support
-- [ ] Create configuration documentation
+#### **Audit Logging Integration**
+- [ ] Log CSR upload events with metadata
+- [ ] Track which CA was used for signing
+- [ ] Record certificate type and user assignment
+- [ ] Add HIGH security risk flag for CSR signing operations
+- [ ] Include CSR details in audit trail
 
----
+### **Phase 3: Frontend Implementation**
 
-## Integration & Testing
+#### **CSR Upload Modal**
+- [ ] Add "Sign CSR" button to certificate overview
+- [ ] Create CSR upload modal with file input
+- [ ] Add CA selection dropdown (filter available CAs)
+- [ ] Implement user assignment dropdown
+- [ ] Add certificate type selection (with Root CA restrictions)
+- [ ] Include validity period override options
 
-### PKI Ecosystem Integration
-- [ ] Test CRL/OCSP with major browsers and clients
-- [ ] Validate with certificate validation libraries
-- [ ] Test with enterprise PKI systems
-- [ ] Ensure compatibility with existing certificates
+#### **File Upload & Validation**
+- [ ] Add drag-and-drop file upload support
+- [ ] Implement file type validation (`.csr`, `.pem`, `.der`)
+- [ ] Add file size validation and progress indicators
+- [ ] Display CSR details preview before signing
+- [ ] Show parsed CSR information (subject, public key type, etc.)
 
-### Performance & Scalability
-- [ ] Implement CRL/OCSP response caching strategies
-- [ ] Add request rate limiting and DDoS protection
-- [ ] Optimize database queries for revocation checking
-- [ ] Test performance under high load
+#### **CSR Preview & Confirmation**
+- [ ] Parse and display CSR details in modal
+- [ ] Show extracted subject DN and public key information
+- [ ] Display certificate extensions from CSR
+- [ ] Add confirmation dialog with signing details
+- [ ] Allow administrators to review before signing
 
-### Security Hardening
-- [ ] Implement OCSP response signing security
-- [ ] Add CRL integrity verification
-- [ ] Implement proper certificate validation
-- [ ] Add security headers and HTTPS enforcement
+#### **UI Integration**
+- [ ] Add CSR signing option to existing certificate actions
+- [ ] Integrate with bulk operations if applicable
+- [ ] Add success/error notifications
+- [ ] Implement loading states during CSR processing
 
-### Documentation & Compliance
-- [ ] Create CRL/OCSP configuration documentation
-- [ ] Add RFC compliance documentation
-- [ ] Create troubleshooting guides
-- [ ] Document security considerations
+### **Phase 4: Testing & Quality Assurance**
 
----
+#### **Unit Testing**
+- [ ] Test CSR parsing with valid and invalid files
+- [ ] Validate CSR signature verification
+- [ ] Test certificate generation from CSRs
+- [ ] Verify CA signing permissions
+- [ ] Test error handling for malformed CSRs
 
-## Deployment & Maintenance
+#### **Integration Testing**
+- [ ] Test end-to-end CSR upload and signing workflow
+- [ ] Verify certificate installation in client applications
+- [ ] Test with various CSR generation tools (OpenSSL, keytool, etc.)
+- [ ] Validate signed certificates with multiple clients
 
-### Production Readiness
-- [ ] Add health checks for CRL/OCSP services
-- [ ] Implement monitoring and alerting
-- [ ] Create backup and recovery procedures
-- [ ] Add automated testing in CI/CD
+#### **Security Testing**
+- [ ] Test CSR injection attack prevention
+- [ ] Verify file upload security controls
+- [ ] Test malformed CSR handling
+- [ ] Validate audit logging accuracy
+- [ ] Check for permission bypass attempts
 
-### Maintenance Tasks
-- [ ] Implement CRL rotation and renewal
-- [ ] Add OCSP responder certificate management
-- [ ] Create cleanup procedures for old CRLs
-- [ ] Plan for certificate authority key rollover
+#### **Performance Testing**
+- [ ] Test CSR upload with large files (within limits)
+- [ ] Measure CSR parsing and signing performance
+- [ ] Test concurrent CSR signing operations
+- [ ] Validate memory usage with CSR processing
 
----
+### **Phase 5: Documentation & Deployment**
 
-## Technical Considerations
+#### **API Documentation**
+- [ ] Document CSR signing endpoint with examples
+- [ ] Add OpenAPI specifications for new endpoints
+- [ ] Create CSR format requirements documentation
+- [ ] Document supported CSR extensions
 
-### OpenSSL Limitations
-- Current OpenSSL version lacks full CRL/OCSP extension support
-- May need OpenSSL upgrade or external tool integration
-- Consider using `openssl crl` and `openssl ocsp` commands
+#### **User Documentation**
+- [ ] Create CSR generation guides for common tools
+- [ ] Document CSR signing workflow for administrators
+- [ ] Add CSR troubleshooting guide
+- [ ] Create CSR vs server-generated certificate comparison
 
-### Alternative Approaches
-- **External CRL Generation**: Use OpenSSL CLI to generate CRLs
-- **OCSP Responder**: Implement as separate service or use existing tools
-- **Third-party Libraries**: Consider `rust-openssl` alternatives with better CRL/OCSP support
+#### **Integration Examples**
+- [ ] Provide OpenSSL CSR generation examples
+- [ ] Document Java keytool CSR workflow
+- [ ] Add Windows certificate request examples
+- [ ] Create PowerShell CSR generation scripts
 
-### Testing Strategy
-- Use OpenSSL command-line tools for validation
-- Test with browsers and certificate clients
-- Validate RFC compliance
-- Performance testing under load
+#### **Deployment Considerations**
+- [ ] Add CSR processing performance monitoring
+- [ ] Implement CSR file cleanup policies
+- [ ] Add CSR signing rate limiting if needed
+- [ ] Consider CSR processing queue for high volume
 
----
+### **Estimated Implementation Timeline**
 
-## Implementation Notes
+#### **Week 1-2: Core Backend Development**
+- CSR parsing functionality
+- API endpoint implementation
+- Basic security validation
+- Unit tests
 
-### Current Architecture
-- CRL/OCSP settings are configurable via `settings.rs`
-- Database stores revocation records in `certificate_revocation` table
-- Caching implemented for both CRL and OCSP responses
-- API endpoints exist but core functions need completion
+#### **Week 3: Frontend Integration**
+- CSR upload modal
+- Form validation
+- Error handling
+- User experience testing
 
-### Dependencies
-- Current implementation uses `rust-openssl` crate
-- May need additional dependencies for external tool integration
-- Consider async processing for performance
+#### **Week 4: Testing & Quality Assurance**
+- Integration testing
+- Security testing
+- Performance testing
+- Bug fixes
 
-### Security Considerations
-- CRL and OCSP responses must be properly signed
-- Implement proper validation of requests
-- Add rate limiting to prevent abuse
-- Ensure secure storage of signing keys
+#### **Week 5: Documentation & Deployment**
+- User documentation
+- API documentation
+- Deployment verification
+- Production monitoring setup
+
+### **Success Metrics & Acceptance Criteria**
+
+#### **Functional Requirements**
+- [ ] Admin can upload CSR files in PEM/DER format
+- [ ] System validates CSR integrity and structure
+- [ ] Certificate is signed with selected CA
+- [ ] Signed certificate includes CSR extensions
+- [ ] Certificate is assigned to correct user
+- [ ] All operations are properly audited
+
+#### **Security Requirements**
+- [ ] No privilege escalation through CSR upload
+- [ ] Malformed CSRs are rejected safely
+- [ ] Certificate signing maintains CA integrity
+- [ ] Audit logs capture all CSR operations
+- [ ] File upload security controls in place
+
+#### **Performance Requirements**
+- [ ] CSR parsing completes within 5 seconds
+- [ ] Certificate signing within 10 seconds
+- [ ] Support concurrent CSR signing operations
+- [ ] Memory usage remains within limits
+
+### **Risks & Mitigation Strategies**
+
+#### **Security Risks**
+- **CSR Injection**: Mitigated by proper parsing and validation
+- **File Upload Vulnerabilities**: Addressed with size limits and format validation
+- **Certificate Authority Compromise**: Limited to admin-only access
+
+#### **Implementation Risks**
+- **Complex CSR Parsing**: Use established OpenSSL libraries with testing
+- **Extension Handling**: Implement careful extension copying with validation
+- **Performance Impact**: Implement caching and queuing for CSR processing
+
+#### **Business Risks**
+- **Breaking Changes**: Implement as new feature without modifying existing code
+- **User Adoption**: Provide comprehensive documentation and examples
+- **Maintenance Burden**: Keep implementation simple and well-tested
+
+### **Dependencies & Prerequisites**
+- **OpenSSL Support**: Leverage existing `rust-openssl` integration
+- **Database Schema**: Use existing certificate tables (no changes needed)
+- **Authentication**: Use existing admin role validation
+- **Audit System**: Integrate with existing audit logging framework
 
 ---
 
@@ -188,5 +252,5 @@
 
 ---
 
-*Last Updated: November 17, 2025*
-*Security Audit: COMPLETE ✅ | CRL/OCSP: Planning Phase*
+*Last Updated: November 24, 2025*
+*Security Audit: COMPLETE ✅ | CRL/OCSP: Planning Phase | CSR Signing: Planning Phase*
