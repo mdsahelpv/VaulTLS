@@ -252,12 +252,11 @@ impl CertificateBuilder {
                             debug!("Found AIA URL (alternative) during import: {}", url);
                             aia_url = Some(url.trim_end_matches(':').trim().to_string());
                         }
-                    } else if line_trimmed.contains("CRL Distribution Points") || url.contains(".crl") || url.contains("/crl/") {
-                        if cdp_url.is_none() && url.starts_with("http") {
+                    } else if (line_trimmed.contains("CRL Distribution Points") || url.contains(".crl") || url.contains("/crl/"))
+                        && cdp_url.is_none() && url.starts_with("http") {
                             debug!("Found CDP URL (alternative) during import: {}", url);
                             cdp_url = Some(url.trim_end_matches(':').trim().to_string());
                         }
-                    }
                 }
             }
         }
@@ -2045,6 +2044,7 @@ pub fn crl_to_pem(crl_der: &[u8]) -> Result<Vec<u8>, ApiError> {
 }
 
 /// Save CRL to file system with metadata
+#[allow(dead_code)]
 pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -2082,6 +2082,7 @@ pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
 }
 
 /// Load CRL from file system
+#[allow(dead_code)]
 pub(crate) fn load_crl_from_file() -> Result<Vec<u8>, ApiError> {
     debug!("Loading CRL from file system");
 
@@ -2281,7 +2282,7 @@ pub(crate) fn parse_ocsp_request(_request_der: &[u8]) -> Result<OCSPRequest, Api
 /// Generate an OCSP response for a given certificate status
 pub(crate) async fn generate_ocsp_response(
     request: &OCSPRequest,
-    ca: &CA,
+    _ca: &CA,
     db: &crate::db::VaulTLSDB,
 ) -> Result<Vec<u8>, ApiError> {
     debug!("Generating OCSP response for certificate ID: {:?}", request.certificate_id.serial_number);

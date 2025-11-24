@@ -143,13 +143,9 @@ pub(crate) async fn validate_pfx(
     let file_passed = file_result.is_ok();
     validations.push(ValidationCheck {
         check_name: "File Access".to_string(),
-        description: format!("{} Open and read uploaded file", if file_passed { "✓" } else { "✗" }),
+        description: "Open and read uploaded file".to_string(),
         passed: file_passed,
-        details: if file_passed {
-            Some("✅ File access successful".to_string())
-        } else {
-            Some(format!("❌ Failed to open file: {}", file_result.as_ref().err().unwrap()))
-        },
+        details: file_result.as_ref().err().map(|e| format!("Failed to open file: {e}")),
     });
 
     if file_result.is_err() {
