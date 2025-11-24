@@ -168,6 +168,104 @@ pub struct CertificateBuilder {
 
 impl CertificateBuilder {
     /// Create a CA from a PKCS#12 file containing a CA certificate
+    /// Extract AIA (Authority Information Access) and CDP (CRL Distribution Point) URLs from certificate extensions
+    fn extract_aia_and_cdp_from_cert(cert: &X509) -> Result<(Option<String>, Option<String>), anyhow::Error> {
+        let mut aia_url: Option<String> = None;
+        let mut cdp_url: Option<String> = None;
+
+        debug!("Extracting AIA and CDP URLs from imported certificate extensions");
+
+        // Convert certificate to PEM and then use openssl command-line to extract extensions
+        let pem = cert.to_pem()
+            .map_err(|e| anyhow!("Failed to convert certificate to PEM: {e}"))?;
+
+        let pem_str = String::from_utf8(pem)
+            .map_err(|e| anyhow!("Failed to convert PEM to string: {e}"))?;
+
+        // Write certificate to a temporary file
+        let temp_cert_path = std::env::temp_dir().join(format!("cert_ext_import_{}.pem", std::process::id()));
+        std::fs::write(&temp_cert_path, &pem_str)
+            .map_err(|e| anyhow!("Failed to write temp certificate: {e}"))?;
+
+        // Use openssl command to extract extensions
+        let output = std::process::Command::new("openssl")
+            .args([
+                "x509",
+                "-in", &temp_cert_path.to_string_lossy(),
+                "-text",
+                "-noout"
+            ])
+            .output()
+            .map_err(|e| anyhow!("Failed to run openssl command: {e}"))?;
+
+        // Clean up temp file
+        let _ = std::fs::remove_file(&temp_cert_path);
+
+        if !output.status.success() {
+            debug!("OpenSSL command failed to extract extensions, returning None for URLs");
+            return Ok((None, None)); // Return None instead of error for missing extensions
+        }
+
+        let text_output = String::from_utf8(output.stdout)
+            .map_err(|e| anyhow!("Failed to parse openssl output: {e}"))?;
+
+        debug!("Extracted certificate text: {} characters", text_output.len());
+
+        // Parse the text output to find AIA and CDP URLs
+        for line in text_output.lines() {
+            let line_trimmed = line.trim();
+
+            // Extract any URI line containing http
+            if let Some(http_start) = line_trimmed.find("URI:") {
+                if let Some(url_start_pos) = line_trimmed[http_start..].find("http") {
+                    let actual_url_start = http_start + url_start_pos;
+                    let url = &line_trimmed[actual_url_start..];
+
+                    // Check what type of URL this is by examining the context in the line
+                    if line_trimmed.contains("Authority Information Access") || line_trimmed.contains("authorityInfoAccess") ||
+                       line_trimmed.contains("CA Issuers") || line_trimmed.contains("caIssuers") ||
+                       url.contains("ca.cert") {
+                        // This is an AIA (Authority Information Access) URL
+                        if aia_url.is_none() && url.starts_with("http") { // Only set if not already set and starts with http
+                            debug!("Found AIA URL during import: {}", url);
+                            aia_url = Some(url.trim_end_matches(':').trim().to_string());
+                        }
+                    } else if line_trimmed.contains("CRL Distribution Points") || line_trimmed.contains("crlDistributionPoints") ||
+                       url.contains(".crl") || url.contains("/crl/") {
+                        // This is a CDP (CRL Distribution Points) URL
+                        if cdp_url.is_none() && url.starts_with("http") { // Only set if not already set and starts with http
+                            debug!("Found CDP URL during import: {}", url);
+                            cdp_url = Some(url.trim_end_matches(':').trim().to_string());
+                        }
+                    }
+                }
+            }
+
+            // Also check for lines that directly contain http without "URI:" prefix
+            // This handles some certificate formats where the URI marker might not be present
+            if !line_trimmed.contains("URI:") && line_trimmed.contains("http") {
+                if let Some(http_start) = line_trimmed.find("http") {
+                    let url = &line_trimmed[http_start..];
+
+                    if line_trimmed.contains("CA Issuers") || line_trimmed.contains("authorityInfoAccess") || url.contains("ca.cert") {
+                        if aia_url.is_none() && url.starts_with("http") {
+                            debug!("Found AIA URL (alternative) during import: {}", url);
+                            aia_url = Some(url.trim_end_matches(':').trim().to_string());
+                        }
+                    } else if line_trimmed.contains("CRL Distribution Points") || url.contains(".crl") || url.contains("/crl/") {
+                        if cdp_url.is_none() && url.starts_with("http") {
+                            debug!("Found CDP URL (alternative) during import: {}", url);
+                            cdp_url = Some(url.trim_end_matches(':').trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!("Extracted URLs from imported certificate - AIA: {:?}, CDP: {:?}", aia_url, cdp_url);
+        Ok((aia_url, cdp_url))
+    }
+
     pub fn from_pfx(pfx_data: &[u8], password: Option<&str>, ca_name: Option<&str>) -> Result<CA, anyhow::Error> {
         debug!("Starting PFX import process (file size: {} bytes)", pfx_data.len());
         if let Some(name) = ca_name {
@@ -264,10 +362,8 @@ impl CertificateBuilder {
 
         debug!("Private key extracted from PKCS#12");
 
-        // Basic validation: ensure we have both certificate and private key
-        // For more detailed CA validation, we would need to check extensions
-        // but the OpenSSL API has changed. This is a simplified validation.
-        // In production, you might want to add more robust CA validation.
+        // Extract AIA and CDP URLs from the certificate
+        let (aia_url, cdp_url) = Self::extract_aia_and_cdp_from_cert(&cert).unwrap_or((None, None));
 
         // Get certificate validity timestamps
         // Use current time as approximation since parsing ASN.1 time can be complex
@@ -330,6 +426,7 @@ impl CertificateBuilder {
         })?;
 
         debug!("CA certificate and key processed successfully");
+        debug!("AIA URL: {:?}, CDP URL: {:?}", aia_url, cdp_url);
 
         Ok(CA {
             id: -1,
@@ -340,8 +437,8 @@ impl CertificateBuilder {
             cert: ca_cert_der,
             cert_chain,
             key: ca_key_der,
-            aia_url: None, // TODO: Extract from imported certificate if needed
-            cdp_url: None, // TODO: Extract from imported certificate if needed
+            aia_url,
+            cdp_url,
         })
     }
 }
@@ -936,12 +1033,12 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             req_builder.sign(&self.private_key, MessageDigest::sha256())?;
             let cert_req = req_builder.build();
 
-            let cert_req_der = cert_req.to_der()
+            let cert_req_pem = cert_req.to_pem()
                 .map_err(|e| {
                     cleanup_temp_files();
-                    anyhow!("Failed to encode certificate request to DER: {e}")
+                    anyhow!("Failed to encode certificate request to PEM: {e}")
                 })?;
-            std::fs::write(&cert_req_path, &cert_req_der)
+            std::fs::write(&cert_req_path, &cert_req_pem)
                 .map_err(|e| {
                     cleanup_temp_files();
                     anyhow!("Failed to write certificate request to temp file: {e}")

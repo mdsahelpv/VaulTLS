@@ -488,9 +488,20 @@ async fn setup_common(
         match CertificateBuilder::from_pfx(&pfx_data, pfx_password.as_deref(), Some(&ca_name)) {
             Ok(mut ca) => {
                 debug!("CA validated successfully from PFX");
-                // Set URLs for imported CA
-                ca.aia_url = aia_url.clone();
-                ca.cdp_url = cdp_url.clone();
+                // Override URLs for imported CA only if user explicitly provided them
+                // Otherwise keep the URLs extracted from the certificate
+                if let Some(custom_aia_url) = aia_url.clone() {
+                    debug!("Overriding AIA URL from certificate with user-provided URL: {}", custom_aia_url);
+                    ca.aia_url = Some(custom_aia_url);
+                } else {
+                    debug!("Keeping AIA URL extracted from certificate: {:?}", ca.aia_url);
+                }
+                if let Some(custom_cdp_url) = cdp_url.clone() {
+                    debug!("Overriding CDP URL from certificate with user-provided URL: {}", custom_cdp_url);
+                    ca.cdp_url = Some(custom_cdp_url);
+                } else {
+                    debug!("Keeping CDP URL extracted from certificate: {:?}", ca.cdp_url);
+                }
                 ca
             },
             Err(e) => {
@@ -924,30 +935,37 @@ pub(crate) async fn create_user_certificate(
     if let Some(hash_alg) = &payload.hash_algorithm {
         cert_builder = cert_builder.set_hash_algorithm(hash_alg)?;
     }
+
+    // Set AIA and CDP URLs from request parameters if provided
+    // This applies to all certificate types (Client, Server, SubordinateCA)
+    let mut cert_builder = cert_builder;
+    if let Some(aia_url) = &payload.aia_url {
+        cert_builder = cert_builder.set_authority_info_access(aia_url)?;
+    }
+    if let Some(cdp_url) = &payload.cdp_url {
+        cert_builder = cert_builder.set_crl_distribution_points(cdp_url)?;
+    }
+
+    // For client/server certificates, prioritize request-provided URLs over settings
+    let final_crl_url = payload.cdp_url.as_deref().or(crl_url);
+    let final_ocsp_url = payload.aia_url.as_deref().or(ocsp_url);
+
     let mut cert = match payload.cert_type.unwrap_or_default() {
         CertificateType::Client => {
             let user = state.db.get_user(payload.user_id).await?;
             cert_builder
                 .set_email_san(&user.email)?
-                .build_common_with_extensions(Client, crl_url, ocsp_url)?
+                .build_common_with_extensions(Client, final_crl_url, final_ocsp_url)?
         }
         CertificateType::Server => {
             let dns = payload.dns_names.clone().unwrap_or_default();
             cert_builder
                 .set_dns_san(&dns)?
-                .build_common_with_extensions(Server, crl_url, ocsp_url)?
+                .build_common_with_extensions(Server, final_crl_url, final_ocsp_url)?
         }
         CertificateType::SubordinateCA => {
-            // For subordinate CA, set AIA and CDP URLs from request if provided
-            let mut cert_builder = cert_builder;
-            if let Some(aia_url) = &payload.aia_url {
-                cert_builder = cert_builder.set_authority_info_access(aia_url)?;
-            }
-            if let Some(cdp_url) = &payload.cdp_url {
-                cert_builder = cert_builder.set_crl_distribution_points(cdp_url)?;
-            }
-
-            // For subordinate CA, we need to create a CA certificate signed by the parent CA
+            // For subordinate CA, use the AIA and CDP URLs that were already set above
+            // (no need to override them here since subordinate CA doesn't use common extensions)
             cert_builder.build_subordinate_ca()?
         }
     };
@@ -1376,21 +1394,30 @@ pub(crate) async fn get_ca_list(
             .unwrap_or_else(|| "Unknown".to_string());
 
         // Extract AIA and CDP extensions from certificate (fallback for backward compatibility)
-        // Prefer database values over certificate-embedded values when available
-        let (aia_url, cdp_url) = if ca.aia_url.is_some() && ca.cdp_url.is_some() {
-            (ca.aia_url.clone(), ca.cdp_url.clone())
-        } else {
-            // Extract URLs from certificate and update database for backward compatibility
+        // Prefer database values when available, but extract any missing URLs from certificate
+        let mut aia_url = ca.aia_url.clone();
+        let mut cdp_url = ca.cdp_url.clone();
+
+        // Extract URLs from certificate if any are missing from database
+        if ca.aia_url.is_none() || ca.cdp_url.is_none() {
+            debug!("Missing URLs in database for CA {}, extracting from certificate", ca.id);
             let extracted_urls = extract_aia_and_cdp_urls(&cert)?;
 
-            // Update the database with extracted URLs if they are missing
+            if ca.aia_url.is_none() {
+                aia_url = extracted_urls.0.clone();
+                debug!("Extracted AIA URL: {:?}", extracted_urls.0);
+            }
+            if ca.cdp_url.is_none() {
+                cdp_url = extracted_urls.1.clone();
+                debug!("Extracted CDP URL: {:?}", extracted_urls.1);
+            }
+
+            // Update the database with extracted URLs if they were missing
             // This ensures that future requests don't need to re-extract
             if ca.aia_url.is_none() || ca.cdp_url.is_none() {
-                debug!("Updating missing URLs for CA {}: AIA='{}', CDP='{}'",
-                       ca.id, extracted_urls.0.as_deref().unwrap_or(""), extracted_urls.1.as_deref().unwrap_or(""));
+                debug!("Updating database URLs for CA {}: AIA='{}', CDP='{}'",
+                       ca.id, aia_url.as_deref().unwrap_or(""), cdp_url.as_deref().unwrap_or(""));
 
-                // Note: This update is done asynchronously to avoid blocking the response
-                // In a production system, you might want to do this synchronously to ensure consistency
                 let db_clone = state.db.clone();
                 let ca_id = ca.id;
                 let update_aia = extracted_urls.0.clone();
@@ -1401,9 +1428,7 @@ pub(crate) async fn get_ca_list(
                     }
                 });
             }
-
-            extracted_urls
-        };
+        }
 
         // Convert to PEM
         let pem = get_pem(&ca)?;
@@ -2639,6 +2664,7 @@ pub(crate) async fn download_crl_backup(
             // Parse the text output to find AIA and CDP URLs
             for line in text_output.lines() {
                 let line_trimmed = line.trim();
+                debug!("Checking line: '{}'", line_trimmed);
 
                 // Extract any URI line containing http
                 if let Some(http_start) = line_trimmed.find("URI:") {
@@ -2646,20 +2672,31 @@ pub(crate) async fn download_crl_backup(
                         let actual_url_start = http_start + url_start_pos;
                         let url = &line_trimmed[actual_url_start..];
 
+                        debug!("Found URI line, checking if it's AIA or CDP. Line: '{}', URL: '{}'", line_trimmed, url);
+
                         // Check what type of URL this is
-                        if url.contains("ca.cert") || line_trimmed.contains("CA Issuers") || line_trimmed.contains("caIssuers") {
+                        if url.contains("ca.cert") || line_trimmed.contains("CA Issuers") || line_trimmed.contains("caIssuers") || line_trimmed.contains("Authority Information Access") {
                             // This is an AIA (Authority Information Access) URL
                             if aia_url.is_none() { // Only set if not already set
                                 debug!("Found AIA URL: {}", url);
                                 aia_url = Some(url.to_string());
                             }
-                        } else if url.contains("ca.crl") || line_trimmed.contains("CRL Distribution Points") {
+                        } else if url.contains("ca.crl") || url.contains("crl") || line_trimmed.contains("CRL Distribution Points") || line_trimmed.contains("Full Name") {
                             // This is a CDP (CRL Distribution Points) URL
+                            // Some certificates use "Full Name" instead of "CRL Distribution Points"
                             if cdp_url.is_none() { // Only set if not already set
-                                debug!("Found CDP URL: {}", url);
+                                debug!("Found CDP URL: {} (from line: '{}')", url, line_trimmed);
                                 cdp_url = Some(url.to_string());
                             }
                         }
+                        // If we found a URI but don't recognize the type, log it
+                        else {
+                            debug!("Found URI but couldn't classify: '{}' in line: '{}'", url, line_trimmed);
+                        }
+                    }
+                    // If URI: found but no http after it, log it
+                    else {
+                        debug!("Found 'URI:' but no 'http' after it in line: '{}'", line_trimmed);
                     }
                 }
 
@@ -2668,16 +2705,20 @@ pub(crate) async fn download_crl_backup(
                     if let Some(http_start) = line_trimmed.find("http") {
                         let url = &line_trimmed[http_start..];
 
+                        debug!("Found line with http but no URI prefix: '{}', URL: '{}'", line_trimmed, url);
+
                         if url.contains("ca.cert") {
                             if aia_url.is_none() {
                                 debug!("Found AIA URL (alternative): {}", url);
                                 aia_url = Some(url.to_string());
                             }
-                        } else if url.contains("ca.crl")
-                            && cdp_url.is_none() {
-                                debug!("Found CDP URL (alternative): {}", url);
+                        } else if url.contains("ca.crl") || url.contains("crl") || cdp_url.is_none() {
+                            // More lenient check for CDP URLs in case they don't have ca.crl
+                            if cdp_url.is_none() {
+                                debug!("Found CDP URL (alternative): {} (from line: '{}')", url, line_trimmed);
                                 cdp_url = Some(url.to_string());
                             }
+                        }
                     }
                 }
             }
