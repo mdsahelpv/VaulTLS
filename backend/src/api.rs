@@ -1998,7 +1998,7 @@ pub(crate) async fn create_user(
     };
 
     let user_id = user.id;
-    let user_name = user.name.clone();
+    let _user_name = user.name.clone();
     user = state.db.insert_user(user).await?;
 
     info!(user=?user, "User created.");
@@ -3006,7 +3006,7 @@ use serde_json::{json, Value};
 // Simple audit logging function - logs to console for now
 async fn log_audit_event_simple(
     event_category: AuditEventCategory,
-    user_id: Option<i64>,
+    _user_id: Option<i64>,
     user_name: Option<&str>,
     action: &str,
     success: bool,

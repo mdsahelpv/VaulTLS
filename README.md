@@ -633,7 +633,7 @@ We welcome contributions to VaulTLS! Please see our contributing guidelines:
 
 ## 📋 Roadmap
 
-### ✅ Completed Features (v0.9.4)
+### ✅ Completed Features (v0.9.5)
 - ✅ Comprehensive test suite with 25+ test scenarios
 - ✅ Automated startup script for development
 - ✅ Database encryption support

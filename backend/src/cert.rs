@@ -2327,7 +2327,7 @@ pub(crate) async fn generate_ocsp_response(
     };
 
     // Create response
-    let response = OCSPResponse {
+    let _response = OCSPResponse {
         version: 1,
         response_status: OCSPResponseStatus::Successful,
         response_bytes: Some(single_response),
