@@ -9,6 +9,7 @@ import {
     revokeCertificate as revokeCertificateApi,
 } from '../api/certificates';
 import type {CertificateRequirements} from "@/types/CertificateRequirements.ts";
+import ApiClient from '../api/ApiClient';
 
 export const useCertificateStore = defineStore('certificate', {
     state: () => ({
@@ -114,6 +115,27 @@ export const useCertificateStore = defineStore('certificate', {
                 await this.fetchCertificates();
             } catch (err) {
                 this.error = 'Failed to revoke the certificate.';
+                console.error(err);
+                throw err;
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        // Sign a CSR and create a certificate
+        async signCsrCertificate(formData: FormData): Promise<any> {
+            this.loading = true;
+            this.error = null;
+            try {
+                const response = await ApiClient.post('/certificates/cert/sign-csr', formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data',
+                    },
+                });
+                await this.fetchCertificates();
+                return response;
+            } catch (err) {
+                this.error = 'Failed to sign the CSR.';
                 console.error(err);
                 throw err;
             } finally {

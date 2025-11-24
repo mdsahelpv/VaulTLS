@@ -164,3 +164,14 @@ pub struct CreateUserRequest {
     pub password: Option<String>,
     pub role: UserRole
 }
+
+#[derive(FromForm, JsonSchema)]
+pub struct CsrSignRequest<'r> {
+    pub ca_id: Option<String>,
+    pub user_id: String,
+    pub cert_name: String,
+    pub validity_in_days: Option<String>,
+    pub certificate_type: String, // "client" or "server"
+    #[schemars(skip)]
+    pub csr_file: rocket::fs::TempFile<'r>,
+}

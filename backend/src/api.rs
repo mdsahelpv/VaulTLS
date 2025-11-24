@@ -15,7 +15,7 @@ use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
-use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry};
+use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry, parse_csr_from_pem, ParsedCSR};
 use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
@@ -2307,6 +2307,199 @@ pub(crate) async fn get_revocation_status(
 
     let revocation = state.db.get_certificate_revocation(id).await?;
     Ok(Json(revocation))
+}
+
+#[derive(Deserialize, JsonSchema, Debug)]
+pub struct SignCsrRequest {
+    pub ca_id: i64,
+    pub user_id: i64,
+    pub certificate_type: Option<String>,
+    pub validity_in_days: Option<i64>,
+    pub cert_name: Option<String>,
+}
+
+#[openapi(tag = "Certificates")]
+#[post("/certificates/cert/sign-csr", format = "multipart/form-data", data = "<upload>")]
+/// Create and sign a certificate from a Certificate Signing Request (CSR). Requires admin role.
+pub(crate) async fn sign_csr_certificate(
+    state: &State<AppState>,
+    mut upload: rocket::form::Form<multipart::SignCsrUpload<'_>>,
+    _authentication: AuthenticatedPrivileged
+) -> Result<Json<Certificate>, ApiError> {
+    debug!("Signing certificate from CSR");
+
+    // Read the CSR file data
+    let mut csr_data = Vec::new();
+    let file_result = upload.csr_file.open().await;
+    let file = match file_result {
+        Ok(file) => file,
+        Err(e) => return Err(ApiError::Other(format!("Failed to open CSR file: {e}"))),
+    };
+
+    let mut reader = tokio::io::BufReader::new(file);
+    if let Err(e) = reader.read_to_end(&mut csr_data).await {
+        return Err(ApiError::Other(format!("Failed to read CSR file: {e}")));
+    }
+
+    if csr_data.is_empty() {
+        return Err(ApiError::BadRequest("CSR file is empty".to_string()));
+    }
+
+    // Parse the CSR
+    let parsed_csr = crate::cert::parse_csr_from_pem(&csr_data)
+        .map_err(|e| {
+            error!("Failed to parse CSR: {:?}", e);
+            ApiError::BadRequest("Failed to parse CSR. Please ensure it is a valid Certificate Signing Request in PEM or DER format.".to_string())
+        })?;
+
+    // Validate CSR (signature verification, etc.)
+    if !parsed_csr.signature_valid {
+        return Err(ApiError::BadRequest("CSR signature verification failed. The CSR may be corrupted or was not signed correctly.".to_string()));
+    }
+
+    debug!("CSR validation passed. Subject: <X509Name>, Key: {} {}", parsed_csr.key_algorithm, parsed_csr.key_size);
+
+    // Get the CA for signing
+    let ca = state.db.get_ca(upload.ca_id)
+        .await
+        .map_err(|_| ApiError::NotFound(Some("CA not found".to_string())))?;
+
+    debug!("Using CA '{}' for signing", ca.id);
+
+    // Check if we're in Root CA mode and restrict certificate types
+    let is_root_ca = state.settings.get_is_root_ca();
+    let cert_type = upload.certificate_type.as_deref().unwrap_or("client");
+
+    if is_root_ca && cert_type != "subordinate_ca" {
+        return Err(ApiError::BadRequest("Root CA Server can only issue subordinate CA certificates".to_string()));
+    }
+
+    // Convert string certificate type to enum
+    let certificate_type = match cert_type {
+        "client" => CertificateType::Client,
+        "server" => CertificateType::Server,
+        "subordinate_ca" => CertificateType::SubordinateCA,
+        _ => return Err(ApiError::BadRequest(format!("Invalid certificate type: {}", cert_type))),
+    };
+
+    // Get user information
+    let user = state.db.get_user(upload.user_id).await?;
+
+    // Determine certificate validity
+    let validity_in_days = upload.validity_in_days.unwrap_or(365);
+    let created_at = chrono::Utc::now();
+    let valid_until = created_at + chrono::Duration::days(validity_in_days);
+
+    // Generate certificate name from CSR or use provided name
+    let cert_name = upload.cert_name
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| {
+            // Try to extract common name from CSR subject
+            parsed_csr.subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "CSR-Certificate".to_string())
+        });
+
+    info!("Signing certificate '{}' for user '{}' with CA '{}'", cert_name, user.name, ca.id);
+
+    // Use CertificateBuilder from CSR
+    let pkcs12_password = get_password(false, &None); // No system password for CSR signing
+
+    let builder = CertificateBuilder::from_csr(&parsed_csr, Some(&ca))
+        .map_err(|e| {
+            error!("Failed to create CertificateBuilder from CSR: {}", e);
+            ApiError::Other("Failed to process CSR for certificate generation".to_string())
+        })?;
+
+    let builder = builder
+        .set_name(&cert_name)?
+        .set_certificate_type(certificate_type)?
+        .set_user_id(user.id)?
+        .set_validity_days(validity_in_days as u64)?
+        .set_pkcs12_password(&pkcs12_password)?;
+
+    // Build the certificate
+    let cert_result = match certificate_type {
+        CertificateType::Client => builder.build_csr_certificate(),
+        CertificateType::Server => builder.build_csr_certificate(),
+        CertificateType::SubordinateCA => builder.build_csr_certificate(),
+    };
+
+    let certificate = match cert_result {
+        Ok(cert) => cert,
+        Err(e) => {
+            error!("Failed to build CSR certificate: {:?}", e);
+            return Err(ApiError::Other(format!("Failed to build certificate from CSR: {e}")));
+        }
+    };
+
+    // Save to database
+    let certificate = state.db.insert_user_cert(certificate).await?;
+
+    info!("Certificate '{}' signed and created successfully (ID: {})", cert_name, certificate.id);
+
+    // Audit log certificate creation from CSR
+    if let Err(e) = state.audit.log_certificate_operation(
+        Some(_authentication._claims.id),
+        None, // TODO: get actual admin user name
+        None, // TODO: extract IP from request
+        None, // TODO: extract User-Agent from request
+        certificate.id,
+        &certificate.name,
+        "create_from_csr",
+        true,
+        Some(serde_json::json!({
+            "certificate_type": format!("{:?}", certificate_type),
+            "user_id": user.id,
+            "ca_id": ca.id,
+            "validity_days": validity_in_days,
+            "csr_signing": true
+        })),
+        None,
+        None,
+        None,
+    ).await {
+        warn!("Failed to log CSR certificate creation audit event: {}", e);
+    }
+
+    if Some(true) == upload.notify_user {
+        let mail = MailMessage{
+            to: format!("{} <{}>", user.name, user.email),
+            username: user.name,
+            certificate: certificate.clone()
+        };
+
+        debug!(mail=?mail, "Sending mail notification for CSR-signed certificate");
+
+        let mailer = state.mailer.clone();
+        tokio::spawn(async move {
+            if let Some(mailer) = &mut *mailer.lock().await {
+                let _ = mailer.notify_new_certificate(mail).await;
+            }
+        });
+    }
+
+    Ok(Json(certificate))
+}
+
+pub mod multipart {
+    use rocket::form::FromForm;
+    use rocket::fs::TempFile;
+    use rocket_okapi::JsonSchema;
+
+    #[derive(FromForm, JsonSchema, Debug)]
+    pub struct SignCsrUpload<'r> {
+        pub ca_id: i64,
+        pub user_id: i64,
+        pub certificate_type: Option<String>,
+        pub validity_in_days: Option<i64>,
+        pub cert_name: Option<String>,
+        pub notify_user: Option<bool>,
+        #[schemars(skip)]
+        pub csr_file: TempFile<'r>,
+    }
 }
 
 #[openapi(tag = "Certificates")]

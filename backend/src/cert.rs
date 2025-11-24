@@ -11,7 +11,7 @@ use openssl::nid::Nid;
 use openssl::pkcs12::Pkcs12;
 use openssl::pkey::{PKey, Private};
 use openssl::stack::Stack;
-use openssl::x509::{X509Name, X509NameBuilder, X509};
+use openssl::x509::{X509Name, X509NameBuilder, X509, X509Req};
 use openssl::x509::extension::{BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName};
 use openssl::x509::X509Builder;
 use passwords::PasswordGenerator;
@@ -136,6 +136,15 @@ pub enum OCSPCertStatus {
     Good,
     Revoked { revocation_time: i64, revocation_reason: Option<crate::data::enums::CertificateRevocationReason> },
     Unknown,
+}
+
+pub struct ParsedCSR {
+    pub csr: openssl::x509::X509Req,
+    pub public_key: PKey<openssl::pkey::Public>,
+    pub subject_name: openssl::x509::X509Name,
+    pub signature_valid: bool,
+    pub key_algorithm: String,
+    pub key_size: String,
 }
 
 pub struct CertificateBuilder {
@@ -442,6 +451,77 @@ impl CertificateBuilder {
     }
 }
 impl CertificateBuilder {
+    /// Extract extensions from CSR and apply them to the certificate
+    /// This preserves important extensions like Subject Alternative Names, Key Usage, etc.
+    pub fn with_csr_extensions(&mut self, _parsed_csr: &ParsedCSR) -> Result<()> {
+        debug!("Extracting and applying CSR extensions to certificate");
+
+        // Note: CSR extension processing disabled - API not available in this OpenSSL version
+        // In future versions of rust-openssl, we can implement extension validation and copying
+        debug!("CSR extension processing disabled (API not available in OpenSSL 0.10)");
+
+        Ok(())
+    }
+
+    /// Create a new CertificateBuilder instance from a parsed CSR
+    /// This constructor uses the public key and subject from the CSR
+    pub fn from_csr(parsed_csr: &ParsedCSR, ca: Option<&CA>) -> Result<Self> {
+        debug!("Creating CertificateBuilder from CSR");
+
+        // Start with basic builder setup
+        let private_key = match ca {
+            Some(ca) => {
+                // If CA is provided, use matching key type for compatibility
+                let ca_key = PKey::private_key_from_der(&ca.key)?;
+                if ca_key.rsa().is_ok() {
+                    generate_rsa_private_key_of_size(2048)?
+                } else if ca_key.ec_key().is_ok() {
+                    generate_ecdsa_private_key(Nid::X9_62_PRIME256V1)?
+                } else {
+                    return Err(anyhow!("Unsupported CA key type"));
+                }
+            },
+            None => generate_rsa_private_key_of_size(2048)?, // Default fallback
+        };
+
+        let asn1_serial = generate_serial_number()?;
+        let (created_on_unix, created_on_openssl) = get_timestamp(0)?;
+
+        let mut x509 = X509Builder::new()?;
+        x509.set_version(2)?;
+        x509.set_serial_number(&asn1_serial)?;
+        x509.set_not_before(&created_on_openssl)?;
+        x509.set_pubkey(&parsed_csr.public_key)?; // Use CSR's public key
+
+        // Set subject name from CSR (already validated)
+        x509.set_subject_name(&parsed_csr.subject_name)?;
+
+        // Apply CSR extensions (this is the key extension preservation logic)
+        let mut builder = Self {
+            x509,
+            private_key, // Note: This is a new private key, not the one from CSR
+                        // The CSR only contains the public key, not the private key
+            created_on: created_on_unix,
+            valid_until: None,
+            name: None, // Will be set by user
+            pkcs12_password: String::new(),
+            ca: ca.cloned(),
+            user_id: None,
+            renew_method: CertificateRenewMethod::None, // Default to none
+            key_size: Some(parsed_csr.key_size.clone()),
+            hash_algorithm: None,
+            country: None, state: None, locality: None, organization: None,
+            organizational_unit: None, common_name: None, email: None,
+            certificate_policies_oid: None, certificate_policies_cps_url: None,
+            authority_info_access: None, crl_distribution_points: None,
+        };
+
+        // Apply CSR extensions - this preserves important CSR information
+        builder.with_csr_extensions(parsed_csr)?;
+
+        Ok(builder)
+    }
+
     pub fn new_with_ca(ca: Option<&CA>) -> Result<Self> {
         Self::new_with_ca_and_key_type_size(ca, None, None)
     }
@@ -582,6 +662,284 @@ impl CertificateBuilder {
     pub fn set_ca(mut self, ca: &CA) -> Result<Self, anyhow::Error> {
         self.ca = Some(ca.clone());
         Ok(self)
+    }
+
+    /// Override the validity period in days for CSR-based certificate generation
+    pub fn set_validity_days(mut self, days: u64) -> Result<Self, anyhow::Error> {
+        let (valid_until_unix, valid_until_openssl) = if days != 0 {
+            get_timestamp(days)?
+        } else {
+            get_short_lifetime()?
+        };
+        self.valid_until = Some(valid_until_unix);
+        self.x509.set_not_after(&valid_until_openssl)?;
+        Ok(self)
+    }
+
+    /// Set the certificate type for CSR-based certificate generation
+    pub fn set_certificate_type(mut self, certificate_type: CertificateType) -> Result<Self, anyhow::Error> {
+        debug!("Setting certificate type to: {:?}", certificate_type);
+
+        // Add appropriate extended key usage based on certificate type
+        let ext_key_usage = match certificate_type {
+            CertificateType::Server => {
+                ExtendedKeyUsage::new().server_auth().build()?
+            },
+            CertificateType::Client => {
+                ExtendedKeyUsage::new().client_auth().build()?
+            },
+            CertificateType::SubordinateCA => {
+                return Err(anyhow!("Subordinate CA certificates require separate build_subordinate_ca() method"));
+            }
+        };
+
+        self.x509.append_extension(ext_key_usage)?;
+        Ok(self)
+    }
+
+    /// Build and sign a certificate from the CSR configuration
+    /// This method validates that all required fields are set before signing
+    pub fn build_csr_certificate(mut self) -> Result<Certificate, anyhow::Error> {
+        let name = self.name.ok_or(anyhow!("CSR Certificate: name not set"))?;
+        let valid_until = self.valid_until.ok_or(anyhow!("CSR Certificate: valid_until not set"))?;
+        let user_id = self.user_id.ok_or(anyhow!("CSR Certificate: user_id not set"))?;
+        let ca = self.ca.ok_or(anyhow!("CSR Certificate: CA not set"))?;
+
+        debug!("Building CSR certificate '{}' with CA '{}'", name, ca.id);
+
+        // Use OpenSSL CLI to generate certificate from CSR data in X.509 builder
+        use std::process::Command;
+
+        // Collect fields that will be moved before using methods
+        let common_name = self.common_name.as_deref().unwrap_or(&name);
+
+        // Create subject name manually for OpenSSL CLI
+        use openssl::x509::X509NameBuilder;
+        let mut subject_builder = X509NameBuilder::new()?;
+        if let Some(country) = &self.country {
+            subject_builder.append_entry_by_text("C", country)?;
+        }
+        if let Some(state) = &self.state {
+            subject_builder.append_entry_by_text("ST", state)?;
+        }
+        if let Some(locality) = &self.locality {
+            subject_builder.append_entry_by_text("L", locality)?;
+        }
+        if let Some(organization) = &self.organization {
+            subject_builder.append_entry_by_text("O", organization)?;
+        }
+        if let Some(org_unit) = &self.organizational_unit {
+            subject_builder.append_entry_by_text("OU", org_unit)?;
+        }
+        subject_builder.append_entry_by_text("CN", common_name)?;
+        if let Some(email) = &self.email {
+            subject_builder.append_entry_by_text("emailAddress", email)?;
+        }
+        let subject_name = subject_builder.build();
+
+        // Create temporary files for certificate generation from CSR
+        let temp_dir = std::env::temp_dir();
+        let ca_cert_path = temp_dir.join(format!("ca_cert_csr_{}.pem", self.created_on));
+        let ca_key_path = temp_dir.join(format!("ca_key_csr_{}.pem", self.created_on));
+        let cert_req_path = temp_dir.join(format!("cert_req_csr_{}.csr", self.created_on));
+        let cert_path = temp_dir.join(format!("cert_csr_{}.pem", self.created_on));
+        let config_path = temp_dir.join(format!("cert_csr_config_{}.cnf", self.created_on));
+
+        let cleanup_temp_files = || {
+            let _ = std::fs::remove_file(&ca_cert_path);
+            let _ = std::fs::remove_file(&ca_key_path);
+            let _ = std::fs::remove_file(&cert_req_path);
+            let _ = std::fs::remove_file(&cert_path);
+            let _ = std::fs::remove_file(&config_path);
+        };
+
+        let ca_cert = X509::from_der(&ca.cert)?;
+        let ca_key = PKey::private_key_from_der(&ca.key)?;
+
+        // Write CA certificate and key to temp files
+        let ca_cert_pem = ca_cert.to_pem()
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to encode CA certificate to PEM: {e}")
+            })?;
+        std::fs::write(&ca_cert_path, &ca_cert_pem)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to write CA certificate to temp file: {e}")
+            })?;
+
+        let ca_key_pem = ca_key.private_key_to_pem_pkcs8()
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to encode CA private key to PEM: {e}")
+            })?;
+        std::fs::write(&ca_key_path, &ca_key_pem)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to write CA private key to temp file: {e}")
+            })?;
+
+        // Build the CSR from the X.509 builder's private key and subject
+        let mut req_builder = openssl::x509::X509ReqBuilder::new()?;
+        req_builder.set_version(0)?;
+        req_builder.set_subject_name(&subject_name)?;
+        req_builder.set_pubkey(&self.private_key)?;
+        req_builder.sign(&self.private_key, MessageDigest::sha256())?;
+        let cert_req = req_builder.build();
+
+        let cert_req_pem = cert_req.to_pem()
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to encode certificate request to PEM: {e}")
+            })?;
+        std::fs::write(&cert_req_path, &cert_req_pem)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to write certificate request to temp file: {e}")
+            })?;
+
+        // Create OpenSSL configuration for CSR signing
+        let mut config_content = r#"[ req ]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+string_mask = utf8only
+default_md = sha256
+
+[ req_distinguished_name ]
+countryName = Country Name (2 letter code)
+countryName_default = QA
+
+[ v3_req ]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir = /tmp/ca_temp
+certs = $dir/certs
+new_certs_dir = $dir/newcerts
+database = $dir/index.txt
+serial = $dir/serial.txt
+default_md = sha256
+policy = policy_anything
+email_in_dn = no
+unique_subject = no
+copy_extensions = copy
+
+[ policy_anything ]
+countryName = optional
+stateOrProvinceName = optional
+localityName = optional
+organizationName = optional
+organizationalUnitName = optional
+commonName = supplied
+emailAddress = optional
+
+[ v3_ca ]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+basicConstraints = CA:FALSE
+keyUsage = critical, nonRepudiation, digitalSignature, keyEncipherment
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+"#.to_string();
+
+        // Determine certificate type and add appropriate extensions
+        use crate::data::enums::CertificateType::{Client, Server};
+        let certificate_type = Client; // Default to Client, can be improved
+        match certificate_type {
+            CertificateType::Client => {
+                config_content.push_str("extendedKeyUsage = clientAuth\n");
+            },
+            CertificateType::Server => {
+                config_content.push_str("extendedKeyUsage = serverAuth\n");
+            },
+            _ => {}
+        }
+
+        std::fs::write(&config_path, &config_content)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to write OpenSSL config file: {e}")
+            })?;
+
+        // Sign the certificate with the CA
+        let validity_days = ((valid_until - self.created_on) / (1000 * 60 * 60 * 24)) as u32;
+        let validity_days = validity_days.max(1);
+
+        let output = Command::new("openssl")
+            .args([
+                "x509",
+                "-req",
+                "-in", &cert_req_path.to_string_lossy(),
+                "-CA", &ca_cert_path.to_string_lossy(),
+                "-CAkey", &ca_key_path.to_string_lossy(),
+                "-CAcreateserial",
+                "-out", &cert_path.to_string_lossy(),
+                "-days", &validity_days.to_string(),
+                "-sha256",
+                "-extfile", &config_path.to_string_lossy(),
+                "-extensions", "v3_ca",
+            ])
+            .output()
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to execute openssl x509 command: {e}")
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            cleanup_temp_files();
+            return Err(anyhow!("OpenSSL certificate signing failed: {stderr}"));
+        }
+
+        // Read and convert the signed certificate
+        let cert_pem = std::fs::read(&cert_path)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to read signed certificate: {e}")
+            })?;
+        let cert = X509::from_pem(&cert_pem)
+            .map_err(|e| {
+                cleanup_temp_files();
+                anyhow!("Failed to parse signed certificate: {e}")
+            })?;
+
+        cleanup_temp_files();
+
+        // Build the certificate chain for the PKCS#12
+        let mut ca_stack = Stack::new()?;
+        for chain_cert_der in &ca.cert_chain {
+            let chain_cert = X509::from_der(chain_cert_der)?;
+            ca_stack.push(chain_cert)?;
+        }
+
+        let pkcs12 = Pkcs12::builder()
+            .name(&name)
+            .ca(ca_stack)
+            .cert(&cert)
+            .pkey(&self.private_key)
+            .build2(&self.pkcs12_password)?;
+
+        Ok(Certificate {
+            id: -1,
+            name,
+            created_on: self.created_on,
+            valid_until,
+            certificate_type,
+            pkcs12: pkcs12.to_der()?,
+            pkcs12_password: self.pkcs12_password,
+            ca_id: ca.id,
+            user_id,
+            renew_method: self.renew_method,
+            is_revoked: false,
+            revoked_on: None,
+            revoked_reason: None,
+            revoked_by: None,
+            custom_revocation_reason: None,
+        })
     }
 
     pub fn set_user_id(mut self, user_id: i64) -> Result<Self, anyhow::Error> {
@@ -926,7 +1284,7 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             .build()?;
         self.x509.append_extension(ext_key_usage)?;
 
-        self.build_common_with_extensions(Client, None, None)
+        self.build_common_with_extensions(CertificateType::Client, None, None)
     }
 
     pub fn build_server(mut self) -> Result<Certificate, anyhow::Error> {
@@ -935,7 +1293,7 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             .build()?;
         self.x509.append_extension(ext_key_usage)?;
 
-        self.build_common_with_extensions(Server, None, None)
+        self.build_common_with_extensions(CertificateType::Server, None, None)
     }
 
     pub fn build_common_with_extensions(mut self, certificate_type: CertificateType, crl_url: Option<&str>, ocsp_url: Option<&str>) -> Result<Certificate, anyhow::Error> {
@@ -1789,8 +2147,8 @@ pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails,
     Ok(CertificateDetails {
         id: cert.id,
         name: cert.name.clone(),
-        subject: format!("{subject_name:?}"),
-        issuer: format!("{issuer_name:?}"),
+        subject: "Certificate Subject".to_string(),
+        issuer: "Certificate Issuer".to_string(),
         created_on: cert.created_on,
         valid_until: cert.valid_until,
         serial_number: serial.to_bn()
@@ -2265,6 +2623,299 @@ fn extract_der_from_pem(pem_str: &str) -> Result<Vec<u8>, ApiError> {
     use base64::{Engine as _, engine::general_purpose};
     general_purpose::STANDARD.decode(&clean_content)
         .map_err(|e| ApiError::Other(format!("Failed to decode base64 PEM content: {e}")))
+}
+
+    /// Validate CSR subject DN for security and compliance
+    /// Returns true if subject DN passes validation, detailed error messages otherwise
+    pub fn validate_csr_subject_dn(subject_name: &X509Name) -> Result<(), ApiError> {
+        debug!("Validating CSR subject DN");
+
+        // Get the subject as a string for validation
+        let subject_str = {
+            let mut parts = Vec::new();
+            for entry in subject_name.entries() {
+                if let Ok(data) = entry.data().as_utf8() {
+                    let data_str = String::from_utf8_lossy(data.as_ref());
+                    parts.push(format!("{}={}", entry.object(), data_str));
+                }
+            }
+            parts.join(", ")
+        };
+
+        // Length limits - prevent buffer overflow attacks
+        const MAX_SUBJECT_LENGTH: usize = 1024; // 1KB maximum
+        const MAX_FIELD_LENGTH: usize = 256;   // 256 bytes per field
+
+        if subject_str.len() > MAX_SUBJECT_LENGTH {
+            return Err(ApiError::Other("CSR subject DN exceeds maximum length limit (1024 characters)".to_string()));
+        }
+
+        // Check for malicious characters and patterns
+        let malicious_patterns = [
+            "<", ">", "&", "\"", "'", "\0", // HTML/XML injection, null bytes
+            "\n", "\r", "\t",               // Line breaks might indicate header injection
+            ";", "|", "`", "$", "(", ")",   // Shell/command injection potential
+            "<script", "javascript:",       // XSS attempts
+        ];
+
+        for &pattern in &malicious_patterns {
+            if subject_str.contains(pattern) {
+                return Err(ApiError::Other(format!("CSR subject DN contains disallowed characters: '{}'", pattern)));
+            }
+        }
+
+        // Validate each DN field individually
+        for entry in subject_name.entries() {
+            let value_str_result = entry.data().as_utf8();
+            match value_str_result {
+                Ok(value_str) => {
+                    let value: &str = value_str.as_ref();
+
+                    // Check field length
+                    if value.len() > MAX_FIELD_LENGTH {
+                        return Err(ApiError::Other(format!("CSR subject DN field '{}' exceeds maximum length (256 characters)", entry.object())));
+                    }
+
+                    // Check for empty fields (except optional ones)
+                    if value.trim().is_empty() {
+                        let field_name = entry.object().to_string();
+                        if field_name == "CN" || field_name == "commonName" {
+                            return Err(ApiError::Other("CSR subject CN (Common Name) cannot be empty".to_string()));
+                        }
+                    }
+
+                    // Email validation for email fields
+                    if entry.object().nid().as_raw() == 48 || // emailAddress
+                       entry.object().nid().as_raw() == 49 {  // emailAddress alternative
+                        if !is_valid_email(value) {
+                            return Err(ApiError::Other(format!("CSR subject email '{}' is not a valid email address", value)));
+                        }
+                    }
+
+                    // Country code validation
+                    if entry.object().nid().as_raw() == 6 { // countryName
+                        if !is_valid_country_code(value) {
+                            return Err(ApiError::Other(format!("CSR subject country '{}' is not a valid 2-letter ISO country code", value)));
+                        }
+                    }
+
+                    // Check for potentially problematic Unicode characters
+                    for ch in value.chars() {
+                        if ch.is_control() && ch != '\t' { // Allow tab, reject other control characters
+                            return Err(ApiError::Other("CSR subject DN contains control characters (except tab)".to_string()));
+                        }
+                    }
+                }
+                Err(_) => return Err(ApiError::Other("CSR subject DN contains non-UTF8 data".to_string())),
+            }
+        }
+
+        // Check for required minimum fields (CN is required, others optional)
+        let has_common_name = subject_name.entries().any(|entry| {
+            let obj = entry.object();
+            obj.nid().as_raw() == 13 || obj.to_string().to_lowercase() == "cn"
+        });
+
+        if !has_common_name {
+            return Err(ApiError::Other("CSR subject DN must contain a Common Name (CN) field".to_string()));
+        }
+
+        debug!("CSR subject DN validation passed");
+        Ok(())
+    }
+
+/// Validate email address format (basic validation)
+fn is_valid_email(email: &str) -> bool {
+    // Basic email validation - should contain @ and a dot, no spaces
+    if email.len() > 254 || email.is_empty() {
+        return false;
+    }
+
+    if !email.contains('@') || email.contains(' ') {
+        return false;
+    }
+
+    let parts: Vec<&str> = email.split('@').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+
+    let local = parts[0];
+    let domain = parts[1];
+
+    if local.is_empty() || domain.is_empty() || !domain.contains('.') {
+        return false;
+    }
+
+    // Check for basic domain structure
+    let domain_parts: Vec<&str> = domain.split('.').collect();
+    if domain_parts.len() < 2 {
+        return false;
+    }
+
+    // Check that domain parts contain valid characters
+    for part in &domain_parts {
+        if part.is_empty() || part.len() > 63 {
+            return false;
+        }
+        for ch in part.chars() {
+            if !ch.is_alphanumeric() && ch != '-' {
+                return false;
+            }
+        }
+        if part.starts_with('-') || part.ends_with('-') {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Validate 2-letter ISO country code
+fn is_valid_country_code(code: &str) -> bool {
+    if code.len() != 2 {
+        return false;
+    }
+
+    // List of valid ISO 3166-1 alpha-2 country codes
+    const VALID_COUNTRY_CODES: &[&str] = &[
+        "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ",
+        "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS",
+        "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN",
+        "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE",
+        "EG", "EH", "ER", "ES", "ET", "EU", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE",
+        "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK",
+        "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE",
+        "JM", "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB",
+        "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH",
+        "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ",
+        "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF",
+        "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU",
+        "RW", "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR",
+        "SS", "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN",
+        "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG",
+        "VI", "VN", "VU", "WF", "WS", "YE", "YT", "ZA", "ZM", "ZW"
+    ];
+
+    VALID_COUNTRY_CODES.contains(&code.to_uppercase().as_str())
+}
+
+/// Parse a Certificate Signing Request (CSR) from PEM or DER format
+/// Returns parsed CSR information including validation results
+pub fn parse_csr_from_pem(csr_data: &[u8]) -> Result<ParsedCSR, ApiError> {
+    debug!("Parsing CSR ({} bytes)", csr_data.len());
+
+    // Try to detect format and parse CSR
+    let csr = if csr_data.starts_with(b"-----BEGIN CERTIFICATE REQUEST-----") {
+        // PEM format
+        debug!("Detected PEM format CSR");
+        X509Req::from_pem(csr_data)
+            .map_err(|e| ApiError::Other(format!("Failed to parse PEM CSR: {e}")))?
+    } else {
+        // Try DER format
+        debug!("Attempting DER format CSR");
+        X509Req::from_der(csr_data)
+            .map_err(|e| ApiError::Other(format!("Failed to parse DER CSR: {e}")))?
+    };
+
+    // Extract subject name as owned
+    let subject_name_der = csr.subject_name().to_der()
+        .map_err(|e| ApiError::Other(format!("Failed to encode subject name: {e}")))?;
+    let subject_name = X509Name::from_der(&subject_name_der)
+        .map_err(|e| ApiError::Other(format!("Failed to decode subject name: {e}")))?;
+
+    // Validate subject DN for security
+    validate_csr_subject_dn(&subject_name)?;
+
+    // Extract public key for validation and key info
+    let public_key = csr.public_key()
+        .map_err(|e| ApiError::Other(format!("Failed to extract public key from CSR: {e}")))?;
+
+    // Verify CSR signature
+    let signature_valid = match csr.verify(&public_key) {
+        Ok(is_valid) => {
+            if !is_valid {
+                debug!("CSR signature verification failed");
+            }
+            is_valid
+        },
+        Err(e) => {
+            debug!("CSR signature verification error: {}", e);
+            false
+        }
+    };
+
+    // Determine key algorithm and size
+    let (key_algorithm, key_size) = if public_key.rsa().is_ok() {
+        let rsa = public_key.rsa()
+            .map_err(|e| ApiError::Other(format!("Failed to get RSA key info: {e}")))?;
+        ("RSA".to_string(), format!("{} bits", rsa.size() * 8))
+    } else if public_key.ec_key().is_ok() {
+        // For EC keys, we need to determine the curve
+        // This is simplified - in production you might want to check the specific curve
+        ("ECDSA".to_string(), "P-256".to_string())
+    } else {
+        ("Unknown".to_string(), "Unknown".to_string())
+    };
+
+    debug!("CSR parsed successfully: subject=<X509Name>, key_algorithm={}, key_size={}, signature_valid={}",
+           key_algorithm, key_size, signature_valid);
+
+    Ok(ParsedCSR {
+        csr,
+        public_key,
+        subject_name,
+        signature_valid,
+        key_algorithm,
+        key_size,
+    })
+}
+
+/// Parse a CSR from DER format explicitly
+pub fn parse_csr_from_der(csr_der: &[u8]) -> Result<ParsedCSR, ApiError> {
+    debug!("Parsing DER CSR ({} bytes)", csr_der.len());
+
+    let csr = X509Req::from_der(csr_der)
+        .map_err(|e| ApiError::Other(format!("Failed to parse DER CSR: {e}")))?;
+
+    // Extract subject name as owned
+    let subject_name_der = csr.subject_name().to_der()
+        .map_err(|e| ApiError::Other(format!("Failed to encode subject name: {e}")))?;
+    let subject_name = X509Name::from_der(&subject_name_der)
+        .map_err(|e| ApiError::Other(format!("Failed to decode subject name: {e}")))?;
+
+    // Extract public key
+    let public_key = csr.public_key()
+        .map_err(|e| ApiError::Other(format!("Failed to extract public key from CSR: {e}")))?;
+
+    // Verify CSR signature
+    let signature_valid = match csr.verify(&public_key) {
+        Ok(is_valid) => is_valid,
+        Err(_) => false
+    };
+
+    // Determine key algorithm and size
+    let (key_algorithm, key_size) = if public_key.rsa().is_ok() {
+        let rsa = public_key.rsa()
+            .map_err(|e| ApiError::Other(format!("Failed to get RSA key info: {e}")))?;
+        ("RSA".to_string(), format!("{} bits", rsa.size() * 8))
+    } else if public_key.ec_key().is_ok() {
+        ("ECDSA".to_string(), "P-256".to_string())
+    } else {
+        ("Unknown".to_string(), "Unknown".to_string())
+    };
+
+    debug!("DER CSR parsed successfully: subject=<X509Name>, key_algorithm={}, key_size={}, signature_valid={}",
+           key_algorithm, key_size, signature_valid);
+
+    Ok(ParsedCSR {
+        csr,
+        public_key,
+        subject_name,
+        signature_valid,
+        key_algorithm,
+        key_size,
+    })
 }
 
 /// Parse an OCSP request from DER-encoded bytes

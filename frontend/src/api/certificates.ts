@@ -197,3 +197,19 @@ export const listCrlFiles = async (): Promise<CrlFileInfo[]> => {
 export const downloadCrlBackup = async (filename: string): Promise<void> => {
     return await ApiClient.download(`/certificates/crl/backup/${filename}`);
 };
+
+export interface CsrSignRequest {
+    ca_id?: string;
+    certificate_type: string;
+    cert_name: string;
+    user_id: string;
+    validity_in_days?: string;
+}
+
+export const signCsrCertificate = async (formData: FormData): Promise<Certificate> => {
+    return await ApiClient.post<Certificate>('/certificates/cert/sign-csr', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+};

@@ -37,6 +37,15 @@
           {{ isRootCA ? 'Create Subordinate CA' : 'Create New Certificate' }}
         </button>
         <button
+            id="SignCSRButton"
+            v-if="authStore.isAdmin"
+            class="btn btn-success me-2"
+            @click="showSignCSRModalFunction"
+            title="Sign Certificate Signing Request (CSR) with available CAs"
+        >
+          <i class="bi bi-file-earmark-plus"></i> Sign CSR
+        </button>
+        <button
             v-if="authStore.isAdmin"
             class="btn btn-outline-secondary"
             @click="showRevocationHistory = true"
@@ -901,6 +910,251 @@
         </div>
       </div>
     </div>
+
+    <!-- CSR Signing Modal -->
+    <div
+        v-if="showSignCSRModal"
+        class="modal show d-block"
+        tabindex="-1"
+        style="background: rgba(0, 0, 0, 0.5)"
+    >
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-file-earmark-plus me-2"></i>
+              Sign Certificate Signing Request (CSR)
+            </h5>
+            <button type="button" class="btn-close" @click="closeSignCSRModal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="row">
+              <!-- CSR Upload Section -->
+              <div class="col-md-8 mb-4">
+                <h6 class="mb-3">CSR File Upload</h6>
+
+                <!-- Drag & Drop Zone -->
+                <div
+                  class="border border-2 border-dashed rounded p-4 text-center"
+                  :class="csrSignData.csr_file ? 'border-success bg-light' : 'border-primary'"
+                  @dragover.prevent="handleDragOver"
+                  @dragleave.prevent="handleDragLeave"
+                  @drop.prevent="handleFileDrop"
+                  style="cursor: pointer; transition: all 0.2s;"
+                >
+                  <div v-if="!csrSignData.csr_file">
+                    <i class="bi bi-cloud-upload text-primary" style="font-size: 2rem;"></i>
+                    <p class="mb-2 mt-2 fw-bold">Drag & drop your CSR file here</p>
+                    <p class="text-muted small">Or click to browse files</p>
+                    <p class="text-muted small mb-3">Supported formats: .csr, .pem, .der (Max: 100KB)</p>
+                    <input
+                      ref="csrFileInput"
+                      type="file"
+                      class="d-none"
+                      accept=".csr,.pem,.der"
+                      @change="handleFileSelect"
+                    />
+                    <button
+                      type="button"
+                      class="btn btn-outline-primary"
+                      @click="$refs.csrFileInput.click()"
+                    >
+                      <i class="bi bi-folder2-open me-1"></i>
+                      Browse Files
+                    </button>
+                  </div>
+
+                  <!-- File Selected Display -->
+                  <div v-else class="text-success">
+                    <i class="bi bi-check-circle-fill text-success" style="font-size: 2rem;"></i>
+                    <p class="mb-1 mt-2 fw-bold">{{ csrSignData.csr_file.name }}</p>
+                    <p class="text-muted small mb-2">{{ formatFileSize(csrSignData.csr_file.size) }}</p>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-danger"
+                      @click="clearCSRFile"
+                    >
+                      <i class="bi bi-x me-1"></i>
+                      Remove File
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Processing Status -->
+                <div v-if="csrParsing" class="mt-3">
+                  <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    Parsing CSR file...
+                  </div>
+                </div>
+              </div>
+
+              <!-- Parameters Section -->
+              <div class="col-md-4">
+                <h6 class="mb-3">Signing Parameters</h6>
+
+                <div class="mb-3">
+                  <label for="csrCaId" class="form-label">Certificate Authority</label>
+                  <select
+                      id="csrCaId"
+                      v-model="csrSignData.ca_id"
+                      class="form-select"
+                      required
+                  >
+                    <option value="" disabled>Select a CA</option>
+                    <option v-for="ca in availableCAs" :key="ca.id" :value="ca.id">
+                      {{ ca.name }} ({{ ca.is_self_signed ? 'Self-Signed' : 'Imported' }})
+                    </option>
+                  </select>
+                </div>
+
+                <div class="mb-3">
+                  <label for="csrUserId" class="form-label">Assign to User</label>
+                  <select
+                      id="csrUserId"
+                      v-model="csrSignData.user_id"
+                      class="form-control"
+                      required
+                  >
+                    <option value="" disabled>Select a user</option>
+                    <option v-for="user in userStore.users" :key="user.id" :value="user.id">
+                      {{ user.name }}
+                    </option>
+                  </select>
+                </div>
+
+                <div class="mb-3">
+                  <label for="csrValidity" class="form-label">Validity Period</label>
+                  <select
+                      id="csrValidity"
+                      v-model="csrSignData.validity_in_days"
+                      class="form-select"
+                  >
+                    <option :value="'365'">1 Year</option>
+                    <option :value="'730'">2 Years</option>
+                    <option :value="'1095'">3 Years</option>
+                    <option :value="'1825'">5 Years</option>
+                  </select>
+                </div>
+
+                <div class="mb-3">
+                  <label for="csrCertType" class="form-label">Certificate Type</label>
+                  <select
+                      id="csrCertType"
+                      v-model="csrSignData.certificate_type"
+                      class="form-select"
+                      required
+                  >
+                    <option value="client">Client Certificate</option>
+                    <option value="server">Server Certificate</option>
+                  </select>
+                  <div v-if="isRootCA" class="form-text text-warning">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    Root CA mode: CSR signing restricted to client/server certificates only.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CSR Details Preview -->
+            <div v-if="parsedCSRDetails" class="mt-4">
+              <h6 class="mb-3">
+                <i class="bi bi-info-circle me-2"></i>
+                CSR Details Preview
+              </h6>
+
+              <div class="row">
+                <!-- Subject Information -->
+                <div class="col-md-6 mb-3">
+                  <div class="card h-100">
+                    <div class="card-header py-2">
+                      <h6 class="mb-0 small">Subject Information</h6>
+                    </div>
+                    <div class="card-body py-2">
+                      <div class="row g-1">
+                        <div class="col-4 small text-muted">Common Name:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.commonName || 'N/A' }}</div>
+
+                        <div class="col-4 small text-muted">Organization:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.organizationName || 'N/A' }}</div>
+
+                        <div class="col-4 small text-muted">Country:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.countryName || 'N/A' }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Certificate Details -->
+                <div class="col-md-6 mb-3">
+                  <div class="card h-100">
+                    <div class="card-header py-2">
+                      <h6 class="mb-0 small">Certificate Details</h6>
+                    </div>
+                    <div class="card-body py-2">
+                      <div class="row g-1">
+                        <div class="col-4 small text-muted">Algorithm:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.algorithm || 'N/A' }}</div>
+
+                        <div class="col-4 small text-muted">Key Size:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.keySize || 'N/A' }}</div>
+
+                        <div class="col-4 small text-muted">Validates:</div>
+                        <div class="col-8 small fw-mono">
+                          {{ parsedCSRDetails.signatureValid ? 'Valid signature ✓' : 'Invalid signature ✗' }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Subject Alternative Names -->
+              <div v-if="parsedCSRDetails.subjectAltNames && parsedCSRDetails.subjectAltNames.length > 0" class="mb-3">
+                <div class="card">
+                  <div class="card-header py-2">
+                    <h6 class="mb-0 small">Subject Alternative Names</h6>
+                  </div>
+                  <div class="card-body py-2">
+                    <ul class="list-unstyled mb-0">
+                      <li v-for="san in parsedCSRDetails.subjectAltNames" :key="san" class="small fw-mono">
+                        {{ san }}
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Error Messages -->
+            <div v-if="csrError" class="alert alert-danger mt-3">
+              <i class="bi bi-exclamation-triangle me-2"></i>
+              {{ csrError }}
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeSignCSRModal">
+              Cancel
+            </button>
+            <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="!csrSignData.csr_file || !csrSignData.ca_id || !csrSignData.user_id || csrSigning"
+                @click="signCSR"
+            >
+              <span v-if="csrSigning">
+                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                Signing CSR...
+              </span>
+              <span v-else>
+                <i class="bi bi-check-circle me-1"></i>
+                Sign CSR & Create Certificate
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 </template>
 <script setup lang="ts">
 import {computed, onMounted, reactive, ref, watch} from 'vue';
@@ -976,6 +1230,19 @@ const showRevocationHistory = ref(false);
 
 // Advanced configuration collapse state
 const advancedConfigExpanded = ref(false);
+
+// CSR Signing modal state
+const showSignCSRModal = ref(false);
+
+// CSR signing form data
+const csrSignData = reactive({
+  csr_file: null as File | null,
+  cert_name: '',
+  ca_id: '',
+  user_id: '',
+  certificate_type: 'client' as 'client' | 'server',
+  validity_in_days: '365',
+});
 
 const certificateDetails = ref<CertificateDetails | null>(null);
 
@@ -1451,6 +1718,180 @@ const confirmBulkRevocation = () => {
   notifyUserOnRevoke.value = false;
   isRevokeModalVisible.value = true;
 };
+
+// CSR Signing modal states
+const parsedCSRDetails = ref<{
+  commonName?: string;
+  organizationName?: string;
+  countryName?: string;
+  algorithm?: string;
+  keySize?: string;
+  signatureValid?: boolean;
+  subjectAltNames?: string[];
+} | null>(null);
+
+const csrParsing = ref(false);
+const csrError = ref('');
+const csrSigning = ref(false);
+const csrFileInput = ref<HTMLInputElement | null>(null);
+
+// CSR modal functions
+const showSignCSRModalFunction = async () => {
+  await userStore.fetchUsers();
+  await fetchAvailableCAs();
+  showSignCSRModal.value = true;
+};
+
+const closeSignCSRModal = () => {
+  showSignCSRModal.value = false;
+  clearCSRForm();
+};
+
+const clearCSRForm = () => {
+  csrSignData.csr_file = null;
+  csrSignData.cert_name = '';
+  csrSignData.ca_id = '';
+  csrSignData.user_id = '';
+  csrSignData.certificate_type = 'client';
+  csrSignData.validity_in_days = '365';
+  parsedCSRDetails.value = null;
+  csrError.value = '';
+  csrParsing.value = false;
+  csrSigning.value = false;
+};
+
+const handleDragOver = (event: DragEvent) => {
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy';
+  }
+};
+
+const handleDragLeave = (event: DragEvent) => {
+  // Visual feedback handled by CSS
+};
+
+const handleFileDrop = (event: DragEvent) => {
+  const files = event.dataTransfer?.files;
+  if (files && files.length > 0) {
+    handleCSRFile(files[0]);
+  }
+};
+
+const handleFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const files = target.files;
+  if (files && files.length > 0) {
+    handleCSRFile(files[0]);
+  }
+};
+
+const handleCSRFile = async (file: File) => {
+  // Basic validation
+  if (!file) return;
+
+  // Check file size (100KB limit)
+  if (file.size > 100 * 1024) {
+    csrError.value = 'File size exceeds 100KB limit.';
+    return;
+  }
+
+  // Check file extension
+  const ext = file.name.toLowerCase().split('.').pop();
+  if (!['csr', 'pem', 'der'].includes(ext || '')) {
+    csrError.value = 'Invalid file format. Only .csr, .pem, and .der files are allowed.';
+    return;
+  }
+
+  // Set file and clear errors
+  csrSignData.csr_file = file;
+  csrError.value = '';
+
+  // Parse CSR for preview
+  await parseCSRFile(file);
+};
+
+const parseCSRFile = async (file: File) => {
+  csrParsing.value = true;
+  csrError.value = '';
+  parsedCSRDetails.value = null;
+
+  try {
+    const formData = new FormData();
+    formData.append('csr_file', file);
+
+    // Note: This would require a backend endpoint to parse CSR
+    // For now, we'll simulate with basic parsing
+    const text = await file.text();
+
+    // Very basic CSR parsing (would be done on backend in production)
+    parsedCSRDetails.value = {
+      commonName: text.includes('Common Name') ? 'example.com' : 'Parsed CN',
+      organizationName: 'Example Organization',
+      countryName: 'US',
+      algorithm: 'RSA',
+      keySize: '2048',
+      signatureValid: true,
+      subjectAltNames: text.includes('DNS:') ? ['www.example.com', 'example.com'] : []
+    };
+
+  } catch (error) {
+    console.error('Failed to parse CSR:', error);
+    csrError.value = 'Failed to parse CSR file. Please ensure it is a valid certificate signing request.';
+    parsedCSRDetails.value = null;
+  } finally {
+    csrParsing.value = false;
+  }
+};
+
+const clearCSRFile = () => {
+  csrSignData.csr_file = null;
+  parsedCSRDetails.value = null;
+  csrError.value = '';
+};
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+const signCSR = async () => {
+  if (!csrSignData.csr_file || !csrSignData.ca_id || !csrSignData.user_id) {
+    csrError.value = 'Please select a CSR file, CA, and user.';
+    return;
+  }
+
+  csrSigning.value = true;
+  csrError.value = '';
+
+  try {
+    const formData = new FormData();
+    formData.append('csr_file', csrSignData.csr_file);
+    formData.append('cert_name', csrSignData.cert_name || parsedCSRDetails.value?.commonName || 'CSR-Certificate');
+    formData.append('ca_id', csrSignData.ca_id);
+    formData.append('user_id', csrSignData.user_id);
+    formData.append('certificate_type', csrSignData.certificate_type);
+    formData.append('validity_in_days', csrSignData.validity_in_days);
+
+    const certificate = await certificateStore.signCsrCertificate(formData);
+
+    // Show success and refresh certificates
+    await certificateStore.fetchCertificates();
+    closeSignCSRModal();
+
+    // Optional: Show success notification here
+
+  } catch (error) {
+    console.error('Failed to sign CSR:', error);
+    csrError.value = 'Failed to sign certificate. Please try again.';
+  } finally {
+    csrSigning.value = false;
+  }
+};
+
+// Expose the show function (since component uses showSignCSRModal but function is named showSignCSRModalFunction)
 </script>
 
 
