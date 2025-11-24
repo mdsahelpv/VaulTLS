@@ -2170,6 +2170,7 @@ pub struct RevocationHistoryEntry {
     pub certificate_name: String,
     pub revocation_date: i64,
     pub revocation_reason: crate::data::enums::CertificateRevocationReason,
+    pub revocation_reason_text: String, // Human-readable reason text
     pub custom_reason: Option<String>,
     pub revoked_by_user_id: Option<i64>,
 }
@@ -2337,6 +2338,7 @@ pub(crate) async fn get_revocation_history(
             certificate_name,
             revocation_date: record.revocation_date,
             revocation_reason: record.revocation_reason,
+            revocation_reason_text: record.revocation_reason.as_str().to_string(),
             custom_reason: record.custom_reason,
             revoked_by_user_id: record.revoked_by_user_id,
         });

@@ -138,6 +138,16 @@ pub enum CertificateRevocationReason {
     Specify = 2,
 }
 
+impl CertificateRevocationReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CertificateRevocationReason::Unspecified => "Unspecified",
+            CertificateRevocationReason::CertificateHold => "Certificate Hold",
+            CertificateRevocationReason::Specify => "Specify (custom reason)",
+        }
+    }
+}
+
 impl FromSql for CertificateRevocationReason {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         match value {
