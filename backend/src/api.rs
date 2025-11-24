@@ -2210,15 +2210,9 @@ pub(crate) async fn revoke_certificate(
         return Err(ApiError::BadRequest("Certificate is already revoked".to_string()));
     }
 
-    // Validate that if reason is Specify, custom_reason must be provided
-    let custom_reason_to_store = if payload.reason == crate::data::enums::CertificateRevocationReason::Specify {
-        if payload.custom_reason.as_deref().unwrap_or("").trim().is_empty() {
-            return Err(ApiError::BadRequest("Custom reason must be provided when selecting 'Specify' as revocation reason".to_string()));
-        }
-        payload.custom_reason.clone()
-    } else {
-        None
-    };
+    // All revocation reasons are now standard RFC 5280 reasons
+    // No need to store custom reasons as all reasons are predefined
+    let custom_reason_to_store = None;
 
     // Revoke the certificate
     state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id), custom_reason_to_store).await?;

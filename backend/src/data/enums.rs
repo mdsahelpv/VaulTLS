@@ -134,45 +134,58 @@ impl CertificateFormat {
 pub enum CertificateRevocationReason {
     #[default]
     Unspecified = 0,
-    CertificateHold = 1,
-    Specify = 2,
+    KeyCompromise = 1,
+    CACompromise = 2,
+    AffiliationChanged = 3,
+    Superseded = 4,
+    CessationOfOperation = 5,
+    CertificateHold = 6,
+    RemoveFromCRL = 7,
+    PrivilegeWithdrawn = 8,
+    AACompromise = 9,
 }
 
 impl CertificateRevocationReason {
     pub fn as_str(&self) -> &'static str {
         match self {
             CertificateRevocationReason::Unspecified => "Unspecified",
+            CertificateRevocationReason::KeyCompromise => "Key Compromise",
+            CertificateRevocationReason::CACompromise => "CA Compromise",
+            CertificateRevocationReason::AffiliationChanged => "Affiliation Changed",
+            CertificateRevocationReason::Superseded => "Superseded",
+            CertificateRevocationReason::CessationOfOperation => "Cessation of Operation",
             CertificateRevocationReason::CertificateHold => "Certificate Hold",
-            CertificateRevocationReason::Specify => "Specify (custom reason)",
+            CertificateRevocationReason::RemoveFromCRL => "Remove from CRL",
+            CertificateRevocationReason::PrivilegeWithdrawn => "Privilege Withdrawn",
+            CertificateRevocationReason::AACompromise => "AA Compromise",
         }
     }
 
-    /// Convert u8 value from database to enum with backward compatibility for RFC5280 reasons
+    /// Convert u8 value from database to enum with backward compatibility for old internal reasons
     pub fn from_u8_with_rfc5280_support(value: u8, custom_reason: Option<String>) -> (Self, Option<String>) {
         match value {
+            // Standard RFC 5280 reasons - direct mapping
             0 => (CertificateRevocationReason::Unspecified, custom_reason),
-            1 => (CertificateRevocationReason::CertificateHold, custom_reason),
-            2 => (CertificateRevocationReason::Specify, custom_reason),
-            // Map legacy RFC5280 reasons to appropriate current values
-            3 => (CertificateRevocationReason::Specify, Some("Affiliation Changed".to_string())), // affiliationChanged
-            4 => (CertificateRevocationReason::Specify, Some("Superseded".to_string())),          // superseded
-            5 => (CertificateRevocationReason::Specify, Some("Cessation of Operation".to_string())), // cessationOfOperation
-            6 => (CertificateRevocationReason::CertificateHold, custom_reason),                   // certificateHold
-            8 => (CertificateRevocationReason::Specify, Some("Remove from CRL".to_string())),      // removeFromCRL
-            9 => (CertificateRevocationReason::Specify, Some("Privilege Withdrawn".to_string())), // privilegeWithdrawn
-            10 => (CertificateRevocationReason::Specify, Some("AA Compromise".to_string())),       // aaCompromise
+            1 => (CertificateRevocationReason::KeyCompromise, custom_reason),
+            2 => (CertificateRevocationReason::CACompromise, custom_reason),
+            3 => (CertificateRevocationReason::AffiliationChanged, custom_reason),
+            4 => (CertificateRevocationReason::Superseded, custom_reason),
+            5 => (CertificateRevocationReason::CessationOfOperation, custom_reason),
+            6 => (CertificateRevocationReason::CertificateHold, custom_reason),
+            7 => (CertificateRevocationReason::RemoveFromCRL, custom_reason),
+            8 => (CertificateRevocationReason::PrivilegeWithdrawn, custom_reason),
+            9 => (CertificateRevocationReason::AACompromise, custom_reason),
+            // Backward compatibility: map old internal reasons to standard ones
+            10 => (CertificateRevocationReason::Unspecified, custom_reason), // used to be old unspecified
+            254 => (CertificateRevocationReason::CertificateHold, custom_reason), // used to be old certificateHold
+            255 => (CertificateRevocationReason::Unspecified, custom_reason), // used to be old specify (no value provided)
             _ => (CertificateRevocationReason::Unspecified, custom_reason),
         }
     }
 
-    /// Get human-readable reason text with legacy RFC5280 support
+    /// Get human-readable reason text
     pub fn human_readable_reason(&self, custom_reason: Option<&str>) -> String {
-        match (self, custom_reason) {
-            (CertificateRevocationReason::Unspecified, _) => "Unspecified".to_string(),
-            (CertificateRevocationReason::CertificateHold, _) => "Certificate Hold".to_string(),
-            (CertificateRevocationReason::Specify, Some(reason)) => format!("Specify - {}", reason),
-            (CertificateRevocationReason::Specify, None) => "Specify (custom reason)".to_string(),
-        }
+        self.as_str().to_string()
     }
 }
 

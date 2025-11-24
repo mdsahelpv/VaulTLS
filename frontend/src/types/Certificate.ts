@@ -94,13 +94,3 @@ export interface RevocationStatus {
     revoked_reason?: CertificateRevocationReason;
     revoked_by?: number;
 }
-
-export interface RevocationHistoryEntry {
-    id: number;
-    certificate_id: number;
-    certificate_name: string;
-    revocation_date: number;
-    revocation_reason: CertificateRevocationReason;
-    revoked_by_user_id: number;
-    revoked_by_username: string;
-}

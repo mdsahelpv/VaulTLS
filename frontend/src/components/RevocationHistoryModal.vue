@@ -59,7 +59,7 @@
                   <tr v-for="record in revocationHistory" :key="record.id">
                     <td>
                       <div>
-                        <strong>{{ record.certificate_name }}</strong>
+                        <strong>{{ getCertificateName(record.certificate_id) }}</strong>
                         <br>
                         <small class="text-muted">ID: {{ record.certificate_id }}</small>
                       </div>
@@ -67,8 +67,10 @@
                     <td>{{ formatDate(record.revocation_date) }}</td>
                     <td>
                       <span class="badge" :class="getReasonBadgeClass(record.revocation_reason)">
-                        {{ getRevocationReasonText(record.revocation_reason) }}
+                        {{ record.revocation_reason_text }}
                       </span>
+                      <br v-if="record.custom_reason">
+                      <small v-if="record.custom_reason" class="text-muted">{{ record.custom_reason }}</small>
                     </td>
                     <td>
                       <div v-if="record.revoked_by_user_id">
@@ -97,16 +99,7 @@
 import {ref, onMounted, computed, watch} from 'vue';
 import {useCertificateStore} from '@/stores/certificates';
 import {useUserStore} from '@/stores/users';
-import {getRevocationHistory} from '@/api/certificates';
-
-interface RevocationRecord {
-  id: number;
-  certificate_id: number;
-  certificate_name: string;
-  revocation_date: number;
-  revocation_reason: number;
-  revoked_by_user_id?: number;
-}
+import {getRevocationHistory, type RevocationHistoryEntry} from '@/api/certificates';
 
 interface Props {
   isVisible: boolean;
@@ -122,7 +115,7 @@ const emit = defineEmits<Emits>();
 const certificateStore = useCertificateStore();
 const userStore = useUserStore();
 
-const revocationHistory = ref<RevocationRecord[]>([]);
+const revocationHistory = ref<RevocationHistoryEntry[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
@@ -149,25 +142,26 @@ const getRevocationReasonText = (reason: number): string => {
     case 4: return 'Superseded';
     case 5: return 'Cessation of Operation';
     case 6: return 'Certificate Hold';
-    case 8: return 'Remove from CRL';
-    case 9: return 'Privilege Withdrawn';
-    case 10: return 'AA Compromise';
+    case 7: return 'Remove from CRL';
+    case 8: return 'Privilege Withdrawn';
+    case 9: return 'AA Compromise';
     default: return 'Unknown';
   }
 };
 
 const getReasonBadgeClass = (reason: number): string => {
   switch (reason) {
-    case 1: return 'bg-danger'; // Key Compromise - critical
-    case 2: return 'bg-danger'; // CA Compromise - critical
-    case 3: return 'bg-warning text-dark'; // Affiliation Changed
-    case 4: return 'bg-info'; // Superseded
-    case 5: return 'bg-secondary'; // Cessation of Operation
-    case 6: return 'bg-warning text-dark'; // Certificate Hold
-    case 8: return 'bg-info'; // Remove from CRL
-    case 9: return 'bg-warning text-dark'; // Privilege Withdrawn
-    case 10: return 'bg-danger'; // AA Compromise - critical
-    default: return 'bg-light text-dark'; // Unspecified
+    case 0: return 'bg-light text-dark';    // Unspecified
+    case 1: return 'bg-danger';             // Key Compromise - red
+    case 2: return 'bg-danger';             // CA Compromise - red
+    case 3: return 'bg-warning text-dark';  // Affiliation Changed - yellow
+    case 4: return 'bg-secondary';          // Superseded - gray
+    case 5: return 'bg-primary';            // Cessation of Operation - blue
+    case 6: return 'bg-warning text-dark';  // Certificate Hold - yellow
+    case 7: return 'bg-info';               // Remove from CRL - info blue
+    case 8: return 'bg-warning text-dark';  // Privilege Withdrawn - yellow
+    case 9: return 'bg-danger';             // AA Compromise - red
+    default: return 'bg-secondary';         // Unknown - gray
   }
 };
 

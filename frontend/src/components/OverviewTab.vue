@@ -526,25 +526,21 @@
                   v-model.number="revocationReason"
                   class="form-select"
                   required
-                  title="Choose the appropriate revocation reason"
+                  title="Choose the appropriate RFC 5280 standard revocation reason"
               >
-                <option :value="0" title="No specific reason given">Unspecified</option>
-                <option :value="1" title="Certificate is temporarily suspended">Certificate Hold</option>
-                <option :value="2" title="Custom reason will be provided">Specify</option>
+                <option :value="0" title="No specific reason given (RFC 5280: unspecified)">Unspecified</option>
+                <option :value="1" title="Private key compromised (RFC 5280: keyCompromise)">Key Compromise</option>
+                <option :value="2" title="CA certificate compromised (RFC 5280: cACompromise)">CA Compromise</option>
+                <option :value="3" title="Affiliation or business relationship changed (RFC 5280: affiliationChanged)">Affiliation Changed</option>
+                <option :value="4" title="Certificate has been replaced (RFC 5280: superseded)">Superseded</option>
+                <option :value="5" title="Certificate operation ceased (RFC 5280: cessationOfOperation)">Cessation of Operation</option>
+                <option :value="6" title="Certificate temporarily suspended (RFC 5280: certificateHold)">Certificate Hold</option>
+                <option :value="7" title="Remove from CRL (RFC 5280: removeFromCRL)">Remove from CRL</option>
+                <option :value="8" title="Certificate privileges withdrawn (RFC 5280: privilegeWithdrawn)">Privilege Withdrawn</option>
+                <option :value="9" title="Authority compromised (RFC 5280: aACompromise)">AA Compromise</option>
               </select>
-            </div>
-            <div v-if="revocationReason === 2" class="mb-3">
-              <label for="customRevocationReason" class="form-label">Custom Reason</label>
-              <textarea
-                  id="customRevocationReason"
-                  v-model="customRevocationReason"
-                  class="form-control"
-                  placeholder="Please provide a custom reason for revocation"
-                  rows="3"
-                  maxlength="500"
-              ></textarea>
               <div class="form-text">
-                Provide a detailed reason for revoking this certificate (maximum 500 characters).
+                Choose the RFC 5280 standard revocation reason that best fits the situation.
               </div>
             </div>
             <div v-if="isMailValid" class="mb-3 form-check form-switch">
@@ -1016,19 +1012,35 @@ const isRootCA = computed(() => {
   return settings.value?.common.is_root_ca ?? false;
 });
 
-const isRevokeValid = computed(() => {
-  if (revocationReason.value === 2) {
-    return customRevocationReason.value.trim().length > 0;
+// Auto-select logic for dropdowns with single options
+const availableCertificateTypes = computed(() => {
+  if (isRootCA.value) {
+    return [CertificateType.SubordinateCA];
+  } else {
+    return [CertificateType.Client, CertificateType.Server];
   }
-  return true;
+});
+
+const isSingleCA = computed(() => {
+  return availableCAs.value.length === 1;
+});
+
+const isSingleUser = computed(() => {
+  return userStore.users.length === 1;
+});
+
+const isRevokeValid = computed(() => {
+  return true; // All RFC 5280 reasons are now predefined and valid
 });
 
 // Watch for Root CA mode changes and set certificate type to Subordinate CA
 watch(isRootCA, (newIsRootCA: boolean) => {
   if (newIsRootCA) {
+    // In Root CA mode, only Subordinate CA is available, so auto-select it
     certReq.cert_type = CertificateType.SubordinateCA;
   } else {
-    // Reset to Client when not in Root CA mode
+    // When not in Root CA mode, we have Client and Server options
+    // Don't auto-select here - let user choose between Client and Server
     certReq.cert_type = CertificateType.Client;
   }
 }, { immediate: true });
@@ -1095,6 +1107,17 @@ onMounted(async () => {
 const showGenerateModal = async () => {
   await userStore.fetchUsers();
   await fetchAvailableCAs();
+
+  // Auto-select single CA after fetching
+  if (isSingleCA.value && availableCAs.value.length > 0) {
+    certReq.ca_id = availableCAs.value[0].id;
+  }
+
+  // Auto-select single user after fetching
+  if (isSingleUser.value && userStore.users.length > 0) {
+    certReq.user_id = userStore.users[0].id;
+  }
+
   isGenerateModalVisible.value = true;
 };
 
@@ -1205,7 +1228,7 @@ const revokeCertificate = async () => {
   if (selectedCertificates.value.size > 0) {
     try {
       const revokePromises = Array.from(selectedCertificates.value).map(certId =>
-        certificateStore.revokeCertificate(certId, revocationReason.value, notifyUserOnRevoke.value, revocationReason.value === 2 ? customRevocationReason.value : undefined)
+        certificateStore.revokeCertificate(certId, revocationReason.value, notifyUserOnRevoke.value)
       );
 
       await Promise.all(revokePromises);
@@ -1225,8 +1248,7 @@ const revokeCertificate = async () => {
     await certificateStore.revokeCertificate(
       certToRevoke.value.id,
       revocationReason.value,
-      notifyUserOnRevoke.value,
-      revocationReason.value === 2 ? customRevocationReason.value : undefined
+      notifyUserOnRevoke.value
     );
     closeRevokeModal();
   } catch (error) {

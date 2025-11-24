@@ -49,13 +49,18 @@ interface CreateSelfSignedCAPayload {
     certificate_policies_cps?: string;
 }
 
-interface RevocationHistoryEntry {
+export interface RevocationHistoryEntry {
     id: number;
     certificate_id: number;
-    reason: number;
+    certificate_name: string;
+    revocation_date: number; // timestamp in milliseconds
+    revocation_reason: number;
+    revocation_reason_text: string; // human-readable reason text
     custom_reason?: string;
-    revoked_on: string;
-    revoked_by: number;
+    revoked_by_user_id?: number;
+    reason?: number; // alias for revocation_reason (backward compatibility)
+    revoked_on?: number; // alias for revocation_date (backward compatibility)
+    revoked_by?: number; // alias for revoked_by_user_id (backward compatibility)
 }
 
 interface RevocationStatus {
