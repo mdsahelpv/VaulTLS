@@ -15,7 +15,7 @@ use schemars::JsonSchema;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
-use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry, parse_csr_from_pem, ParsedCSR};
+use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry, parse_csr_from_pem, ParsedCSR, OCSPRequest};
 use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
@@ -2752,61 +2752,61 @@ pub(crate) async fn download_crl_backup(
     Ok(DownloadResponse::new(file_data, filename))
 }
 
-// #[get("/ocsp?<request>")]
-// /// OCSP responder endpoint for real-time certificate status checking.
-// /// Accepts base64-encoded OCSP requests via GET and returns DER-encoded OCSP responses.
-// /// Requires authentication.
-// ///
-// /// Usage with OpenSSL:
-// /// ```bash
-// /// openssl ocsp -issuer ca.pem -cert cert.pem \
-// ///              -url http://localhost:8000/api/ocsp \
-// ///              -header "Authorization: Bearer <token>"
-// /// ```
-// ///
-// /// Response status codes:
-// /// - Successful: Certificate status returned
-// /// - MalformedRequest: Invalid OCSP request format
-// /// - InternalError: Server error processing request
-// /// - TryLater: Temporary server unavailability
-// /// - SigRequired: Request must be signed
-// /// - Unauthorized: Authentication required
-// ///
-// /// Certificate status values:
-// /// - Good: Certificate is valid and not revoked
-// /// - Revoked: Certificate has been revoked
-// /// - Unknown: Certificate status cannot be determined
-// pub(crate) async fn ocsp_responder_get(
-//     state: &State<AppState>,
-//     request: &str,
-//     _authentication: Authenticated
-// ) -> Result<Vec<u8>, ApiError> {
-//     debug!("OCSP GET request received (base64 length: {})", request.len());
-//
-//     // Decode base64 request
-//     let request_data = base64::decode(request)
-//         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 encoding in OCSP request: {}", e)))?;
-//
-//     debug!("Decoded OCSP request ({} bytes)", request_data.len());
-//
-//     // Process the request
-//     process_ocsp_request(state, &request_data).await
-// }
-//
-// #[post("/ocsp", data = "<request_data>")]
-// /// OCSP responder endpoint for real-time certificate status checking.
-// /// Accepts DER-encoded OCSP requests and returns DER-encoded OCSP responses.
-// /// Requires authentication.
-// pub(crate) async fn ocsp_responder_post(
-//     state: &State<AppState>,
-//     request_data: Vec<u8>,
-//     _authentication: Authenticated
-// ) -> Result<Vec<u8>, ApiError> {
-//     debug!("OCSP POST request received ({} bytes)", request_data.len());
-//
-//     // Process the request
-//     process_ocsp_request(state, &request_data).await
-// }
+#[get("/ocsp?<request>")]
+/// OCSP responder endpoint for real-time certificate status checking.
+/// Accepts base64-encoded OCSP requests via GET and returns DER-encoded OCSP responses.
+/// Requires authentication.
+///
+/// Usage with OpenSSL:
+/// ```bash
+/// openssl ocsp -issuer ca.pem -cert cert.pem \
+///              -url http://localhost:8000/api/ocsp \
+///              -header "Authorization: Bearer <token>"
+/// ```
+///
+/// Response status codes:
+/// - Successful: Certificate status returned
+/// - MalformedRequest: Invalid OCSP request format
+/// - InternalError: Server error processing request
+/// - TryLater: Temporary server unavailability
+/// - SigRequired: Request must be signed
+/// - Unauthorized: Authentication required
+///
+/// Certificate status values:
+/// - Good: Certificate is valid and not revoked
+/// - Revoked: Certificate has been revoked
+/// - Unknown: Certificate status cannot be determined
+pub(crate) async fn ocsp_responder_get(
+    state: &State<AppState>,
+    request: &str,
+    _authentication: Authenticated
+) -> Result<Vec<u8>, ApiError> {
+    debug!("OCSP GET request received (base64 length: {})", request.len());
+
+    // Decode base64 request
+    let request_data = base64::decode(request)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid base64 encoding in OCSP request: {}", e)))?;
+
+    debug!("Decoded OCSP request ({} bytes)", request_data.len());
+
+    // Process the request
+    process_ocsp_request(state, &request_data).await
+}
+
+#[post("/ocsp", data = "<request_data>")]
+/// OCSP responder endpoint for real-time certificate status checking.
+/// Accepts DER-encoded OCSP requests and returns DER-encoded OCSP responses.
+/// Requires authentication.
+pub(crate) async fn ocsp_responder_post(
+    state: &State<AppState>,
+    request_data: Vec<u8>,
+    _authentication: Authenticated
+) -> Result<Vec<u8>, ApiError> {
+    debug!("OCSP POST request received ({} bytes)", request_data.len());
+
+    // Process the request
+    process_ocsp_request(state, &request_data).await
+}
 
         /// Extract AIA (Authority Information Access) and CDP (CRL Distribution Point) URLs from certificate extensions
         fn extract_aia_and_cdp_urls(cert: &X509) -> Result<(Option<String>, Option<String>), ApiError> {
@@ -3173,9 +3173,12 @@ async fn process_ocsp_request(
         }
     }
 
+    // Extract certificate ID from OCSP request (now with database access)
+    let cert_id = extract_certificate_id_from_ocsp_request(&ocsp_request, state).await?;
+
     // Generate new OCSP response
     let ca = state.db.get_current_ca().await?;
-    let response_der = generate_ocsp_response(&ocsp_request, &ca, &state.db).await?;
+    let response_der = generate_ocsp_response(&ocsp_request, cert_id, &ca, &state.db).await?;
 
     // Cache the response for 1 hour (OCSP responses are typically valid for 1 hour)
     let valid_until = current_time + (60 * 60 * 1000); // 1 hour in milliseconds
@@ -3189,6 +3192,37 @@ async fn process_ocsp_request(
     debug!("Generated and cached OCSP response for cert ID hash: {} (valid until {})", cert_id_hash, valid_until);
 
     Ok(response_der)
+}
+
+/// Helper function to extract certificate ID from OCSP request using database lookup
+async fn extract_certificate_id_from_ocsp_request(
+    request: &OCSPRequest,
+    state: &State<AppState>,
+) -> Result<i64, ApiError> {
+    use openssl::x509::X509;
+
+    debug!("Looking for certificate with serial number: {:?}", request.certificate_id.serial_number);
+
+    // Get all certificates (in production, this should be limited to specific CA)
+    let certificates = state.db.get_all_user_cert(None).await
+        .map_err(|e| ApiError::Other(format!("Database error: {e}")))?;
+
+    // Check each certificate's serial number
+    for cert in certificates {
+        if let Ok(details) = crate::cert::get_certificate_details(&cert) {
+            // Convert the hex serial number from details back to bytes for comparison
+            if let Ok(cert_serial) = hex::decode(details.serial_number.trim_start_matches("0x").trim_start_matches("0X")) {
+                // Compare serial numbers (they are both Vec<u8>)
+                if cert_serial == request.certificate_id.serial_number {
+                    debug!("Found matching certificate with ID: {}", cert.id);
+                    return Ok(cert.id);
+                }
+            }
+        }
+    }
+
+    debug!("No certificate found with matching serial number");
+    Err(ApiError::Other("Certificate not found for OCSP request".to_string()))
 }
 
 // AUDIT LOGGING API ENDPOINTS
