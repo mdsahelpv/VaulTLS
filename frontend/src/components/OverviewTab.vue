@@ -957,7 +957,7 @@
                     <button
                       type="button"
                       class="btn btn-outline-primary"
-                      @click="$refs.csrFileInput.click()"
+                      @click="csrFileInput?.click()"
                     >
                       <i class="bi bi-folder2-open me-1"></i>
                       Browse Files

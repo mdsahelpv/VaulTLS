@@ -69,11 +69,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=C.UTF-8
 
 # Install only essential runtime dependencies
+# Note: OpenSSL runtime libraries are required for the Rust application
 RUN apt-get update && apt-get install -y --no-install-recommends \
        ca-certificates \
        nginx-light \
        sqlite3 \
        curl \
+       openssl \
+       libssl3 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/share/nginx/html/* \
