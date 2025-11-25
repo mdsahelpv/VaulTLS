@@ -500,12 +500,18 @@ const hashAlgorithm = ref('sha256');
 
 // Watch for key type changes and reset key size to appropriate default
 watch(keyType, (newKeyType: string) => {
-  if (newKeyType === 'RSA' && keySize.value == '' ) {
-    keySize.value = '2048';
-  } else if (newKeyType === 'ECDSA' && keySize.value == '') {
-    keySize.value = 'P-256';
+  if (newKeyType === 'RSA') {
+    // Set default RSA key size if previous value wasn't RSA or was empty
+    if (keySize.value === '' || keySize.value === 'P-256' || keySize.value === 'P-521') {
+      keySize.value = '2048';
+    }
+  } else if (newKeyType === 'ECDSA') {
+    // Set default ECDSA curve if previous value wasn't ECDSA or was empty
+    if (keySize.value === '' || keySize.value === '2048' || keySize.value === '4096') {
+      keySize.value = 'P-256';
+    }
   }
-  if (hashAlgorithm.value == '' ) {
+  if (hashAlgorithm.value === '') {
     hashAlgorithm.value = 'sha256';
   }
 });

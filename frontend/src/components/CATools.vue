@@ -848,7 +848,11 @@ const createSelfSignedCAWrapper = async () => {
       selfSignedForm.value.commonName || undefined, // CN field
       selfSignedForm.value.emailAddress || undefined,
       true, // canCreateSubordinateCA - always true for Root CA mode
-      selfSignedForm.value.keyType === 'RSA' ? parseInt(selfSignedForm.value.keySize) : undefined,
+      selfSignedForm.value.keyType === 'RSA'
+        ? parseInt(selfSignedForm.value.keySize)
+        : (selfSignedForm.value.keyType === 'ECDSA'
+            ? (selfSignedForm.value.keySize === 'P-256' ? 256 : 521) // P-256 -> 256, P-521 -> 521
+            : undefined), // For ECDSA, convert curve names to numeric equivalents
       undefined, // certificatePoliciesOID - not used in first-time setup
       undefined, // certificatePoliciesCPS - not used in first-time setup
       selfSignedForm.value.keyType
@@ -981,21 +985,22 @@ const getStatusText = (ca: CA): string => {
   } else if (validUntil < now + (30 * 24 * 60 * 60 * 1000)) { // 30 days
     return 'Expiring Soon';
   } else {
-    return 'Valid';
+    // Calculate remaining days for valid certificates
+    const daysRemaining = Math.ceil((validUntil - now) / (1000 * 60 * 60 * 24));
+    return `Valid for ${daysRemaining} days`;
   }
 };
 
 const getStatusClass = (ca: CA): string => {
-  const status = getStatusText(ca);
-  switch (status) {
-    case 'Expired':
-      return 'bg-danger';
-    case 'Expiring Soon':
-      return 'bg-warning text-dark';
-    case 'Valid':
-      return 'bg-success';
-    default:
-      return 'bg-secondary';
+  const now = Date.now();
+  const validUntil = ca.valid_until;
+
+  if (validUntil < now) {
+    return 'bg-danger'; // Expired - red
+  } else if (validUntil < now + (30 * 24 * 60 * 60 * 1000)) { // 30 days
+    return 'bg-warning text-dark'; // Expiring Soon - yellow
+  } else {
+    return 'bg-success'; // Valid - green
   }
 };
 
