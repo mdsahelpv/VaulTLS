@@ -95,17 +95,17 @@
         <!-- Root CA Server Mode -->
         <div v-if="ca_type === 'self_signed'" class="mb-3">
           <div class="form-check">
-            <input
+            <!-- <input
                 class="form-check-input"
                 type="checkbox"
                 id="is_root_ca"
                 v-model="is_root_ca"
-            />
+            /> -->
             <label class="form-check-label" for="is_root_ca">
               <strong>SubCA signing Only</strong>
             </label>
             <div class="form-text">
-              When enabled (default), this instance will only issue Subordinate CA (not the Server/Client) certificates.
+              This instance issues Subordinate CA (not the Server/Client) certificates.
             </div>
           </div>
         </div>
@@ -473,7 +473,7 @@ const ca_validity_in_years = ref(10);
 const password = ref('');
 const errorMessage = ref('');
 const ca_type = ref('upload'); // Default to upload existing CA
-const is_root_ca = ref(false);
+const is_root_ca = ref(false); // Default to Root CA mode for self-signed CA
 const pfx_file = ref<File | null>(null);
 const pfx_password = ref('');
 const selectedFileName = ref<string>('');

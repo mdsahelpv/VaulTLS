@@ -92,6 +92,9 @@ config.json
 .env.production
 .env.development
 
+# OpenSSL configuration files (temporary CA generation configs)
+*.cnf
+
 # API secrets and keys
 secrets/
 keys/
