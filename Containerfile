@@ -7,8 +7,8 @@ WORKDIR /app/frontend
 # Copy dependency files first (for better layer caching)
 COPY frontend/package*.json ./
 
-# Use npm ci for production builds (faster, reliable)
-RUN npm ci --only=production && npm cache clean --force
+# Install all dependencies (needed for build scripts)
+RUN npm ci && npm cache clean --force
 
 # Copy source files
 COPY frontend/ ./
@@ -134,7 +134,7 @@ ENV VAULTLS_FRONTEND_PORT=4000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:$VAULTLS_FRONTEND_PORT/api/health || exit 1
+    CMD curl -f http://localhost/api/health || exit 1
 
 # Default command
 CMD ["/app/bin/entrypoint.sh"]
