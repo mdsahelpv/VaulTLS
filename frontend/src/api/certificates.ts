@@ -213,3 +213,25 @@ export const signCsrCertificate = async (formData: FormData): Promise<Certificat
         },
     });
 };
+
+export interface CsrPreviewResponse {
+    common_name?: string;
+    organization_name?: string;
+    organizational_unit_name?: string;
+    locality_name?: string;
+    state_or_province_name?: string;
+    country_name?: string;
+    email_address?: string;
+    algorithm: string;
+    key_size: string;
+    signature_valid: boolean;
+    subject_alt_names: string[];
+}
+
+export const previewCsr = async (formData: FormData): Promise<CsrPreviewResponse> => {
+    return await ApiClient.post<CsrPreviewResponse>('/certificates/csr/preview', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+};

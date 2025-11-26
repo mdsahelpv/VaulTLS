@@ -1819,19 +1819,17 @@ const parseCSRFile = async (file: File) => {
     const formData = new FormData();
     formData.append('csr_file', file);
 
-    // Note: This would require a backend endpoint to parse CSR
-    // For now, we'll simulate with basic parsing
-    const text = await file.text();
+    const response = await certificateStore.previewCsr(formData);
 
-    // Very basic CSR parsing (would be done on backend in production)
+    // Map backend response to frontend format
     parsedCSRDetails.value = {
-      commonName: text.includes('Common Name') ? 'example.com' : 'Parsed CN',
-      organizationName: 'Example Organization',
-      countryName: 'US',
-      algorithm: 'RSA',
-      keySize: '2048',
-      signatureValid: true,
-      subjectAltNames: text.includes('DNS:') ? ['www.example.com', 'example.com'] : []
+      commonName: response.common_name,
+      organizationName: response.organization_name,
+      countryName: response.country_name,
+      algorithm: response.algorithm,
+      keySize: response.key_size,
+      signatureValid: response.signature_valid,
+      subjectAltNames: response.subject_alt_names
     };
 
   } catch (error) {

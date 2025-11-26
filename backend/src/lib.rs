@@ -195,6 +195,7 @@ pub async fn create_rocket() -> Rocket<Build> {
                 ocsp_responder_get,
                 ocsp_responder_post,
                 sign_csr_certificate,
+                preview_csr,
                 fetch_settings,
                 update_settings,
                 get_ca_mode,

@@ -7,6 +7,7 @@ import {
     createCertificate,
     deleteCertificate,
     revokeCertificate as revokeCertificateApi,
+    previewCsr,
 } from '../api/certificates';
 import type {CertificateRequirements} from "@/types/CertificateRequirements.ts";
 import ApiClient from '../api/ApiClient';
@@ -140,6 +141,17 @@ export const useCertificateStore = defineStore('certificate', {
                 throw err;
             } finally {
                 this.loading = false;
+            }
+        },
+
+        // Preview a CSR file
+        async previewCsr(formData: FormData): Promise<any> {
+            try {
+                return await previewCsr(formData);
+            } catch (err) {
+                this.error = 'Failed to parse CSR.';
+                console.error(err);
+                throw err;
             }
         },
     },

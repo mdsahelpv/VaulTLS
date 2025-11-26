@@ -551,14 +551,14 @@ impl CertificateBuilder {
                 };
                 generate_rsa_private_key_of_size(size)?
             },
-            (_, Some("ECDSA") | Some("ecdsa"), key_size) => {
-                let nid = match key_size {
-                    Some("p-256"|"P-256") => Nid::X9_62_PRIME256V1,
-                    Some("p-521"|"P-521") => Nid::SECP521R1,
-                    _ => Nid::X9_62_PRIME256V1, // Default to P-256
-                };
-                generate_ecdsa_private_key(nid)?
-            },
+        (_, Some("ECDSA") | Some("ecdsa"), key_size) => {
+            let nid = match key_size {
+                Some("p-256"|"P-256") => Nid::X9_62_PRIME256V1,
+                Some("p-521"|"P-521") => Nid::SECP521R1,
+                _ => Nid::X9_62_PRIME256V1, // Default to P-256
+            };
+            generate_ecdsa_private_key(nid)?
+        },
             (_, _, _) => generate_rsa_private_key_of_size(2048)?, // Default fallback
         };
         let asn1_serial = generate_serial_number()?;
@@ -868,20 +868,40 @@ authorityKeyIdentifier = keyid:always
         let validity_days = ((valid_until - self.created_on) / (1000 * 60 * 60 * 24)) as u32;
         let validity_days = validity_days.max(1);
 
+        // Build the OpenSSL command with the appropriate hash algorithm
+        let mut openssl_args = vec![
+            "x509".to_string(),
+            "-req".to_string(),
+            "-in".to_string(),
+            cert_req_path.to_string_lossy().to_string(),
+            "-CA".to_string(),
+            ca_cert_path.to_string_lossy().to_string(),
+            "-CAkey".to_string(),
+            ca_key_path.to_string_lossy().to_string(),
+            "-CAcreateserial".to_string(),
+            "-out".to_string(),
+            cert_path.to_string_lossy().to_string(),
+            "-days".to_string(),
+            validity_days.to_string(),
+            "-extfile".to_string(),
+            config_path.to_string_lossy().to_string(),
+            "-extensions".to_string(),
+            "v3_ca".to_string(),
+        ];
+
+        // Insert the hash algorithm flag based on the configured algorithm
+        if let Some(hash_alg) = &self.hash_algorithm {
+            match hash_alg.as_str() {
+                "sha256" => openssl_args.insert(2, "-sha256".to_string()),
+                "sha512" => openssl_args.insert(2, "-sha512".to_string()),
+                _ => openssl_args.insert(2, "-sha256".to_string()), // Default to SHA256
+            }
+        } else {
+            openssl_args.insert(2, "-sha256".to_string()); // Default to SHA256
+        }
+
         let output = Command::new("openssl")
-            .args([
-                "x509",
-                "-req",
-                "-in", &cert_req_path.to_string_lossy(),
-                "-CA", &ca_cert_path.to_string_lossy(),
-                "-CAkey", &ca_key_path.to_string_lossy(),
-                "-CAcreateserial",
-                "-out", &cert_path.to_string_lossy(),
-                "-days", &validity_days.to_string(),
-                "-sha256",
-                "-extfile", &config_path.to_string_lossy(),
-                "-extensions", "v3_ca",
-            ])
+            .args(&openssl_args)
             .output()
             .map_err(|e| {
                 cleanup_temp_files();
@@ -1483,20 +1503,40 @@ basicConstraints = CA:FALSE
             let validity_days = ((valid_until - self.created_on) / (1000 * 60 * 60 * 24)) as u32;
             let validity_days = validity_days.max(1);
 
+            // Build the OpenSSL command with the appropriate hash algorithm
+            let mut openssl_args = vec![
+                "x509".to_string(),
+                "-req".to_string(),
+                "-in".to_string(),
+                cert_req_path.to_string_lossy().to_string(),
+                "-CA".to_string(),
+                ca_cert_path.to_string_lossy().to_string(),
+                "-CAkey".to_string(),
+                ca_key_path.to_string_lossy().to_string(),
+                "-CAcreateserial".to_string(),
+                "-out".to_string(),
+                cert_path.to_string_lossy().to_string(),
+                "-days".to_string(),
+                validity_days.to_string(),
+                "-extfile".to_string(),
+                config_path.to_string_lossy().to_string(),
+                "-extensions".to_string(),
+                "v3_ca".to_string(),
+            ];
+
+            // Insert the hash algorithm flag based on the configured algorithm
+            if let Some(hash_alg) = &self.hash_algorithm {
+                match hash_alg.as_str() {
+                    "sha256" => openssl_args.insert(2, "-sha256".to_string()),
+                    "sha512" => openssl_args.insert(2, "-sha512".to_string()),
+                    _ => openssl_args.insert(2, "-sha256".to_string()), // Default to SHA256
+                }
+            } else {
+                openssl_args.insert(2, "-sha256".to_string()); // Default to SHA256
+            }
+
             let output = Command::new("openssl")
-                .args([
-                    "x509",
-                    "-req",
-                    "-in", &cert_req_path.to_string_lossy(),
-                    "-CA", &ca_cert_path.to_string_lossy(),
-                    "-CAkey", &ca_key_path.to_string_lossy(),
-                    "-CAcreateserial",
-                    "-out", &cert_path.to_string_lossy(),
-                    "-days", &validity_days.to_string(),
-                    "-sha256",
-                    "-extfile", &config_path.to_string_lossy(),
-                    "-extensions", "v3_ca",
-                ])
+                .args(&openssl_args)
                 .output()
                 .map_err(|e| {
                     cleanup_temp_files();
@@ -2130,7 +2170,16 @@ pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails,
     let key_size = if public_key.rsa().is_ok() {
         format!("RSA {}", public_key.rsa().unwrap().size() * 8)
     } else if public_key.ec_key().is_ok() {
-        "ECDSA P-256".to_string()
+        // Get the actual ECDSA curve
+        match public_key.ec_key().unwrap().group().curve_name() {
+            Some(nid) => match nid.as_raw() {
+                415 => "ECDSA P-256".to_string(),
+                715 => "ECDSA P-384".to_string(),
+                716 => "ECDSA P-521".to_string(),
+                _ => format!("ECDSA Curve NID: {}", nid.as_raw()),
+            },
+            None => "ECDSA Unknown Curve".to_string(),
+        }
     } else {
         "Unknown".to_string()
     };
@@ -3099,7 +3148,7 @@ pub(crate) async fn generate_ocsp_response(
     debug!("Generating OCSP response for certificate ID: {} (serial: {:?})", cert_id, request.certificate_id.serial_number);
 
     // Get the certificate to ensure it exists
-    let cert = db.get_user_cert_by_id(cert_id).await
+    let _cert = db.get_user_cert_by_id(cert_id).await
         .map_err(|e| ApiError::Other(format!("Certificate not found: {e}")))?;
 
     // Check if the certificate is revoked

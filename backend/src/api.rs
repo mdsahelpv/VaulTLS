@@ -1,6 +1,7 @@
 use rocket_okapi::openapi;
 use rocket::{delete, get, post, put, State};
 use rocket::form::Form;
+use rocket::fs::TempFile;
 use rocket::response::Redirect;
 use rocket::serde::json::Json;
 use rocket::serde::Deserialize;
@@ -21,7 +22,7 @@ use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
 use crate::data::error::ApiError;
-use crate::data::objects::{AppState, User, CrlCache, OcspCache};
+use crate::data::objects::{AppState, User, CrlCache, OcspCache, CertificateChainInfo};
 use crate::notification::mail::{MailMessage, Mailer};
 use crate::settings::{FrontendSettings, InnerSettings};
 
@@ -1595,12 +1596,135 @@ pub(crate) async fn delete_ca(
 }
 
 #[derive(Serialize, JsonSchema, Debug)]
-pub struct CertificateChainInfo {
-    pub subject: String,
-    pub issuer: String,
-    pub serial_number: String,
-    pub certificate_type: String, // "end_entity", "intermediate_ca", "root_ca"
-    pub is_end_entity: bool, // Keep for backward compatibility
+pub struct CsrSignRequest {
+    pub ca_id: i64,
+    pub user_id: i64,
+    pub certificate_type: Option<String>,
+    pub validity_in_days: Option<i64>,
+    pub cert_name: Option<String>,
+}
+
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct CsrPreviewResponse {
+    pub common_name: Option<String>,
+    pub organization_name: Option<String>,
+    pub organizational_unit_name: Option<String>,
+    pub locality_name: Option<String>,
+    pub state_or_province_name: Option<String>,
+    pub country_name: Option<String>,
+    pub email_address: Option<String>,
+    pub algorithm: String,
+    pub key_size: String,
+    pub signature_valid: bool,
+    pub subject_alt_names: Vec<String>,
+}
+
+#[derive(FromForm, JsonSchema, Debug)]
+pub struct CsrPreviewRequest<'r> {
+    #[schemars(skip)]
+    pub csr_file: TempFile<'r>,
+}
+
+#[openapi(tag = "Certificates")]
+#[post("/certificates/csr/preview", data = "<upload>")]
+/// Parse a CSR file and return preview information. Requires admin role.
+/// Returns detailed information about the CSR without signing it.
+/// Useful for reviewing CSR contents before signing.
+///
+/// Request: multipart/form-data with 'csr_file' field
+/// Response: CsrPreviewResponse with parsed subject information, key details, etc.
+pub(crate) async fn preview_csr(
+    upload: Form<CsrPreviewRequest<'_>>,
+    _authentication: AuthenticatedPrivileged,
+) -> Result<Json<CsrPreviewResponse>, ApiError> {
+    debug!("Parsing CSR for preview");
+
+    // Read the CSR file data
+    let mut csr_data = Vec::new();
+    let file_result = upload.csr_file.open().await;
+    let file = match file_result {
+        Ok(file) => file,
+        Err(e) => return Err(ApiError::Other(format!("Failed to open CSR file: {e}"))),
+    };
+
+    let mut reader = tokio::io::BufReader::new(file);
+    if let Err(e) = reader.read_to_end(&mut csr_data).await {
+        return Err(ApiError::Other(format!("Failed to read CSR file: {e}")));
+    }
+
+    if csr_data.is_empty() {
+        return Err(ApiError::BadRequest("CSR file is empty".to_string()));
+    }
+
+    // Parse the CSR - standard CSRs don't have passphrases and are plaintext
+    let parsed_csr = crate::cert::parse_csr_from_pem(&csr_data)
+        .or_else(|_| crate::cert::parse_csr_from_der(&csr_data))
+        .map_err(|e| {
+            error!("Failed to parse CSR: {:?}", e);
+            ApiError::BadRequest("Failed to parse CSR. Please ensure it is a valid Certificate Signing Request in PEM or DER format.".to_string())
+        })?;
+
+    // Validate CSR (signature verification, etc.)
+    let signature_valid = parsed_csr.signature_valid;
+
+// Extract subject information
+let mut common_name = None;
+    let mut organization_name = None;
+    let mut organizational_unit_name = None;
+    let mut locality_name = None;
+    let mut state_or_province_name = None;
+    let mut country_name = None;
+    let mut email_address = None;
+    let mut subject_alt_names: Vec<String> = Vec::new();
+
+    for entry in parsed_csr.subject_name.entries() {
+        if let Ok(data) = entry.data().as_utf8() {
+            let value = data.to_string();
+
+            match entry.object().nid().as_raw() {
+                13 => common_name = Some(value), // CN
+                17 => state_or_province_name = Some(value), // ST
+                18 => locality_name = Some(value), // L
+                6 => organization_name = Some(value), // O
+                7 => organizational_unit_name = Some(value), // OU
+                14 => country_name = Some(value), // C
+                48 | 49 => email_address = Some(value), // emailAddress
+                _ => {} // Ignore other fields
+            }
+        }
+    }
+
+    // Extract subject alternative names from CSR extensions using OID checking
+    let subject_alt_names: Vec<String> = if let Ok(extensions) = parsed_csr.csr.extensions() {
+        let mut names = Vec::new();
+
+        for (_idx, _ext) in extensions.iter().enumerate() {
+            // TODO: Check if this is a Subject Alternative Name extension by checking NID
+            // Subject Alternative Name NID is NID_subject_alt_name (85)
+            // For now, just indicate that extensions are present
+            // Full parsing would require more complex ASN.1 decoding
+            names.push("Extensions detected (OID checking pending)".to_string());
+        }
+
+        names
+    } else {
+        debug!("Failed to access CSR extensions, SAN extraction skipped");
+        Vec::<String>::new()
+    };
+
+    Ok(Json(CsrPreviewResponse {
+        common_name,
+        organization_name,
+        organizational_unit_name,
+        locality_name,
+        state_or_province_name,
+        country_name,
+        email_address,
+        algorithm: parsed_csr.key_algorithm.clone(),
+        key_size: parsed_csr.key_size.clone(),
+        signature_valid,
+        subject_alt_names,
+    }))
 }
 
 #[derive(Serialize, JsonSchema, Debug)]

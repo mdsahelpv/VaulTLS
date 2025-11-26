@@ -111,6 +111,16 @@ pub struct OcspCache {
 
 
 
+/// Certificate Chain information for CA details
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub(crate) struct CertificateChainInfo {
+    pub subject: String,
+    pub issuer: String,
+    pub serial_number: String,
+    pub certificate_type: String,
+    pub is_end_entity: bool,
+}
+
 /// Certificate Revocation details
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub(crate) struct CertificateRevocation {
