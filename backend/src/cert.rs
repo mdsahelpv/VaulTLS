@@ -2138,6 +2138,31 @@ pub struct CertificateDetails {
     pub certificate_pem: String,
 }
 
+fn format_x509_name(name: &openssl::x509::X509NameRef) -> String {
+    let mut parts = Vec::new();
+    for entry in name.entries() {
+        if let Ok(data) = entry.data().as_utf8() {
+            let data_str = String::from_utf8_lossy(data.as_ref());
+            let obj_name = match entry.object().nid().as_raw() {
+                6 => "C".to_string(),       // countryName
+                8 => "ST".to_string(),      // stateOrProvinceName
+                7 => "L".to_string(),       // localityName
+                10 => "O".to_string(),      // organizationName
+                11 => "OU".to_string(),     // organizationalUnitName
+                13 => "CN".to_string(),     // commonName
+                48 => "emailAddress".to_string(),  // emailAddress
+                _ => entry.object().to_string(),
+            };
+            parts.push(format!("{}={}", obj_name, data_str));
+        }
+    }
+    if parts.is_empty() {
+        "Unknown".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
 /// Extract detailed information from a user certificate's PKCS#12 data
 pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails, ApiError> {
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
@@ -2215,8 +2240,8 @@ pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails,
     Ok(CertificateDetails {
         id: cert.id,
         name: cert.name.clone(),
-        subject: "Certificate Subject".to_string(),
-        issuer: "Certificate Issuer".to_string(),
+        subject: format_x509_name(subject_name),
+        issuer: format_x509_name(issuer_name),
         created_on: cert.created_on,
         valid_until: cert.valid_until,
         serial_number: serial.to_bn()
