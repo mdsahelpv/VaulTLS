@@ -1078,8 +1078,20 @@
                         <div class="col-4 small text-muted">Organization:</div>
                         <div class="col-8 small fw-mono">{{ parsedCSRDetails.organizationName || 'N/A' }}</div>
 
+                        <div class="col-4 small text-muted">Org Unit:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.organizationalUnitName || 'N/A' }}</div>
+
+                        <div class="col-4 small text-muted">Locality:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.localityName || 'N/A' }}</div>
+
+                        <div class="col-4 small text-muted">State/Province:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.stateOrProvinceName || 'N/A' }}</div>
+
                         <div class="col-4 small text-muted">Country:</div>
                         <div class="col-8 small fw-mono">{{ parsedCSRDetails.countryName || 'N/A' }}</div>
+
+                        <div class="col-4 small text-muted">Email:</div>
+                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.emailAddress || 'N/A' }}</div>
                       </div>
                     </div>
                   </div>

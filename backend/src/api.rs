@@ -1675,7 +1675,7 @@ let mut common_name = None;
     let mut state_or_province_name = None;
     let mut country_name = None;
     let mut email_address = None;
-    let mut subject_alt_names: Vec<String> = Vec::new();
+    let subject_alt_names: Vec<String> = Vec::new();
 
     for entry in parsed_csr.subject_name.entries() {
         if let Ok(data) = entry.data().as_utf8() {
