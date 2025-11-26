@@ -1,19 +1,14 @@
-use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tokio::io::AsyncReadExt;
 use vaultls::data::enums::CertificateType;
 use vaultls::data::enums::CertificateRenewMethod;
-use vaultls::cert::CertificateBuilder;
 use vaultls::cert::get_certificate_details;
-use vaultls::create_test_rocket;
 use vaultls::data::api::CreateUserCertificateRequest;
 use vaultls::cert::Certificate;
 use rocket::local::asynchronous::Client;
 use rocket::http::ContentType;
 use rocket::http::Status;
 use serde_json::Value;
-use serde_json::json;
 
 /// Test password for integration tests
 const TEST_PASSWORD: &str = "testpassword123";
@@ -567,7 +562,7 @@ async fn test_csr_parsing_performance_measurement() {
     let iterations = 5; // Multiple iterations for averaging
 
     let mut parsing_times: Vec<std::time::Duration> = Vec::new();
-    let mut signing_times: Vec<std::time::Duration> = Vec::new();
+    let signing_times: Vec<std::time::Duration> = Vec::new();
 
     for i in 0..iterations {
         println!("Performance iteration {}", i + 1);

@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 use crate::constants::{CA_FILE_PATH, CRL_DIR_PATH, CURRENT_CRL_FILE_PATH};
 use crate::data::enums::{CertificateRenewMethod, CertificateType};
-use crate::data::enums::CertificateType::{Client, Server};
 use crate::ApiError;
 
 #[derive(Default, Clone, Serialize, Deserialize, JsonSchema, Debug)]
@@ -699,7 +698,7 @@ impl CertificateBuilder {
 
     /// Build and sign a certificate from the CSR configuration
     /// This method validates that all required fields are set before signing
-    pub fn build_csr_certificate(mut self) -> Result<Certificate, anyhow::Error> {
+    pub fn build_csr_certificate(self) -> Result<Certificate, anyhow::Error> {
         let name = self.name.ok_or(anyhow!("CSR Certificate: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("CSR Certificate: valid_until not set"))?;
         let user_id = self.user_id.ok_or(anyhow!("CSR Certificate: user_id not set"))?;
@@ -847,7 +846,7 @@ authorityKeyIdentifier = keyid:always
 "#.to_string();
 
         // Determine certificate type and add appropriate extensions
-        use crate::data::enums::CertificateType::{Client, Server};
+        use crate::data::enums::CertificateType::Client;
         let certificate_type = Client; // Default to Client, can be improved
         match certificate_type {
             CertificateType::Client => {

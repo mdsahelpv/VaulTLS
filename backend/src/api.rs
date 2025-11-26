@@ -12,10 +12,11 @@ use openssl::x509::X509;
 use openssl::pkey::PKey;
 use serde::Serialize;
 use schemars::JsonSchema;
+use base64::Engine;
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
-use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry, parse_csr_from_pem, ParsedCSR, OCSPRequest};
+use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry, OCSPRequest};
 use crate::constants::VAULTLS_VERSION;
 use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
@@ -2323,7 +2324,7 @@ pub struct SignCsrRequest {
 /// Create and sign a certificate from a Certificate Signing Request (CSR). Requires admin role.
 pub(crate) async fn sign_csr_certificate(
     state: &State<AppState>,
-    mut upload: rocket::form::Form<multipart::SignCsrUpload<'_>>,
+    upload: rocket::form::Form<multipart::SignCsrUpload<'_>>,
     _authentication: AuthenticatedPrivileged
 ) -> Result<Json<Certificate>, ApiError> {
     debug!("Signing certificate from CSR");
@@ -2784,7 +2785,8 @@ pub(crate) async fn ocsp_responder_get(
     debug!("OCSP GET request received (base64 length: {})", request.len());
 
     // Decode base64 request
-    let request_data = base64::decode(request)
+    let request_data = base64::engine::general_purpose::STANDARD
+        .decode(request)
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 encoding in OCSP request: {}", e)))?;
 
     debug!("Decoded OCSP request ({} bytes)", request_data.len());
@@ -3199,7 +3201,7 @@ async fn extract_certificate_id_from_ocsp_request(
     request: &OCSPRequest,
     state: &State<AppState>,
 ) -> Result<i64, ApiError> {
-    use openssl::x509::X509;
+    
 
     debug!("Looking for certificate with serial number: {:?}", request.certificate_id.serial_number);
 
