@@ -1792,20 +1792,40 @@ keyUsage = critical, digitalSignature, keyCertSign, cRLSign
 
         debug!("Executing OpenSSL x509 command for subordinate CA with validity_days: {}, aia_url: {:?}, cdp_url: {:?}", validity_days, aia_url, cdp_url);
 
+        // Build the OpenSSL command with the appropriate hash algorithm
+        let mut openssl_args = vec![
+            "x509".to_string(),
+            "-req".to_string(),
+            "-in".to_string(),
+            cert_req_path.to_string_lossy().to_string(),
+            "-CA".to_string(),
+            ca_cert_path.to_string_lossy().to_string(),
+            "-CAkey".to_string(),
+            ca_key_path.to_string_lossy().to_string(),
+            "-CAcreateserial".to_string(),
+            "-out".to_string(),
+            cert_path.to_string_lossy().to_string(),
+            "-days".to_string(),
+            validity_days.to_string(),
+            "-extfile".to_string(),
+            config_path.to_string_lossy().to_string(),
+            "-extensions".to_string(),
+            "v3_ca".to_string(),
+        ];
+
+        // Insert the hash algorithm flag based on the configured algorithm
+        if let Some(hash_alg) = &self.hash_algorithm {
+            match hash_alg.as_str() {
+                "sha256" => openssl_args.insert(2, "-sha256".to_string()),
+                "sha512" => openssl_args.insert(2, "-sha512".to_string()),
+                _ => openssl_args.insert(2, "-sha256".to_string()), // Default to SHA256
+            }
+        } else {
+            openssl_args.insert(2, "-sha256".to_string()); // Default to SHA256
+        }
+
         let output = Command::new("openssl")
-            .args([
-                "x509",
-                "-req",
-                "-in", &cert_req_path.to_string_lossy(),
-                "-CA", &ca_cert_path.to_string_lossy(),
-                "-CAkey", &ca_key_path.to_string_lossy(),
-                "-CAcreateserial",
-                "-out", &cert_path.to_string_lossy(),
-                "-days", &validity_days.to_string(),
-                "-sha256",
-                "-extfile", &config_path.to_string_lossy(),
-                "-extensions", "v3_ca",
-            ])
+            .args(&openssl_args)
             .output()
             .map_err(|e| {
                 error!("Failed to execute openssl x509 command: {e}");
