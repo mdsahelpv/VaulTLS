@@ -1735,6 +1735,10 @@ const confirmBulkRevocation = () => {
 const parsedCSRDetails = ref<{
   commonName?: string;
   organizationName?: string;
+  organizationalUnitName?: string;
+  localityName?: string;
+  stateOrProvinceName?: string;
+  emailAddress?: string;
   countryName?: string;
   algorithm?: string;
   keySize?: string;
@@ -1832,17 +1836,23 @@ const parseCSRFile = async (file: File) => {
     formData.append('csr_file', file);
 
     const response = await certificateStore.previewCsr(formData);
+    
 
     // Map backend response to frontend format
     parsedCSRDetails.value = {
       commonName: response.common_name,
       organizationName: response.organization_name,
+      organizationalUnitName: response.organizational_unit_name,
+      localityName: response.locality_name,
+      stateOrProvinceName: response.state_or_province_name,
+      emailAddress: response.email_address,
       countryName: response.country_name,
       algorithm: response.algorithm,
       keySize: response.key_size,
       signatureValid: response.signature_valid,
       subjectAltNames: response.subject_alt_names
     };
+    console.log('CSR preview response:', parsedCSRDetails.value);
 
   } catch (error) {
     console.error('Failed to parse CSR:', error);

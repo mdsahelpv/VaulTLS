@@ -1667,8 +1667,8 @@ pub(crate) async fn preview_csr(
     // Validate CSR (signature verification, etc.)
     let signature_valid = parsed_csr.signature_valid;
 
-// Extract subject information
-let mut common_name = None;
+    // Extract subject information
+    let mut common_name = None;
     let mut organization_name = None;
     let mut organizational_unit_name = None;
     let mut locality_name = None;
@@ -1677,39 +1677,126 @@ let mut common_name = None;
     let mut email_address = None;
     let subject_alt_names: Vec<String> = Vec::new();
 
+    debug!("Parsing {} subject entries from CSR", parsed_csr.subject_name.entries().count());
     for entry in parsed_csr.subject_name.entries() {
         if let Ok(data) = entry.data().as_utf8() {
             let value = data.to_string();
+            let nid = entry.object().nid().as_raw();
+            let oid = entry.object().to_string();
 
-            match entry.object().nid().as_raw() {
+            debug!("CSR subject entry: NID={}, OID={}, Value={}", nid, oid, value);
+            // info!("The CSR values:");
+            // info!( nid, oid, value);
+
+            match nid {
                 13 => common_name = Some(value), // CN
-                17 => state_or_province_name = Some(value), // ST
-                18 => locality_name = Some(value), // L
-                6 => organization_name = Some(value), // O
-                7 => organizational_unit_name = Some(value), // OU
+                16 => state_or_province_name = Some(value), // ST
+                15 => locality_name = Some(value), // L
+                17 => organization_name = Some(value), // O
+                18 => organizational_unit_name = Some(value), // OU
                 14 => country_name = Some(value), // C
                 48 | 49 => email_address = Some(value), // emailAddress
-                _ => {} // Ignore other fields
+                _ => debug!("Ignoring subject entry with NID {} (OID: {})", nid, oid), // Ignore other fields
             }
+        } else {
+            debug!("Failed to parse subject entry as UTF-8");
         }
     }
 
-    // Extract subject alternative names from CSR extensions using OID checking
-    let subject_alt_names: Vec<String> = if let Ok(extensions) = parsed_csr.csr.extensions() {
-        let mut names = Vec::new();
+    // Extract subject alternative names from CSR extensions
+    let subject_alt_names: Vec<String> = if let Ok(pem_bytes) = parsed_csr.csr.to_pem() {
+        if let Ok(pem_str) = String::from_utf8(pem_bytes) {
+            let temp_csr_path = std::env::temp_dir().join(format!("csr_san_{}.pem", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
 
-        for (_idx, _ext) in extensions.iter().enumerate() {
-            // TODO: Check if this is a Subject Alternative Name extension by checking NID
-            // Subject Alternative Name NID is NID_subject_alt_name (85)
-            // For now, just indicate that extensions are present
-            // Full parsing would require more complex ASN.1 decoding
-            names.push("Extensions detected (OID checking pending)".to_string());
+            if std::fs::write(&temp_csr_path, &pem_str).is_ok() {
+                let openssl_output = std::process::Command::new("openssl")
+                    .args([
+                        "req",
+                        "-in", &temp_csr_path.to_string_lossy(),
+                        "-text",
+                        "-noout"
+                    ])
+                    .output();
+
+                let _ = std::fs::remove_file(&temp_csr_path);
+
+                if let Ok(output) = openssl_output {
+                    if output.status.success() {
+                        if let Ok(text_output) = String::from_utf8(output.stdout) {
+                            let mut names = Vec::new();
+
+                            // Parse the output to find DNS and IP addresses
+                            for line in text_output.lines() {
+                                let line_trimmed = line.trim();
+
+                                // Look for DNS names
+                                if line_trimmed.contains("DNS:") && line_trimmed.contains(", DNS:") {
+                                    // Extract multiple DNS names separated by commas
+                                    let dns_part = &line_trimmed[line_trimmed.find("DNS:").unwrap()..];
+                                    let dns_entries: Vec<&str> = dns_part.split("DNS:").collect();
+
+                                    for entry in dns_entries {
+                                        if entry.trim().starts_with(|c: char| c.is_alphanumeric()) {
+                                            if let Some(comma_pos) = entry.find(',') {
+                                                let dns_name = entry[..comma_pos].trim().trim_end_matches(',').to_string();
+                                                if !dns_name.is_empty() {
+                                                    names.push(dns_name);
+                                                }
+                                            } else {
+                                                let dns_name = entry.trim().trim_end_matches(',').to_string();
+                                                if !dns_name.is_empty() {
+                                                    names.push(dns_name);
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if line_trimmed.starts_with("DNS:") {
+                                    // Single DNS name
+                                    if let Some(dns_name) = line_trimmed.strip_prefix("DNS:") {
+                                        let clean_dns = dns_name.trim().trim_end_matches(',');
+                                        if !clean_dns.is_empty() {
+                                            names.push(clean_dns.to_string());
+                                        }
+                                    }
+                                }
+                                // Look for IP addresses
+                                else if line_trimmed.starts_with("IP Address:") || line_trimmed.starts_with("IP:") {
+                                    if let Some(ip_part) = line_trimmed.strip_prefix("IP Address:").or_else(|| line_trimmed.strip_prefix("IP:")) {
+                                        let clean_ip = ip_part.trim().trim_end_matches(',');
+                                        if !clean_ip.is_empty() {
+                                            names.push(clean_ip.to_string());
+                                        }
+                                    }
+                                }
+                                // Look for email addresses in SAN
+                                else if line_trimmed.starts_with("email:") && !line_trimmed.contains("emailAddress") {
+                                    if let Some(email_part) = line_trimmed.strip_prefix("email:") {
+                                        let clean_email = email_part.trim().trim_end_matches(',');
+                                        if !clean_email.is_empty() {
+                                            names.push(clean_email.to_string());
+                                        }
+                                    }
+                                }
+                            }
+
+                            names
+                        } else {
+                            vec!["Failed to parse OpenSSL output".to_string()]
+                        }
+                    } else {
+                        vec!["OpenSSL command failed".to_string()]
+                    }
+                } else {
+                    vec!["Failed to run OpenSSL command".to_string()]
+                }
+            } else {
+                vec!["Failed to write temporary CSR file".to_string()]
+            }
+        } else {
+            vec!["Failed to convert CSR to string".to_string()]
         }
-
-        names
     } else {
-        debug!("Failed to access CSR extensions, SAN extraction skipped");
-        Vec::<String>::new()
+        vec!["Failed to convert CSR to PEM".to_string()]
     };
 
     Ok(Json(CsrPreviewResponse {
@@ -2493,7 +2580,8 @@ pub(crate) async fn sign_csr_certificate(
 
     // Check if we're in Root CA mode and restrict certificate types
     let is_root_ca = state.settings.get_is_root_ca();
-    let cert_type = upload.certificate_type.as_deref().unwrap_or("client");
+    info!("Requested certificate type for CSR signing: {:?}", upload.certificate_type);
+    let cert_type = upload.certificate_type.as_deref().unwrap_or("server");
 
     if is_root_ca && cert_type != "subordinate_ca" {
         return Err(ApiError::BadRequest("Root CA Server can only issue subordinate CA certificates".to_string()));
@@ -2506,7 +2594,7 @@ pub(crate) async fn sign_csr_certificate(
         "subordinate_ca" => CertificateType::SubordinateCA,
         _ => return Err(ApiError::BadRequest(format!("Invalid certificate type: {}", cert_type))),
     };
-
+    info!("Certificate type for CSR signing determined: {:?}", certificate_type);
     // Get user information
     let user = state.db.get_user(upload.user_id).await?;
 
@@ -2546,11 +2634,12 @@ pub(crate) async fn sign_csr_certificate(
         .set_pkcs12_password(&pkcs12_password)?;
 
     // Build the certificate
-    let cert_result = match certificate_type {
-        CertificateType::Client => builder.build_csr_certificate(),
-        CertificateType::Server => builder.build_csr_certificate(),
-        CertificateType::SubordinateCA => builder.build_csr_certificate(),
-    };
+    let cert_result = builder.build_csr_certificate(certificate_type);
+    // let cert_result = match certificate_type {
+    //     CertificateType::Client => builder.build_csr_certificate(certificate_type),
+    //     CertificateType::Server => builder.build_csr_certificate(certificate_type),
+    //     CertificateType::SubordinateCA => builder.build_csr_certificate(certificate_type),
+    // };
 
     let certificate = match cert_result {
         Ok(cert) => cert,

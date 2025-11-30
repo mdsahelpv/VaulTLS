@@ -17,7 +17,7 @@ use openssl::x509::X509Builder;
 use passwords::PasswordGenerator;
 use rocket_okapi::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use crate::constants::{CA_FILE_PATH, CRL_DIR_PATH, CURRENT_CRL_FILE_PATH};
 use crate::data::enums::{CertificateRenewMethod, CertificateType};
 use crate::ApiError;
@@ -156,6 +156,7 @@ pub struct CertificateBuilder {
     ca: Option<CA>,
     user_id: Option<i64>,
     renew_method: CertificateRenewMethod,
+    certificate_type: Option<CertificateType>,
     key_size: Option<String>,
     hash_algorithm: Option<String>,
     // DN fields for CA certificates
@@ -507,6 +508,7 @@ impl CertificateBuilder {
             ca: ca.cloned(),
             user_id: None,
             renew_method: CertificateRenewMethod::None, // Default to none
+            certificate_type: None,
             key_size: Some(parsed_csr.key_size.clone()),
             hash_algorithm: None,
             country: None, state: None, locality: None, organization: None,
@@ -570,30 +572,31 @@ impl CertificateBuilder {
         x509.set_not_before(&created_on_openssl)?;
         x509.set_pubkey(&private_key)?;
 
-        Ok(Self {
-            x509,
-            private_key,
-            created_on: created_on_unix,
-            valid_until: None,
-            name: None,
-            pkcs12_password: String::new(),
-            ca: None,
-            user_id: None,
-            renew_method: Default::default(),
-            key_size: key_size.map(|s| s.to_string()),
-            hash_algorithm: None,
-            country: None,
-            state: None,
-            locality: None,
-            organization: None,
-            organizational_unit: None,
-            common_name: None,
-            email: None,
-            certificate_policies_oid: None,
-            certificate_policies_cps_url: None,
-            authority_info_access: None,
-            crl_distribution_points: None,
-        })
+    Ok(Self {
+        x509,
+        private_key,
+        created_on: created_on_unix,
+        valid_until: None,
+        name: None,
+        pkcs12_password: String::new(),
+        ca: None,
+        user_id: None,
+        renew_method: Default::default(),
+        certificate_type: None,
+        key_size: key_size.map(|s| s.to_string()),
+        hash_algorithm: None,
+        country: None,
+        state: None,
+        locality: None,
+        organization: None,
+        organizational_unit: None,
+        common_name: None,
+        email: None,
+        certificate_policies_oid: None,
+        certificate_policies_cps_url: None,
+        authority_info_access: None,
+        crl_distribution_points: None,
+    })
     }
 
     /// Copy information over from an existing certificate
@@ -677,7 +680,7 @@ impl CertificateBuilder {
 
     /// Set the certificate type for CSR-based certificate generation
     pub fn set_certificate_type(mut self, certificate_type: CertificateType) -> Result<Self, anyhow::Error> {
-        debug!("Setting certificate type to: {:?}", certificate_type);
+        info!("Setting certificate type to: {:?}", certificate_type);
 
         // Add appropriate extended key usage based on certificate type
         let ext_key_usage = match certificate_type {
@@ -691,14 +694,17 @@ impl CertificateBuilder {
                 return Err(anyhow!("Subordinate CA certificates require separate build_subordinate_ca() method"));
             }
         };
+        
 
         self.x509.append_extension(ext_key_usage)?;
+        self.certificate_type = Some(certificate_type);
         Ok(self)
     }
 
     /// Build and sign a certificate from the CSR configuration
     /// This method validates that all required fields are set before signing
-    pub fn build_csr_certificate(self) -> Result<Certificate, anyhow::Error> {
+    pub fn build_csr_certificate(mut self, certificate_type: CertificateType) -> Result<Certificate, anyhow::Error> {
+        info!("Building CSR-based certificate => {:?}", &self.certificate_type);
         let name = self.name.ok_or(anyhow!("CSR Certificate: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("CSR Certificate: valid_until not set"))?;
         let user_id = self.user_id.ok_or(anyhow!("CSR Certificate: user_id not set"))?;
@@ -847,7 +853,10 @@ authorityKeyIdentifier = keyid:always
 
         // Determine certificate type and add appropriate extensions
         use crate::data::enums::CertificateType::Client;
-        let certificate_type = Client; // Default to Client, can be improved
+        // let certificate_type = Client; // Default to Client, can be improved
+        let certificate_type = self.certificate_type.unwrap(); // Default to Client, can be improved
+        // match Certificate.certificate_type {
+        //     _ => return Err(anyhow!("Unsupported certificate type for CSR-based certificate")),
         match certificate_type {
             CertificateType::Client => {
                 config_content.push_str("extendedKeyUsage = clientAuth\n");
