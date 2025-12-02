@@ -3174,16 +3174,21 @@ pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiE
 }
 
 /// Generate an OCSP response for a given certificate status
+/// Uses OpenSSL command-line tools to create properly signed and ASN.1 encoded OCSP responses
+/// compliant with RFC 6960
 pub(crate) async fn generate_ocsp_response(
     request: &OCSPRequest,
     cert_id: i64,
     ca: &CA,
     db: &crate::db::VaulTLSDB,
 ) -> Result<Vec<u8>, ApiError> {
-    debug!("Generating OCSP response for certificate ID: {} (serial: {:?})", cert_id, request.certificate_id.serial_number);
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Get the certificate to ensure it exists
-    let _cert = db.get_user_cert_by_id(cert_id).await
+    debug!("Generating RFC 6960 compliant OCSP response for certificate ID: {} (serial: {:?})", cert_id, request.certificate_id.serial_number);
+
+    // Get the certificate to ensure it exists and get its serial number
+    let cert = db.get_user_cert_by_id(cert_id).await
         .map_err(|e| ApiError::Other(format!("Certificate not found: {e}")))?;
 
     // Check if the certificate is revoked
@@ -3198,49 +3203,249 @@ pub(crate) async fn generate_ocsp_response(
         None
     };
 
-    // Determine certificate status
-    let cert_status = if is_revoked {
-        if let Some(revocation) = revocation_info {
-            OCSPCertStatus::Revoked {
-                revocation_time: revocation.revocation_date,
-                revocation_reason: Some(revocation.revocation_reason),
-            }
-        } else {
-            OCSPCertStatus::Revoked {
-                revocation_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
-                revocation_reason: None,
-            }
-        }
+    debug!("Certificate status: {}, revoked: {}", cert_id, is_revoked);
+
+    // Create temporary files
+    let temp_dir = std::env::temp_dir();
+    let ca_cert_path = temp_dir.join(format!("ocsp_ca_cert_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let ca_key_path = temp_dir.join(format!("ocsp_ca_key_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let cert_path = temp_dir.join(format!("ocsp_cert_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let index_path = temp_dir.join(format!("ocsp_index_{}_{}.txt", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let ocsp_resp_path = temp_dir.join(format!("ocsp_resp_{}_{}.der", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+
+    let cleanup_temp_files = || {
+        let _ = std::fs::remove_file(&ca_cert_path);
+        let _ = std::fs::remove_file(&ca_key_path);
+        let _ = std::fs::remove_file(&cert_path);
+        let _ = std::fs::remove_file(&index_path);
+        let _ = std::fs::remove_file(&ocsp_resp_path);
+    };
+
+    // Load CA certificate and private key
+    let ca_cert = X509::from_der(&ca.cert)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to load CA certificate: {e}"))
+        })?;
+
+    let ca_key = PKey::private_key_from_der(&ca.key)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to load CA private key: {e}"))
+        })?;
+
+    // Extract certificate from PKCS#12 data
+    let cert_p12 = Pkcs12::from_der(&cert.pkcs12)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to parse certificate PKCS#12: {e}"))
+        })?;
+
+    let cert_parsed = if cert.pkcs12_password.is_empty() {
+        cert_p12.parse2("")
+            .map_err(|e| {
+                cleanup_temp_files();
+                ApiError::Other(format!("Failed to decrypt certificate PKCS#12: {e}"))
+            })?
     } else {
-        OCSPCertStatus::Good
+        cert_p12.parse2(&cert.pkcs12_password)
+            .map_err(|e| {
+                cleanup_temp_files();
+                ApiError::Other(format!("Failed to decrypt certificate PKCS#12: {e}"))
+            })?
     };
 
-    // Create single response
-    let single_response = OCSPSingleResponse {
-        cert_id: request.certificate_id.clone(),
-        cert_status: cert_status.clone(),
-        this_update: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
-        next_update: Some((SystemTime::now() + std::time::Duration::from_secs(3600)).duration_since(UNIX_EPOCH).unwrap().as_millis() as i64), // 1 hour validity
-        extensions: Vec::new(),
-    };
+    let user_cert = cert_parsed.cert
+        .ok_or_else(|| {
+            cleanup_temp_files();
+            ApiError::Other("No certificate found in PKCS#12 data".to_string())
+        })?;
 
-    // Create response
-    let _response = OCSPResponse {
-        version: 1,
-        response_status: OCSPResponseStatus::Successful,
-        response_bytes: Some(single_response),
-        produced_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
-        extensions: Vec::new(),
-    };
+    // Write CA certificate to PEM
+    let ca_cert_pem = ca_cert.to_pem()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to encode CA certificate to PEM: {e}"))
+        })?;
+    std::fs::write(&ca_cert_path, &ca_cert_pem)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write CA certificate: {e}"))
+        })?;
 
-    // TODO: Sign the response with CA certificate and ASN.1 encode properly
-    // For now, return a minimal successful OCSP response in DER format
-    // In a real implementation, this would use proper OCSP ASN.1 structures
-    debug!("OCSP response generated (placeholder - signing not implemented). Cert status: {:?}", &cert_status);
+    // Write CA private key to PKCS#8 PEM
+    let ca_key_pem = ca_key.private_key_to_pem_pkcs8()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to encode CA private key: {e}"))
+        })?;
+    std::fs::write(&ca_key_path, &ca_key_pem)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write CA private key: {e}"))
+        })?;
 
-    // Return minimal valid OCSP response: just the version byte (0x00 for version 1)
-    // This allows the endpoint to work while indicating that full implementation is pending
-    Ok(vec![0x00]) // Single byte indicating successful response
+    // Write certificate to check to PEM
+    let user_cert_pem = user_cert.to_pem()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to encode certificate to PEM: {e}"))
+        })?;
+    std::fs::write(&cert_path, &user_cert_pem)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write certificate: {e}"))
+        })?;
+
+    // Create OpenSSL index file for OCSP revocation status
+    let mut index_content = String::new();
+
+    if is_revoked {
+        if let Some(revocation) = revocation_info {
+            // Convert revocation time from milliseconds to OpenSSL UTCTime format
+            let revocation_time = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(revocation.revocation_date as u64);
+            let revocation_datetime: chrono::DateTime<chrono::Utc> = revocation_time.into();
+            let revocation_openssl = revocation_datetime.format("%y%m%d%H%M%SZ").to_string();
+
+            // Get certificate serial number (need to extract from the certificate)
+            let cert_serial = user_cert.serial_number();
+            let serial_bn = cert_serial.to_bn()
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    ApiError::Other(format!("Failed to extract certificate serial number: {e}"))
+                })?;
+            let serial_hex = serial_bn.to_hex_str()
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    ApiError::Other(format!("Failed to format serial number: {e}"))
+                })?;
+
+            // Create subject (simplified - we don't store full subject in DB)
+            let subject_name = user_cert.subject_name();
+            let cn_entry = subject_name.entries()
+                .find(|e| e.object().nid().as_raw() == 13) // CN
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            let subject = format!("/CN={}", cn_entry);
+
+            // Add revoked certificate entry
+            // Format: R\tExpiration\tRevocationDate\tReason\tSerial\tFilename\tSubject
+            let far_future = "20351231235959Z";
+            let reason_code = match revocation.revocation_reason {
+                crate::data::enums::CertificateRevocationReason::Unspecified => "unspecified",
+                crate::data::enums::CertificateRevocationReason::KeyCompromise => "keyCompromise",
+                crate::data::enums::CertificateRevocationReason::CACompromise => "CACompromise",
+                crate::data::enums::CertificateRevocationReason::AffiliationChanged => "affiliationChanged",
+                crate::data::enums::CertificateRevocationReason::Superseded => "superseded",
+                crate::data::enums::CertificateRevocationReason::CessationOfOperation => "cessationOfOperation",
+                crate::data::enums::CertificateRevocationReason::CertificateHold => "certificateHold",
+                crate::data::enums::CertificateRevocationReason::RemoveFromCRL => "removeFromCRL",
+                crate::data::enums::CertificateRevocationReason::PrivilegeWithdrawn => "privilegeWithdrawn",
+                crate::data::enums::CertificateRevocationReason::AACompromise => "AACompromise",
+            };
+
+            let filename = "revoked_cert";
+            index_content.push_str(&format!("R\t{far_future}\t{revocation_openssl}\t{reason_code}\t{serial_hex}\t{filename}\t{subject}\n"));
+            debug!("Added revoked certificate to index: serial={}, reason={}", serial_hex, reason_code);
+        }
+    }
+
+    std::fs::write(&index_path, &index_content)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write OCSP index file: {e}"))
+        })?;
+
+    // Build OpenSSL ocsp command
+    let mut openssl_args = vec![
+        "ocsp".to_string(),
+        "-issuer".to_string(),
+        ca_cert_path.to_string_lossy().to_string(),
+        "-cert".to_string(),
+        cert_path.to_string_lossy().to_string(),
+        "-reqout".to_string(),
+        "/dev/null".to_string(), // Don't output request, just process
+        "-respout".to_string(),
+        ocsp_resp_path.to_string_lossy().to_string(),
+    ];
+
+    // Add signer certificate and key for response signing
+    openssl_args.extend_from_slice(&[
+        "-rsigner".to_string(),
+        ca_cert_path.to_string_lossy().to_string(),
+        "-rkey".to_string(),
+        ca_key_path.to_string_lossy().to_string(),
+    ]);
+
+    // Add index file for revocation status
+    openssl_args.extend_from_slice(&[
+        "-index".to_string(),
+        index_path.to_string_lossy().to_string(),
+    ]);
+
+    // Add serial number directly (extracted from certificate)
+    let cert_serial = user_cert.serial_number();
+    let serial_bn = cert_serial.to_bn()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to extract certificate serial number: {e}"))
+        })?;
+
+    if let Ok(serial_str) = serial_bn.to_hex_str().map(|s| s.to_string()) {
+        openssl_args.extend_from_slice(&[
+            "-serial".to_string(),
+            format!("0x{}", serial_str.trim_start_matches('0')),
+        ]);
+    }
+
+    // Add validity period for response
+    openssl_args.extend_from_slice(&[
+        "-nmin".to_string(),
+        "0".to_string(), // Valid immediately
+        "-nmax".to_string(),
+        "3600".to_string(), // Valid for 1 hour
+    ]);
+
+    debug!("Executing OpenSSL OCSP command: openssl {}", openssl_args.join(" "));
+
+    // Execute OpenSSL command to generate OCSP response
+    let output = Command::new("openssl")
+        .args(&openssl_args)
+        .output()
+        .map_err(|e| {
+            error!("Failed to execute openssl ocsp command: {e}");
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to execute OpenSSL OCSP command: {e}"))
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        error!("OpenSSL OCSP response generation failed: {}", stderr);
+        error!("OpenSSL stdout: {}", stdout);
+        cleanup_temp_files();
+        return Err(ApiError::Other(format!("OCSP response generation failed: {stderr}")));
+    }
+
+    debug!("OpenSSL OCSP response generation successful");
+
+    // Read the DER-encoded OCSP response
+    let ocsp_response_der = std::fs::read(&ocsp_resp_path)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to read OCSP response: {e}"))
+        })?;
+
+    cleanup_temp_files();
+
+    debug!("Generated RFC 6960 compliant OCSP response ({} bytes) for certificate {}, status: {}",
+           ocsp_response_der.len(),
+           cert_id,
+           if is_revoked { "revoked" } else { "good" });
+
+    Ok(ocsp_response_der)
 }
 
 

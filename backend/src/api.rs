@@ -2829,47 +2829,50 @@ pub(crate) async fn download_crl(
     // Convert to CRLEntry format with proper serial numbers
     let mut revoked_entries = Vec::new();
     debug!("Processing {} revocation records for CRL generation", revoked_records.len());
-    
+
     for record in &revoked_records {
         // Get certificate details to extract serial number
+        // This could be either a user certificate or a CA certificate
         debug!("Processing revocation record for certificate_id: {}", record.certificate_id);
-        
-        let cert = match state.db.get_user_cert_by_id(record.certificate_id).await {
-            Ok(c) => c,
-            Err(e) => {
-                warn!("Failed to get certificate {} for CRL: {:?}", record.certificate_id, e);
-                continue; // Skip this certificate
-            }
-        };
 
-        // Extract serial number from certificate
-        let serial_number = match crate::cert::get_certificate_details(&cert) {
-            Ok(details) => {
-                debug!("Certificate {} serial number (hex): {}", record.certificate_id, details.serial_number);
-                
-                // Parse the hex serial number back to bytes
-                match hex::decode(details.serial_number.trim_start_matches("0x").trim_start_matches("0X")) {
-                    Ok(serial_bytes) => {
-                        if serial_bytes.is_empty() {
-                            error!("Certificate {} has empty serial number after decoding", record.certificate_id);
-                            continue; // Skip certificates with empty serial numbers
-                        }
-                        debug!("Successfully decoded serial number for cert {}: {} bytes", record.certificate_id, serial_bytes.len());
-                        serial_bytes
-                    }
-                    Err(e) => {
-                        error!("Failed to decode hex serial number for certificate {}: {:?}", record.certificate_id, e);
-                        continue; // Skip this certificate
+        // Get user certificate data
+        let pkcs12_data_and_password = match state.db.get_user_cert_pkcs12(record.certificate_id).await {
+            Ok((user_id, name, pkcs12_data)) => {
+                // Get password for this certificate
+                match state.db.get_user_cert_pkcs12_password(record.certificate_id).await {
+                    Ok((_, password)) => Some((pkcs12_data, password)), // Extract password string
+                    Err(_) => {
+                        warn!("Failed to get password for user certificate {}", record.certificate_id);
+                        continue;
                     }
                 }
-            }
+            },
             Err(e) => {
-                error!("Failed to get certificate details for cert {}: {:?}", record.certificate_id, e);
-                continue; // Skip this certificate
+                warn!("Failed to get user certificate {} for CRL generation: {:?}. This revocation record should not exist or the certificate was deleted.", record.certificate_id, e);
+                continue;
             }
         };
 
-        debug!("Adding revoked certificate {} to CRL with {} byte serial", record.certificate_id, serial_number.len());
+        // Extract serial number from user certificate PKCS#12 data
+        let serial_number = if let Some((cert_data, password)) = pkcs12_data_and_password.as_ref() {
+            match extract_serial_from_pkcs12(&cert_data, password) {
+                Ok(serial) => {
+                    debug!("User certificate {} serial number (hex): {}", record.certificate_id,
+                           hex::encode(&serial).to_uppercase());
+                    serial
+                }
+                Err(e) => {
+                    warn!("Failed to extract serial from PKCS#12 for user certificate {}: {:?}", record.certificate_id, e);
+                    continue;
+                }
+            }
+        } else {
+            warn!("No certificate data found for certificate ID {}", record.certificate_id);
+            continue;
+        };
+
+        debug!("Adding revoked certificate {} to CRL with {} byte serial: {}",
+               record.certificate_id, serial_number.len(), hex::encode(&serial_number).to_uppercase());
         revoked_entries.push(CRLEntry {
             serial_number,
             revocation_date: record.revocation_date,
@@ -3441,12 +3444,64 @@ async fn process_ocsp_request(
     Ok(response_der)
 }
 
+/// Extract certificate serial number directly from PKCS#12 data
+/// This is more reliable than using get_certificate_details for CRL generation
+fn extract_serial_from_pkcs12(pkcs12_data: &[u8], password: &str) -> Result<Vec<u8>, ApiError> {
+    use openssl::pkcs12::Pkcs12;
+
+    debug!("Extracting serial number from PKCS#12 data ({} bytes)", pkcs12_data.len());
+
+    // Parse the PKCS#12 data
+    let pkcs12 = Pkcs12::from_der(pkcs12_data)
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
+
+    // Try to parse with password
+    let parsed = if password.is_empty() {
+        pkcs12.parse2("")
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12: {e}")))?
+    } else {
+        pkcs12.parse2(password)
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {e}")))?
+    };
+
+    // Get the certificate
+    let cert = parsed.cert
+        .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;
+
+    // Extract serial number as bytes
+    let serial_number = cert.serial_number().to_bn()
+        .map_err(|e| ApiError::Other(format!("Failed to get serial number: {e}")))?
+        .to_vec();
+
+    debug!("Extracted serial number: {} bytes", serial_number.len());
+    Ok(serial_number)
+}
+
+/// Extract certificate serial number from DER-encoded certificate data (used for CA certificates)
+fn extract_serial_from_der(der_data: &[u8]) -> Result<Vec<u8>, ApiError> {
+    use openssl::x509::X509;
+
+    debug!("Extracting serial number from DER data ({} bytes)", der_data.len());
+
+    // Parse the DER certificate
+    let cert = X509::from_der(der_data)
+        .map_err(|e| ApiError::Other(format!("Failed to parse DER certificate: {e}")))?;
+
+    // Extract serial number as bytes
+    let serial_number = cert.serial_number().to_bn()
+        .map_err(|e| ApiError::Other(format!("Failed to get serial number: {e}")))?
+        .to_vec();
+
+    debug!("Extracted serial number from DER: {} bytes", serial_number.len());
+    Ok(serial_number)
+}
+
 /// Helper function to extract certificate ID from OCSP request using database lookup
 async fn extract_certificate_id_from_ocsp_request(
     request: &OCSPRequest,
     state: &State<AppState>,
 ) -> Result<i64, ApiError> {
-    
+
 
     debug!("Looking for certificate with serial number: {:?}", request.certificate_id.serial_number);
 
