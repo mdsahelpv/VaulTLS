@@ -3001,6 +3001,73 @@ pub(crate) async fn download_crl_backup(
     Ok(DownloadResponse::new(file_data, filename))
 }
 
+#[openapi(tag = "Certificates")]
+#[delete("/certificates/crl/backup/<filename>")]
+/// Delete a specific CRL backup file. Requires admin role.
+/// Allows deletion of specific CRL backup files by filename with safety checks.
+///
+/// Usage:
+/// ```bash
+/// curl -X DELETE -H "Authorization: Bearer <token>" \
+///      http://localhost:8000/api/certificates/crl/backup/ca_1_1640995200000.crl
+/// ```
+pub(crate) async fn delete_crl_backup(
+    state: &State<AppState>,
+    filename: &str,
+    authentication: AuthenticatedPrivileged
+) -> Result<(), ApiError> {
+    use std::fs;
+    use std::path::Path;
+    use crate::constants::CRL_DIR_PATH;
+
+    // Security check: ensure the filename doesn't contain path traversal
+    if filename.contains("..") || filename.contains("/") || filename.contains("\\") {
+        return Err(ApiError::BadRequest("Invalid filename".to_string()));
+    }
+
+    if !filename.ends_with(".crl") {
+        return Err(ApiError::BadRequest("Invalid file extension".to_string()));
+    }
+
+    let file_path = Path::new(CRL_DIR_PATH).join(filename);
+
+    if !file_path.exists() {
+        return Err(ApiError::NotFound(Some("CRL backup file not found".to_string())));
+    }
+
+    // Attempt to delete the file
+    match fs::remove_file(&file_path) {
+        Ok(_) => {
+            info!(file=?filename, admin_id=?authentication._claims.id, "CRL backup file deleted successfully");
+
+            // Audit log CRL backup file deletion
+            if let Err(e) = state.audit.log_system_event(
+                crate::data::objects::AuditEventType::UserAction,
+                "CRL backup file deleted",
+                true,
+                Some(serde_json::json!({
+                    "filename": filename,
+                    "backup_type": "CRL_backup",
+                    "deleted_by": authentication._claims.id,
+                    "deletion_timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis()
+                }).to_string()),
+                None,
+            ).await {
+                warn!("Failed to log CRL backup deletion audit event: {}", e);
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            error!("Failed to delete CRL backup file {}: {}", filename, e);
+            Err(ApiError::Other(format!("Failed to delete CRL backup file: {}", e)))
+        }
+    }
+}
+
 #[get("/ocsp?<request>")]
 /// OCSP responder endpoint for real-time certificate status checking.
 /// Accepts base64-encoded OCSP requests via GET and returns DER-encoded OCSP responses.

@@ -65,6 +65,16 @@
             <a
                 href="#"
                 class="nav-link d-flex align-items-center gap-2"
+                :class="{ active: activeRouteName === 'CRL' }"
+                @click.prevent="goToRoute('CRL')"
+            >
+              CRL / OCSP
+            </a>
+          </li>
+          <li v-if="isAdmin" class="nav-item mb-2">
+            <a
+                href="#"
+                class="nav-link d-flex align-items-center gap-2"
                 :class="{ active: activeRouteName === 'Audit' }"
                 @click.prevent="goToRoute('Audit')"
             >

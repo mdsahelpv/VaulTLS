@@ -198,6 +198,10 @@ export const downloadCrlBackup = async (filename: string): Promise<void> => {
     return await ApiClient.download(`/certificates/crl/backup/${filename}`);
 };
 
+export const deleteCrlBackup = async (filename: string): Promise<void> => {
+    await ApiClient.delete<void>(`/certificates/crl/backup/${filename}`);
+};
+
 export interface CsrSignRequest {
     ca_id?: string;
     certificate_type: string;
