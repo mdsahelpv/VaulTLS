@@ -47,6 +47,7 @@ ca_cert.hex
 ca/
 certs/
 certificates/
+backend/crl/
 
 # ===========================================
 # Database Files

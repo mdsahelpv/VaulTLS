@@ -2828,25 +2828,57 @@ pub(crate) async fn download_crl(
 
     // Convert to CRLEntry format with proper serial numbers
     let mut revoked_entries = Vec::new();
-    for record in revoked_records {
+    debug!("Processing {} revocation records for CRL generation", revoked_records.len());
+    
+    for record in &revoked_records {
         // Get certificate details to extract serial number
-        let cert = state.db.get_user_cert_by_id(record.certificate_id).await?;
-
-        // Extract serial number from certificate
-        let serial_number = if let Ok(details) = crate::cert::get_certificate_details(&cert) {
-            // Parse the hex serial number back to bytes
-            hex::decode(details.serial_number.trim_start_matches("0x").trim_start_matches("0X"))
-                .unwrap_or_else(|_| Vec::new())
-        } else {
-            Vec::new()
+        debug!("Processing revocation record for certificate_id: {}", record.certificate_id);
+        
+        let cert = match state.db.get_user_cert_by_id(record.certificate_id).await {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to get certificate {} for CRL: {:?}", record.certificate_id, e);
+                continue; // Skip this certificate
+            }
         };
 
+        // Extract serial number from certificate
+        let serial_number = match crate::cert::get_certificate_details(&cert) {
+            Ok(details) => {
+                debug!("Certificate {} serial number (hex): {}", record.certificate_id, details.serial_number);
+                
+                // Parse the hex serial number back to bytes
+                match hex::decode(details.serial_number.trim_start_matches("0x").trim_start_matches("0X")) {
+                    Ok(serial_bytes) => {
+                        if serial_bytes.is_empty() {
+                            error!("Certificate {} has empty serial number after decoding", record.certificate_id);
+                            continue; // Skip certificates with empty serial numbers
+                        }
+                        debug!("Successfully decoded serial number for cert {}: {} bytes", record.certificate_id, serial_bytes.len());
+                        serial_bytes
+                    }
+                    Err(e) => {
+                        error!("Failed to decode hex serial number for certificate {}: {:?}", record.certificate_id, e);
+                        continue; // Skip this certificate
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to get certificate details for cert {}: {:?}", record.certificate_id, e);
+                continue; // Skip this certificate
+            }
+        };
+
+        debug!("Adding revoked certificate {} to CRL with {} byte serial", record.certificate_id, serial_number.len());
         revoked_entries.push(CRLEntry {
             serial_number,
             revocation_date: record.revocation_date,
             reason: record.revocation_reason,
         });
     }
+    
+    info!("CRL generation: added {} revoked entries out of {} revocation records", 
+          revoked_entries.len(), revoked_records.len());
 
     // Generate CRL
     let crl_der = generate_crl(&ca, &revoked_entries)?;
