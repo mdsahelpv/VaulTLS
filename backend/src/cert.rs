@@ -2331,7 +2331,8 @@ pub fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8
     // Create OpenSSL index file with revoked certificates
     let mut index_content = String::new();
 
-    // Format: Status|Expiration|RevocationDate|Serial|FileName|Subject
+    // Format: Status\tExpiration\tRevocationDate,Reason\tSerial\tFileName\tSubject
+    // OpenSSL expects tab-separated values in the index.txt file
     // We use a far-future expiration date since we don't track individual certificate validity in this context
     let far_future = "20351231235959Z";
 
@@ -2351,8 +2352,8 @@ pub fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8
         let subject = format!("/CN=RevokedCertificate{}", i + 1);
 
         // Add entry for revoked certificate
-        index_content.push_str(&format!("R|{far_future}|{revocation_openssl}|{serial_hex}|{filename}|{subject}\n"            // Subject (simplified)
-        ));
+        // Format: R\tExpiration\tRevocationDate\tSerial\tFilename\tSubject
+        index_content.push_str(&format!("R\t{far_future}\t{revocation_openssl}\t{serial_hex}\t{filename}\t{subject}\n"));
     }
 
     std::fs::write(&index_path, &index_content)
