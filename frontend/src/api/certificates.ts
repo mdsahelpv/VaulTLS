@@ -206,6 +206,22 @@ export const generateCRL = async (): Promise<{ success: boolean; message: string
     return await ApiClient.post<{ success: boolean; message: string }>('/certificates/crl/generate');
 };
 
+export interface CrlDetails {
+    ca_id: number;
+    ca_name: string;
+    issuer: string;
+    this_update: number;
+    next_update: number;
+    version: number;
+    signature_algorithm: string;
+    revoked_certificates_count: number;
+    file_size: number;
+}
+
+export const getCrlDetails = async (): Promise<CrlDetails> => {
+    return await ApiClient.get<CrlDetails>('/certificates/crl/details');
+};
+
 export interface CsrSignRequest {
     ca_id?: string;
     certificate_type: string;

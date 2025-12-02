@@ -14,6 +14,7 @@ use openssl::pkey::PKey;
 use serde::Serialize;
 use schemars::JsonSchema;
 use base64::Engine;
+use std::time::{SystemTime, UNIX_EPOCH};
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
@@ -2933,6 +2934,117 @@ pub(crate) async fn get_crl_metadata_endpoint(
     let ca = state.db.get_current_ca().await?;
     let metadata = crate::cert::get_crl_metadata(ca.id)?;
     Ok(Json(metadata))
+}
+
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct CrlDetails {
+    pub ca_id: i64,
+    pub ca_name: String,
+    pub issuer: String,
+    pub this_update: i64,
+    pub next_update: i64,
+    pub version: i32,
+    pub signature_algorithm: String,
+    pub revoked_certificates_count: usize,
+    pub file_size: usize,
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/crl/details")]
+/// Get detailed CRL information. Requires authentication.
+/// Returns parsed details about the current CRL including issuer info, validity period, and revocation statistics.
+///
+/// Response format:
+/// ```json
+/// {
+///   "ca_id": 1,
+///   "ca_name": "My Root CA",
+///   "issuer": "CN=My Root CA,O=My Organization,C=US",
+///   "this_update": 1640995200000,
+///   "next_update": 1640998800000,
+///   "version": 1,
+///   "signature_algorithm": "RSA-SHA256",
+///   "revoked_certificates_count": 5,
+///   "file_size": 1024
+/// }
+/// ```
+pub(crate) async fn get_crl_details_endpoint(
+    state: &State<AppState>,
+    _authentication: Authenticated
+) -> Result<Json<CrlDetails>, ApiError> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    debug!("Requesting CRL details");
+
+    // Check if we have a cached CRL
+    let mut cache = state.crl_cache.lock().await;
+    if let Some(cached_crl) = &*cache {
+        // Check if cache is still valid
+        if cached_crl.valid_until > current_time() {
+            // Parse the cached CRL to extract details
+            match crate::cert::parse_crl_details(&cached_crl.data) {
+                Ok(details) => {
+                    let ca = state.db.get_current_ca().await?;
+                    return Ok(Json(CrlDetails {
+                        ca_id: ca.id,
+                        ca_name: details.ca_name,
+                        issuer: details.issuer,
+                        this_update: details.this_update,
+                        next_update: details.next_update,
+                        version: details.version,
+                        signature_algorithm: details.signature_algorithm,
+                        revoked_certificates_count: details.revoked_certificates_count,
+                        file_size: cached_crl.data.len(),
+                    }));
+                },
+                Err(e) => {
+                    debug!("Failed to parse cached CRL, regenerating: {}", e);
+                }
+            }
+        }
+    }
+
+    // If no valid cached CRL, download/generate one first
+    match download_crl(state, _authentication).await {
+        Ok(_) => {
+            // Now try to get the CRL details again
+            if let Some(cached_crl) = &*cache {
+                match crate::cert::parse_crl_details(&cached_crl.data) {
+                    Ok(details) => {
+                        let ca = state.db.get_current_ca().await?;
+                        return Ok(Json(CrlDetails {
+                            ca_id: ca.id,
+                            ca_name: details.ca_name,
+                            issuer: details.issuer,
+                            this_update: details.this_update,
+                            next_update: details.next_update,
+                            version: details.version,
+                            signature_algorithm: details.signature_algorithm,
+                            revoked_certificates_count: details.revoked_certificates_count,
+                            file_size: cached_crl.data.len(),
+                        }));
+                    },
+                    Err(e) => {
+                        error!("Failed to parse newly generated CRL: {}", e);
+                        return Err(ApiError::Other("Failed to parse newly generated CRL".to_string()));
+                    }
+                }
+            } else {
+                return Err(ApiError::Other("CRL cache unavailable".to_string()));
+            }
+        },
+        Err(e) => {
+            error!("Failed to generate CRL for details view: {}", e);
+            return Err(ApiError::Other("Failed to generate CRL for details view".to_string()));
+        }
+    }
+}
+
+fn current_time() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
 }
 
 #[openapi(tag = "Certificates")]

@@ -97,6 +97,14 @@ About CRL (Certificate Revocation List)
             Download Current CRL
           </button>
           <button
+            class="btn btn-info"
+            @click="viewCRLDetails"
+            :disabled="loading"
+          >
+            <i class="bi bi-eye me-2"></i>
+            View CRL Details
+          </button>
+          <button
             class="btn btn-warning"
             @click="generateCRLButton"
             :disabled="loading"
@@ -247,6 +255,79 @@ About CRL (Certificate Revocation List)
       {{ error }}
     </div>
 
+    <!-- CRL Details Modal -->
+    <div v-if="showCrlDetailsModal" class="modal fade show d-block" tabindex="-1" role="dialog">
+      <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-info-circle me-2"></i>
+              Certificate Revocation List Details
+            </h5>
+            <button type="button" class="btn-close" @click="closeCrlDetailsModal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div v-if="crlDetailsLoading" class="text-center">
+              <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading CRL details...</span>
+              </div>
+              <div class="mt-2">Loading CRL details...</div>
+            </div>
+            <div v-else-if="crlDetails">
+              <div class="row">
+                <div class="col-md-6">
+                  <h6>Basic Information</h6>
+                  <dl class="row">
+                    <dt class="col-sm-5">CA Name:</dt>
+                    <dd class="col-sm-7">{{ crlDetails.ca_name }}</dd>
+                    <dt class="col-sm-5">Version:</dt>
+                    <dd class="col-sm-7">{{ crlDetails.version }}</dd>
+                    <dt class="col-sm-5">File Size:</dt>
+                    <dd class="col-sm-7">{{ formatBytes(crlDetails.file_size) }}</dd>
+                  </dl>
+                </div>
+                <div class="col-md-6">
+                  <h6>Validity Period</h6>
+                  <dl class="row">
+                    <dt class="col-sm-5">This Update:</dt>
+                    <dd class="col-sm-7">{{ formatDate(crlDetails.this_update) }}</dd>
+                    <dt class="col-sm-5">Next Update:</dt>
+                    <dd class="col-sm-7">{{ formatDate(crlDetails.next_update) }}</dd>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-md-6">
+                  <h6>Issuer Information</h6>
+                  <p class="text-break small">{{ crlDetails.issuer }}</p>
+                </div>
+                <div class="col-md-6">
+                  <h6>Technical Details</h6>
+                  <dl class="row">
+                    <dt class="col-sm-5">Signature:</dt>
+                    <dd class="col-sm-7">{{ crlDetails.signature_algorithm }}</dd>
+                    <dt class="col-sm-5">Revoked Certs:</dt>
+                    <dd class="col-sm-7">{{ crlDetails.revoked_certificates_count }}</dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="crlDetailsError" class="alert alert-danger">
+              <i class="bi bi-exclamation-triangle me-2"></i>
+              {{ crlDetailsError }}
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeCrlDetailsModal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Backdrop -->
+    <div v-if="showCrlDetailsModal" class="modal-backdrop fade show" @click="closeCrlDetailsModal"></div>
+
     <!-- Loading State -->
     <div v-if="loading" class="text-center mt-3">
       <div class="spinner-border" role="status">
@@ -261,8 +342,8 @@ import { ref, onMounted, computed } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useSetupStore } from '@/stores/setup';
-import { downloadCRL, getCrlMetadata, fetchCAs, generateCRL } from '@/api/certificates';
-import type { CrlMetadata } from '@/types/Certificate';
+import { downloadCRL, getCrlMetadata, getCrlDetails, fetchCAs, generateCRL } from '@/api/certificates';
+import type { CrlMetadata, CrlDetails } from '@/types/Certificate';
 import type { CAAndCertificate } from '@/types/CA';
 
 // Props and Emits (if needed for future)
@@ -288,6 +369,12 @@ const ocspTestResult = ref<{ success: boolean; message: string } | null>(null);
 const settingsError = ref<string | null>(null);
 const settingsSaved = ref(false);
 const saving = ref(false);
+
+// CRL Details Modal State
+const showCrlDetailsModal = ref(false);
+const crlDetails = ref<CrlDetails | null>(null);
+const crlDetailsLoading = ref(false);
+const crlDetailsError = ref<string | null>(null);
 
 // Computed
 const settings = computed(() => settingsStore.settings);
@@ -456,6 +543,29 @@ const saveCrlOcspSettings = async () => {
   } finally {
     saving.value = false;
   }
+};
+
+const viewCRLDetails = async () => {
+  showCrlDetailsModal.value = true;
+  crlDetailsLoading.value = true;
+  crlDetailsError.value = null;
+  crlDetails.value = null;
+
+  try {
+    const details = await getCrlDetails();
+    crlDetails.value = details;
+  } catch (err) {
+    crlDetailsError.value = err instanceof Error ? err.message : 'Failed to load CRL details';
+    console.error('CRL details error:', err);
+  } finally {
+    crlDetailsLoading.value = false;
+  }
+};
+
+const closeCrlDetailsModal = () => {
+  showCrlDetailsModal.value = false;
+  crlDetails.value = null;
+  crlDetailsError.value = null;
 };
 
 // Lifecycle

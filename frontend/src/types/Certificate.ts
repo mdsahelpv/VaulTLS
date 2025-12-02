@@ -68,6 +68,18 @@ export interface CrlFileInfo {
     file_size: number;
 }
 
+export interface CrlDetails {
+    ca_id: number;
+    ca_name: string;
+    issuer: string;
+    this_update: number;
+    next_update: number;
+    version: number;
+    signature_algorithm: string;
+    revoked_certificates_count: number;
+    file_size: number;
+}
+
 export interface CertificateDetails {
     id: number;
     name: string;

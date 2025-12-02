@@ -3484,3 +3484,212 @@ pub(crate) fn generate_ocsp_cert_id(
         serial_number: serial_number.to_vec(),
     })
 }
+
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct CrlParsedDetails {
+    pub ca_name: String,
+    pub issuer: String,
+    pub this_update: i64,
+    pub next_update: i64,
+    pub version: i32,
+    pub signature_algorithm: String,
+    pub revoked_certificates_count: usize,
+}
+
+/// Parse CRL details from DER-encoded CRL data
+/// Returns parsed CRL information including issuer, validity period, and statistics
+pub fn parse_crl_details(crl_der: &[u8]) -> Result<CrlParsedDetails, ApiError> {
+    debug!("Parsing CRL details from {} bytes of DER data", crl_der.len());
+
+    // Use OpenSSL command-line tool to parse CRL since rust-openssl doesn't provide CRL parsing
+    use std::process::Command;
+
+    // Create temporary files
+    let temp_dir = std::env::temp_dir();
+    let crl_path = temp_dir.join(format!("crl_details_{}.der", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
+    let cert_path = temp_dir.join(format!("crl_cert_{}.pem", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
+
+    let cleanup_temp_files = || {
+        let _ = std::fs::remove_file(&crl_path);
+        let _ = std::fs::remove_file(&cert_path);
+    };
+
+    // Write CRL data to temporary file
+    std::fs::write(&crl_path, crl_der)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to write CRL to temp file: {e}"))
+        })?;
+
+    // Use OpenSSL to extract CRL information in text format
+    let output = Command::new("openssl")
+        .args([
+            "crl",
+            "-in", &crl_path.to_string_lossy(),
+            "-text",
+            "-noout",
+        ])
+        .output()
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to execute openssl crl command: {e}"))
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        cleanup_temp_files();
+        return Err(ApiError::Other(format!("OpenSSL CRL parsing failed: {stderr}")));
+    }
+
+    let text_output = String::from_utf8(output.stdout)
+        .map_err(|e| {
+            cleanup_temp_files();
+            ApiError::Other(format!("Failed to decode OpenSSL output: {e}"))
+        })?;
+
+    // Parse the text output to extract CRL details
+    let mut issuer = String::new();
+    let mut this_update: Option<i64> = None;
+    let mut next_update: Option<i64> = None;
+    let mut version: Option<i32> = None;
+    let mut signature_algorithm = String::from("Unknown");
+    let mut revoked_count: Option<usize> = None;
+    let mut ca_name = String::from("Unknown CA");
+
+    let mut collecting_revoked = false;
+    let mut issued_certificates = Vec::new();
+
+    for line in text_output.lines() {
+        let line_trimmed = line.trim();
+
+        // Extract version
+        if line_trimmed.starts_with("Version:") {
+            if let Some(version_str) = line_trimmed.strip_prefix("Version:") {
+                if let Ok(v) = version_str.trim().parse::<i32>() {
+                    version = Some(v);
+                }
+            }
+        }
+
+        // Extract signature algorithm
+        if line_trimmed.starts_with("Signature Algorithm:") {
+            if let Some(alg) = line_trimmed.strip_prefix("Signature Algorithm:") {
+                let alg_clean = alg.trim();
+                if alg_clean.contains("sha256") {
+                    signature_algorithm = "RSA-SHA256".to_string();
+                } else if alg_clean.contains("sha512") {
+                    signature_algorithm = "RSA-SHA512".to_string();
+                } else if alg_clean.contains("ecdsa") || alg_clean.contains("ECDSA") {
+                    if alg_clean.contains("sha256") {
+                        signature_algorithm = "ECDSA-SHA256".to_string();
+                    } else if alg_clean.contains("sha512") {
+                        signature_algorithm = "ECDSA-SHA512".to_string();
+                    } else {
+                        signature_algorithm = "ECDSA".to_string();
+                    }
+                } else {
+                    signature_algorithm = alg_clean.to_string();
+                }
+            }
+        }
+
+        // Extract issuer
+        if line_trimmed.starts_with("Issuer:") {
+            if let Some(issuer_part) = line_trimmed.strip_prefix("Issuer:") {
+                issuer = issuer_part.trim().to_string();
+
+                // Try to extract CN as CA name
+                if let Some(cn_start) = issuer.find("CN=") {
+                    if let Some(cn_end) = issuer[cn_start..].find(", ").or_else(|| issuer[cn_start..].find("/")) {
+                        ca_name = issuer[cn_start + 3..cn_start + cn_end].to_string();
+                    } else {
+                        ca_name = issuer[cn_start + 3..].to_string();
+                    }
+                }
+            }
+        }
+
+        // Extract validity dates
+        if line_trimmed.starts_with("This Update:") {
+            if let Some(date_str) = line_trimmed.strip_prefix("This Update:") {
+                if let Some(ts_ms) = parse_openssl_date(date_str.trim()) {
+                    this_update = Some(ts_ms);
+                }
+            }
+        }
+
+        if line_trimmed.starts_with("Next Update:") {
+            if let Some(date_str) = line_trimmed.strip_prefix("Next Update:") {
+                if let Some(ts_ms) = parse_openssl_date(date_str.trim()) {
+                    next_update = Some(ts_ms);
+                }
+            }
+        }
+
+        // Count revoked certificates
+        if collecting_revoked {
+            if line_trimmed.starts_with("Serial Number:") {
+                issued_certificates.push(());  // Just count them
+            }
+            // Stop collecting if we hit another section
+            if line_trimmed.starts_with("Certificate Issuer CRL") ||
+               line_trimmed.starts_with("Revoked Certificates:") ||
+               !line_trimmed.starts_with(" ") {
+                collecting_revoked = false;
+            }
+        }
+
+        if line_trimmed.starts_with("Revoked Certificates:") {
+            collecting_revoked = true;
+        }
+    }
+
+    cleanup_temp_files();
+
+    // Set defaults for missing values
+    let this_update = this_update.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64);
+    let next_update = next_update.unwrap_or_else(|| (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap() + std::time::Duration::from_secs(24 * 60 * 60)).as_millis() as i64);
+    let version = version.unwrap_or(1);
+    let revoked_certificates_count = issued_certificates.len();
+
+    debug!("Successfully parsed CRL: issuer={}, version={}, revoked_count={}, next_update={:?}",
+           issuer, version, revoked_certificates_count, chrono::DateTime::from_timestamp_millis(next_update));
+
+    Ok(CrlParsedDetails {
+        ca_name,
+        issuer,
+        this_update,
+        next_update,
+        version,
+        signature_algorithm,
+        revoked_certificates_count,
+    })
+}
+
+/// Parse OpenSSL date format into Unix timestamp in milliseconds
+fn parse_openssl_date(date_str: &str) -> Option<i64> {
+    use chrono::{DateTime, Utc, NaiveDateTime};
+
+    // OpenSSL format examples:
+    // "Dec  2 11:15:30 2025 GMT"
+    // "Feb 14 14:30:00 2024 GMT"
+
+    let date_str = date_str.trim();
+
+    // Remove GMT suffix if present
+    let date_str = date_str.strip_suffix(" GMT").unwrap_or(date_str);
+
+    // Try to parse with chrono
+    if let Ok(dt) = DateTime::parse_from_str(&format!("{} +0000", date_str), "%b %e %H:%M:%S %Y %z") {
+        return Some(dt.timestamp_millis());
+    }
+
+    // Try alternative format
+    if let Ok(dt) = NaiveDateTime::parse_from_str(date_str, "%b %e %H:%M:%S %Y") {
+        let dt_utc = DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc);
+        return Some(dt_utc.timestamp_millis());
+    }
+
+    debug!("Failed to parse OpenSSL date: '{}'", date_str);
+    None
+}
