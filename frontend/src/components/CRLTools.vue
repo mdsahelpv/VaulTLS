@@ -62,8 +62,8 @@ About CRL (Certificate Revocation List)
           <div class="col-md-6">
             <h6>Status</h6>
             <div class="mb-3">
-              <span class="badge" :class="crlMeta.backup_count > 0 ? 'bg-success' : 'bg-secondary'">
-                {{ crlMeta.backup_count > 0 ? 'Active' : 'No CRLs Generated' }}
+              <span class="badge" :class="crlMeta.file_size > 0 ? 'bg-success' : 'bg-secondary'">
+                {{ crlMeta.file_size > 0 ? 'Active' : 'No CRLs Generated' }}
               </span>
             </div>
             <div class="mb-3">
@@ -95,6 +95,14 @@ About CRL (Certificate Revocation List)
           >
             <i class="bi bi-download me-2"></i>
             Download Current CRL
+          </button>
+          <button
+            class="btn btn-warning"
+            @click="generateCRLButton"
+            :disabled="loading"
+          >
+            <i class="bi bi-arrow-repeat me-2"></i>
+            Generate New CRL
           </button>
           <button
             class="btn btn-outline-secondary"
@@ -253,7 +261,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useSetupStore } from '@/stores/setup';
-import { downloadCRL, getCrlMetadata, fetchCAs } from '@/api/certificates';
+import { downloadCRL, getCrlMetadata, fetchCAs, generateCRL } from '@/api/certificates';
 import type { CrlMetadata } from '@/types/Certificate';
 import type { CAAndCertificate } from '@/types/CA';
 
@@ -333,6 +341,38 @@ const downloadCRLButton = async () => {
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to download CRL';
     console.error('CRL download error:', err);
+  }
+};
+
+const generateCRLButton = async () => {
+  loading.value = true;
+  error.value = null;
+
+  try {
+    const result = await generateCRL();
+
+    if (result.success) {
+      // Reload metadata to show updated CRL info
+      await loadCRLMetadata();
+
+      // Show success message
+      error.value = null;
+      settingsSaved.value = true;
+      settingsError.value = null;
+
+      setTimeout(() => {
+        settingsSaved.value = false;
+      }, 5000);
+
+    } else {
+      error.value = result.message || 'Failed to generate CRL';
+    }
+
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to generate CRL';
+    console.error('CRL generation error:', err);
+  } finally {
+    loading.value = false;
   }
 };
 

@@ -2960,6 +2960,57 @@ pub(crate) async fn list_crl_files_endpoint(
 }
 
 #[openapi(tag = "Certificates")]
+#[post("/certificates/crl/generate", format = "json", data = "<_empty>")]
+/// Force generation of a new Certificate Revocation List (CRL). Requires authentication.
+/// This bypasses the cache and forces immediate regeneration of the CRL.
+/// Useful for manual CRL updates after configuration changes or certificate revocation.
+///
+/// Returns success status:
+/// ```json
+/// {
+///   "success": true,
+///   "message": "CRL generated successfully"
+/// }
+/// ```
+///
+/// Error responses:
+/// - 500: CRL generation failed
+/// - 403: Authentication required
+pub(crate) async fn generate_crl_endpoint(
+    state: &State<AppState>,
+    _empty: Option<Json<serde_json::Value>>,
+    _authentication: Authenticated
+) -> Result<Json<serde_json::Value>, ApiError> {
+    debug!("Manual CRL generation requested");
+
+    // Clear CRL cache to force regeneration
+    {
+        let mut cache = state.crl_cache.lock().await;
+        *cache = None;
+    }
+    debug!("CRL cache cleared");
+
+    // Generate new CRL by calling download_crl (which handles the generation)
+    // We don't actually need the file, just to ensure it's generated
+    match download_crl(state, _authentication).await {
+        Ok(_) => {
+            info!("Manual CRL generation completed successfully");
+            Ok(Json(json!({
+                "success": true,
+                "message": "CRL generated successfully"
+            })))
+        },
+        Err(e) => {
+            error!("Manual CRL generation failed: {}", e);
+            Ok(Json(json!({
+                "success": false,
+                "message": format!("CRL generation failed: {}", e)
+            })))
+        }
+    }
+}
+
+#[openapi(tag = "Certificates")]
 #[get("/certificates/crl/backup/<filename>")]
 /// Download a specific CRL backup file. Requires admin role.
 /// Allows downloading of specific CRL backup files by filename.

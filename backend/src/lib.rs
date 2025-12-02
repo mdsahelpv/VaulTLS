@@ -191,6 +191,7 @@ pub async fn create_rocket() -> Rocket<Build> {
                 download_crl,
                 get_crl_metadata_endpoint,
                 list_crl_files_endpoint,
+                generate_crl_endpoint,
                 download_crl_backup,
                 ocsp_responder_get,
                 ocsp_responder_post,

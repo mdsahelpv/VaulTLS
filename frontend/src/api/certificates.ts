@@ -202,6 +202,10 @@ export const deleteCrlBackup = async (filename: string): Promise<void> => {
     await ApiClient.delete<void>(`/certificates/crl/backup/${filename}`);
 };
 
+export const generateCRL = async (): Promise<{ success: boolean; message: string }> => {
+    return await ApiClient.post<{ success: boolean; message: string }>('/certificates/crl/generate');
+};
+
 export interface CsrSignRequest {
     ca_id?: string;
     certificate_type: string;
