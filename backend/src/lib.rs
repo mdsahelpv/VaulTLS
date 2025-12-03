@@ -189,6 +189,7 @@ pub async fn create_rocket() -> Rocket<Build> {
                 get_revocation_history,
                 unrevoke_certificate,
                 download_crl,
+                get_crl_details_endpoint,
                 get_crl_metadata_endpoint,
                 list_crl_files_endpoint,
                 generate_crl_endpoint,
