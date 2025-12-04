@@ -2785,22 +2785,20 @@ pub(crate) async fn unrevoke_certificate(
 
 #[openapi(tag = "Certificates")]
 #[get("/certificates/crl")]
-/// Download the current Certificate Revocation List (CRL). Requires authentication.
+/// Download the current Certificate Revocation List (CRL). Public endpoint.
 /// Returns a PEM-encoded CRL containing all revoked certificates.
 /// The CRL is cached for 5 minutes and automatically regenerated when certificates are revoked/unrevoked.
 ///
 /// Usage in applications:
 /// ```bash
-/// curl -H "Authorization: Bearer <token>" \
-///      http://localhost:8000/api/certificates/crl > certificate.crl
+/// curl http://localhost:8000/api/certificates/crl > certificate.crl
 /// ```
 ///
 /// Configure CRL distribution in certificate extensions:
 /// - Authority Information Access (AIA) extension with OCSP URL
 /// - CRL Distribution Points extension with CRL URL
 pub(crate) async fn download_crl(
-    state: &State<AppState>,
-    _authentication: Authenticated
+    state: &State<AppState>
 ) -> Result<DownloadResponse, ApiError> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -3091,7 +3089,7 @@ pub(crate) async fn generate_crl_endpoint(
 
     // Generate new CRL by calling download_crl (which handles the generation)
     // We don't actually need the file, just to ensure it's generated
-    match download_crl(state, _authentication).await {
+    match download_crl(state).await {
         Ok(_) => {
             info!("Manual CRL generation completed successfully");
             Ok(Json(json!({
