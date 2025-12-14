@@ -29,6 +29,7 @@ pub mod constants;
 mod api;
 mod notification;
 mod audit;
+pub mod ratelimit;
 
 type ApiError = data::error::ApiError;
 

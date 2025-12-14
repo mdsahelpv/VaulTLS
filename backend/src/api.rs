@@ -24,6 +24,7 @@ use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertifica
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
 use crate::data::error::ApiError;
 use crate::data::objects::{AppState, User, CrlCache, OcspCache, CertificateChainInfo};
+use crate::ratelimit::{RateLimitGuard, AuthRateLimitGuard};
 use crate::notification::mail::{MailMessage, Mailer};
 use crate::settings::{FrontendSettings, InnerSettings};
 
@@ -631,7 +632,8 @@ async fn setup_common(
 pub(crate) async fn login(
     state: &State<AppState>,
     jar: &CookieJar<'_>,
-    login_req_opt: Json<LoginRequest>
+    login_req_opt: Json<LoginRequest>,
+    _rate_limit: AuthRateLimitGuard
 ) -> Result<(), ApiError> {
     if !state.settings.get_password_enabled() {
         warn!("Password login is disabled.");
@@ -2784,6 +2786,14 @@ pub(crate) async fn unrevoke_certificate(
 /// - Authority Information Access (AIA) extension with OCSP URL
 /// - CRL Distribution Points extension with CRL URL
 pub(crate) async fn download_crl(
+    state: &State<AppState>,
+    _rate_limit: RateLimitGuard
+) -> Result<DownloadResponse, ApiError> {
+    download_crl_logic(state).await
+}
+
+// Internal helper without rate limit
+pub(crate) async fn download_crl_logic(
     state: &State<AppState>
 ) -> Result<DownloadResponse, ApiError> {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -3075,7 +3085,7 @@ pub(crate) async fn generate_crl_endpoint(
 
     // Generate new CRL by calling download_crl (which handles the generation)
     // We don't actually need the file, just to ensure it's generated
-    match download_crl(state).await {
+    match download_crl_logic(state).await {
         Ok(_) => {
             info!("Manual CRL generation completed successfully");
             Ok(Json(json!({
@@ -3229,7 +3239,8 @@ pub(crate) async fn delete_crl_backup(
 pub(crate) async fn ocsp_responder_get(
     state: &State<AppState>,
     request: &str,
-    _authentication: Authenticated
+    _authentication: Authenticated,
+    _rate_limit: RateLimitGuard
 ) -> Result<Vec<u8>, ApiError> {
     debug!("OCSP GET request received (base64 length: {})", request.len());
 
@@ -3251,7 +3262,8 @@ pub(crate) async fn ocsp_responder_get(
 pub(crate) async fn ocsp_responder_post(
     state: &State<AppState>,
     request_data: Vec<u8>,
-    _authentication: Authenticated
+    _authentication: Authenticated,
+    _rate_limit: RateLimitGuard
 ) -> Result<Vec<u8>, ApiError> {
     debug!("OCSP POST request received ({} bytes)", request_data.len());
 

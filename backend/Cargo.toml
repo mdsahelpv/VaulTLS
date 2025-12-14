@@ -46,6 +46,7 @@ hex = "0.4"
 base64 = "0.22"
 md5 = "0.7"
 der = "0.7.10"
+rocket-governor = "0.2.0-rc.4"
 
 [dev-dependencies]
 x509-parser = "0.17"
