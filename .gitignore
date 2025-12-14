@@ -213,7 +213,7 @@ junit.xml
 
 # Docker volumes
 volumes/
-data/
+# data/
 
 # Container logs
 docker-compose.override.yml

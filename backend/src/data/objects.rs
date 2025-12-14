@@ -29,7 +29,7 @@ pub enum AuditEventCategory {
 
 /// Represents a user in the system
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
-pub(crate) struct User {
+pub struct User {
     pub id: i64,
     pub name: String,
     pub email: String,

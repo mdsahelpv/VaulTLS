@@ -175,3 +175,19 @@ pub struct CsrSignRequest<'r> {
     #[schemars(skip)]
     pub csr_file: rocket::fs::TempFile<'r>,
 }
+
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
+pub struct ValidatedCertificateDetails {
+    pub subject: String,
+    pub issuer: String,
+    pub serial_number: String,
+    pub valid_from: i64,
+    pub valid_until: i64,
+    pub key_algorithm: String,
+    pub key_size: String,
+    pub signature_algorithm: String,
+    pub is_ca_certificate: bool,
+    pub aia_url: Option<String>,
+    pub cdp_url: Option<String>,
+    pub basic_constraints_path_length: Option<i32>,
+}

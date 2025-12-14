@@ -20,7 +20,7 @@ use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
 use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry, OCSPRequest};
 use crate::constants::VAULTLS_VERSION;
-use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest};
+use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest, ValidatedCertificateDetails};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
 use crate::data::error::ApiError;
 use crate::data::objects::{AppState, User, CrlCache, OcspCache, CertificateChainInfo};
@@ -403,21 +403,7 @@ pub struct PfxValidationResponse {
     pub validation_result: Option<CertificateValidationResult>,
 }
 
-#[derive(Serialize, JsonSchema, Debug, Clone)]
-pub struct ValidatedCertificateDetails {
-    pub subject: String,
-    pub issuer: String,
-    pub serial_number: String,
-    pub valid_from: i64,
-    pub valid_until: i64,
-    pub key_algorithm: String,
-    pub key_size: String,
-    pub signature_algorithm: String,
-    pub is_ca_certificate: bool,
-    pub aia_url: Option<String>,
-    pub cdp_url: Option<String>,
-    pub basic_constraints_path_length: Option<i32>,
-}
+
 
 async fn setup_common(
     state: &State<AppState>,
