@@ -6,6 +6,15 @@ Based on analysis of the current implementation against RFC 5280 (PKI Standards)
 
 ## 🔴 CRITICAL - Security & Standards Compliance
 
+### 🚨 BROWSER COMPATIBILITY - Microsoft Edge/Chrome TLS Certificate Requirements
+
+- [ ] **Server Certificate Extended Key Usage** - Always include `Extended Key Usage: TLS Web Server Authentication` (OID 1.3.6.1.5.5.7.3.1, serverAuth) for server certificates
+- [ ] **Server Certificate Key Usage** - Add critical `Key Usage: digitalSignature, keyEncipherment` for server certificates
+- [ ] **Subject Alternative Name (SAN) Requirement** - Always include SAN extension (DNS/IP) for server certificates - do not rely on CN only
+- [ ] **Server Certificate Policy Enforcement** - Server certificates MUST include serverAuth EKU extension
+- [ ] **SAN Validation Policy** - Reject server certificate issuance if SAN extension is missing or empty
+- [ ] **Certificate Validation Testing** - Verify `openssl x509 -in cert.pem -text -noout` shows correct extensions and removes Edge "unusual and incorrect credentials" error
+
 ### OCSP Responder Security & Compliance
 - [ ] **OCSP Response Signing** - Currently returns unsigned responses. RFC 6960 requires OCSP responses to be signed with CA certificate or authorized OCSP responder certificate
 - [ ] **Certificate Authority Information Access (AIA)** - No automatic inclusion of OCSP responder URLs in end-entity certificates (RFC 5280 Sec 4.2.2.1)

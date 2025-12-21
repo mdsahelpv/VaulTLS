@@ -704,7 +704,7 @@ impl CertificateBuilder {
     /// Build and sign a certificate from the CSR configuration
     /// This method validates that all required fields are set before signing
     pub fn build_csr_certificate(mut self, certificate_type: CertificateType) -> Result<Certificate, anyhow::Error> {
-        info!("Building CSR-based certificate => {:?}", &self.certificate_type);
+        info!("Building CSR-based certificate => {:?}", &certificate_type);
         let name = self.name.ok_or(anyhow!("CSR Certificate: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("CSR Certificate: valid_until not set"))?;
         let user_id = self.user_id.ok_or(anyhow!("CSR Certificate: user_id not set"))?;
@@ -803,8 +803,8 @@ impl CertificateBuilder {
                 anyhow!("Failed to write certificate request to temp file: {e}")
             })?;
 
-        // Create OpenSSL configuration for CSR signing
-        let mut config_content = r#"[ req ]
+            // Create OpenSSL configuration for CSR signing
+            let mut config_content = r#"[ req ]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
 string_mask = utf8only
@@ -843,29 +843,27 @@ commonName = supplied
 emailAddress = optional
 
 [ v3_ca ]
-subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid:always
 basicConstraints = CA:FALSE
-keyUsage = critical, nonRepudiation, digitalSignature, keyEncipherment
-subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid:always
+keyUsage = critical, digitalSignature, keyEncipherment
 "#.to_string();
 
-        // Determine certificate type and add appropriate extensions
-        use crate::data::enums::CertificateType::Client;
-        // let certificate_type = Client; // Default to Client, can be improved
-        let certificate_type = self.certificate_type.unwrap(); // Default to Client, can be improved
-        // match Certificate.certificate_type {
-        //     _ => return Err(anyhow!("Unsupported certificate type for CSR-based certificate")),
-        match certificate_type {
-            CertificateType::Client => {
-                config_content.push_str("extendedKeyUsage = clientAuth\n");
-            },
-            CertificateType::Server => {
-                config_content.push_str("extendedKeyUsage = serverAuth\n");
-            },
-            _ => {}
-        }
+            // Determine certificate type and add appropriate extensions
+            use crate::data::enums::CertificateType::Client;
+            // let certificate_type = Client; // Default to Client, can be improved
+            let certificate_type = certificate_type; // Use the parameter passed to the method
+            // match Certificate.certificate_type {
+            //     _ => return Err(anyhow!("Unsupported certificate type for CSR-based certificate")),
+            match certificate_type {
+                CertificateType::Client => {
+                    config_content.push_str("extendedKeyUsage = clientAuth\n");
+                },
+                CertificateType::Server => {
+                    config_content.push_str("extendedKeyUsage = serverAuth\n");
+                },
+                _ => {}
+            }
+
+            config_content.push_str("subjectKeyIdentifier = hash\nauthorityKeyIdentifier = keyid:always\n");
 
         std::fs::write(&config_path, &config_content)
             .map_err(|e| {
@@ -1617,6 +1615,14 @@ basicConstraints = CA:FALSE
                 .key_encipherment()
                 .build()?;
             self.x509.append_extension(key_usage)?;
+
+            // Add Extended Key Usage based on certificate type
+            let ext_key_usage = match certificate_type {
+                CertificateType::Server => ExtendedKeyUsage::new().server_auth().build()?,
+                CertificateType::Client => ExtendedKeyUsage::new().client_auth().build()?,
+                CertificateType::SubordinateCA => ExtendedKeyUsage::new().build()?, // Empty for CA
+            };
+            self.x509.append_extension(ext_key_usage)?;
 
             self.x509.set_issuer_name(ca_cert.subject_name())?;
 
