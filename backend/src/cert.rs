@@ -609,13 +609,12 @@ impl CertificateBuilder {
     pub fn try_from(old_cert: &Certificate) -> Result<Self> {
         let validity_in_years = ((old_cert.valid_until - old_cert.created_on) / 1000 / 60 / 60 / 24 / 365).max(1);
 
-    Self::new_with_ca_and_key_type_size(None, None, None)?
+        Self::new_with_ca_and_key_type_size(None, None, None)?
             .set_name(&old_cert.name)?
             .set_valid_until(validity_in_years as u64)?
             .set_pkcs12_password(&old_cert.pkcs12_password)?
             .set_renew_method(old_cert.renew_method)?
             .set_user_id(old_cert.user_id)
-
     }
 
     pub fn set_name(mut self, name: &str) -> Result<Self, anyhow::Error> {
@@ -847,29 +846,23 @@ basicConstraints = CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
 "#.to_string();
 
-            // Determine certificate type and add appropriate extensions
-            use crate::data::enums::CertificateType::Client;
-            // let certificate_type = Client; // Default to Client, can be improved
-            let certificate_type = certificate_type; // Use the parameter passed to the method
-            // match Certificate.certificate_type {
-            //     _ => return Err(anyhow!("Unsupported certificate type for CSR-based certificate")),
+            // Add extended key usage based on certificate type
+            let mut eku_string = String::new();
             match certificate_type {
                 CertificateType::Client => {
-                    config_content.push_str("extendedKeyUsage = clientAuth\n");
+                    eku_string = "extendedKeyUsage = clientAuth\n".to_string();
                 },
                 CertificateType::Server => {
-                    config_content.push_str("extendedKeyUsage = serverAuth\n");
+                    eku_string = "extendedKeyUsage = serverAuth\n".to_string();
                 },
                 _ => {}
             }
-
-            config_content.push_str("subjectKeyIdentifier = hash\nauthorityKeyIdentifier = keyid:always\n");
-
-        std::fs::write(&config_path, &config_content)
-            .map_err(|e| {
-                cleanup_temp_files();
-                anyhow!("Failed to write OpenSSL config file: {e}")
-            })?;
+            config_content.push_str(&eku_string);
+            std::fs::write(&config_path, &config_content)
+                .map_err(|e| {
+                    cleanup_temp_files();
+                    anyhow!("Failed to write OpenSSL config file: {e}")
+                })?;
 
         // Sign the certificate with the CA
         let validity_days = ((valid_until - self.created_on) / (1000 * 60 * 60 * 24)) as u32;
@@ -1440,15 +1433,18 @@ keyUsage = nonRepudiation, digitalSignature, keyEncipherment
 "#.to_string();
 
             // Add extended key usage based on certificate type
+            // Add extended key usage based on certificate type
+            let mut eku_string = String::new();
             match certificate_type {
                 CertificateType::Client => {
-                    config_content.push_str("extendedKeyUsage = clientAuth\n");
+                    eku_string = "extendedKeyUsage = clientAuth\n".to_string();
                 },
                 CertificateType::Server => {
-                    config_content.push_str("extendedKeyUsage = serverAuth\n");
+                    eku_string = "extendedKeyUsage = serverAuth\n".to_string();
                 },
                 _ => {}
             }
+            config_content.push_str(&eku_string);
 
             // Add CRL Distribution Points extension if requested
             if let Some(crl_url) = crl_url {
@@ -1491,6 +1487,9 @@ subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always
 basicConstraints = CA:FALSE
 "#);
+
+            // Add Extended Key Usage to the CA section for signing
+            config_content.push_str(&eku_string);
 
             // Add the same extensions to the CA section for signing
             if let Some(crl_url) = crl_url {
@@ -1613,6 +1612,7 @@ basicConstraints = CA:FALSE
             let key_usage = KeyUsage::new()
                 .digital_signature()
                 .key_encipherment()
+                .critical()
                 .build()?;
             self.x509.append_extension(key_usage)?;
 

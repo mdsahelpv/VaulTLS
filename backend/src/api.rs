@@ -950,6 +950,12 @@ pub(crate) async fn create_user_certificate(
         }
         CertificateType::Server => {
             let dns = payload.dns_names.clone().unwrap_or_default();
+
+            // SAN validation: Server certificates MUST include Subject Alternative Name
+            if dns.is_empty() {
+                return Err(ApiError::BadRequest("Server certificates must include at least one DNS name in Subject Alternative Name (SAN) extension".to_string()));
+            }
+
             cert_builder
                 .set_dns_san(&dns)?
                 .build_common_with_extensions(Server, final_crl_url, final_ocsp_url)?
