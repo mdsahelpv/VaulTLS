@@ -92,6 +92,7 @@ pub struct CreateUserCertificateRequest {
     pub pkcs12_password: Option<String>,
     pub cert_type: Option<CertificateType>,
     pub dns_names: Option<Vec<String>>,
+    pub ip_addresses: Option<Vec<String>>,
     pub renew_method: Option<CertificateRenewMethod>,
     pub ca_id: Option<i64>,
     pub key_type: Option<String>,

@@ -173,6 +173,10 @@ pub struct CertificateBuilder {
     // AIA and CDP extensions for CA certificates
     authority_info_access: Option<String>,
     crl_distribution_points: Option<String>,
+    // SAN extensions tracking
+    dns_names: Vec<String>,
+    ip_addresses: Vec<String>,
+    email_addresses: Vec<String>,
 }
 
 impl CertificateBuilder {
@@ -515,6 +519,9 @@ impl CertificateBuilder {
             organizational_unit: None, common_name: None, email: None,
             certificate_policies_oid: None, certificate_policies_cps_url: None,
             authority_info_access: None, crl_distribution_points: None,
+            dns_names: Vec::new(),
+            ip_addresses: Vec::new(),
+            email_addresses: Vec::new(),
         };
 
         // Apply CSR extensions - this preserves important CSR information
@@ -596,6 +603,9 @@ impl CertificateBuilder {
         certificate_policies_cps_url: None,
         authority_info_access: None,
         crl_distribution_points: None,
+        dns_names: Vec::new(),
+        ip_addresses: Vec::new(),
+        email_addresses: Vec::new(),
     })
     }
 
@@ -641,9 +651,30 @@ impl CertificateBuilder {
     }
 
     pub fn set_dns_san(mut self, dns_names: &Vec<String>) -> Result<Self, anyhow::Error> {
+        // Store the DNS names for use in rust-openssl path
+        self.dns_names = dns_names.clone();
+
         let mut san_builder = SubjectAlternativeName::new();
         for dns in dns_names {
             san_builder.dns(dns);
+        }
+        let san = san_builder.build(&self.x509.x509v3_context(None, None))?;
+        self.x509.append_extension(san)?;
+
+        Ok(self)
+    }
+
+    pub fn set_san(mut self, dns_names: &Vec<String>, ip_addresses: &Vec<String>) -> Result<Self, anyhow::Error> {
+        // Store the DNS names and IP addresses for use in rust-openssl path
+        self.dns_names = dns_names.clone();
+        self.ip_addresses = ip_addresses.clone();
+
+        let mut san_builder = SubjectAlternativeName::new();
+        for dns in dns_names {
+            san_builder.dns(dns);
+        }
+        for ip in ip_addresses {
+            san_builder.ip(ip);
         }
         let san = san_builder.build(&self.x509.x509v3_context(None, None))?;
         self.x509.append_extension(san)?;
@@ -1456,6 +1487,25 @@ keyUsage = nonRepudiation, digitalSignature, keyEncipherment
                 config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{ocsp_url}\n"));
             }
 
+            // Add Subject Alternative Name extension for server certificates
+            if certificate_type == CertificateType::Server && (!self.dns_names.is_empty() || !self.ip_addresses.is_empty()) {
+                let mut san_string = String::from("subjectAltName = ");
+                let mut parts = Vec::new();
+                
+                for dns_name in &self.dns_names {
+                    parts.push(format!("DNS:{}", dns_name));
+                }
+                for ip_addr in &self.ip_addresses {
+                    parts.push(format!("IP:{}", ip_addr));
+                }
+                
+                san_string.push_str(&parts.join(", "));
+                san_string.push('\n');
+                
+                debug!("Adding SAN to OpenSSL config: {}", san_string.trim());
+                config_content.push_str(&san_string);
+            }
+
             config_content.push_str(r#"
 
 [ ca ]
@@ -1497,6 +1547,23 @@ basicConstraints = CA:FALSE
             }
             if let Some(ocsp_url) = ocsp_url {
                 config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{ocsp_url}\n"));
+            }
+
+            // Add Subject Alternative Name extension for server certificates (again for the signing section)
+            if certificate_type == CertificateType::Server && (!self.dns_names.is_empty() || !self.ip_addresses.is_empty()) {
+                let mut san_string = String::from("subjectAltName = ");
+                let mut parts = Vec::new();
+                
+                for dns_name in &self.dns_names {
+                    parts.push(format!("DNS:{}", dns_name));
+                }
+                for ip_addr in &self.ip_addresses {
+                    parts.push(format!("IP:{}", ip_addr));
+                }
+                
+                san_string.push_str(&parts.join(", "));
+                san_string.push('\n');
+                config_content.push_str(&san_string);
             }
 
             std::fs::write(&config_path, &config_content)
@@ -1623,6 +1690,21 @@ basicConstraints = CA:FALSE
                 CertificateType::SubordinateCA => ExtendedKeyUsage::new().build()?, // Empty for CA
             };
             self.x509.append_extension(ext_key_usage)?;
+
+            // Add Subject Alternative Name extension for server certificates if DNS names or IP addresses were provided
+            // This fixes the bug where SAN extensions were lost in the rust-openssl path
+            if certificate_type == CertificateType::Server && (!self.dns_names.is_empty() || !self.ip_addresses.is_empty()) {
+                debug!("Adding Subject Alternative Name extension for server certificate with {} DNS names and {} IP addresses", self.dns_names.len(), self.ip_addresses.len());
+                let mut san_builder = SubjectAlternativeName::new();
+                for dns_name in &self.dns_names {
+                    san_builder.dns(dns_name);
+                }
+                for ip_addr in &self.ip_addresses {
+                    san_builder.ip(ip_addr);
+                }
+                let san = san_builder.build(&self.x509.x509v3_context(None, None))?;
+                self.x509.append_extension(san)?;
+            }
 
             self.x509.set_issuer_name(ca_cert.subject_name())?;
 

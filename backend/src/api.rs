@@ -949,15 +949,26 @@ pub(crate) async fn create_user_certificate(
                 .build_common_with_extensions(Client, final_crl_url, final_ocsp_url)?
         }
         CertificateType::Server => {
-            let dns = payload.dns_names.clone().unwrap_or_default();
+            // Filter out empty strings from DNS names and IP addresses
+            let dns_names: Vec<String> = payload.dns_names.clone()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| !s.trim().is_empty())
+                .collect();
+            
+            let ip_addresses: Vec<String> = payload.ip_addresses.clone()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| !s.trim().is_empty())
+                .collect();
 
             // SAN validation: Server certificates MUST include Subject Alternative Name
-            if dns.is_empty() {
-                return Err(ApiError::BadRequest("Server certificates must include at least one DNS name in Subject Alternative Name (SAN) extension".to_string()));
+            if dns_names.is_empty() && ip_addresses.is_empty() {
+                return Err(ApiError::BadRequest("Server certificates must include at least one valid DNS name or IP address".to_string()));
             }
 
             cert_builder
-                .set_dns_san(&dns)?
+                .set_san(&dns_names, &ip_addresses)?
                 .build_common_with_extensions(Server, final_crl_url, final_ocsp_url)?
         }
         CertificateType::SubordinateCA => {
