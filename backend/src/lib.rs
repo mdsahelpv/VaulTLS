@@ -69,6 +69,11 @@ pub async fn create_rocket() -> Rocket<Build> {
     trace!("Settings loaded: {:?}", settings);
 
     let db_path = Path::new(DB_FILE_PATH);
+    if let Some(parent) = db_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).expect("Failed to create database directory");
+        }
+    }
     let db_initialized = db_path.exists();
     let encrypted = settings.get_db_encrypted();
     let db = VaulTLSDB::new(encrypted, false).expect("Failed opening SQLite database");

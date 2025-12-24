@@ -787,18 +787,6 @@
               </div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button
-                v-if="authStore.isAdmin && certificateDetails && !certificateDetails.is_revoked"
-                type="button"
-                class="btn btn-warning me-auto"
-                @click="confirmRevocation(certificateDetails)"
-            >
-              <i class="bi bi-x-circle me-1"></i>
-              Revoke Certificate
-            </button>
-            <button type="button" class="btn btn-secondary" @click="closeCertificateDetailsModal">Close</button>
-          </div>
         </div>
       </div>
     </div>

@@ -20,17 +20,21 @@ NC='\033[0m' # No Color
 # Configuration
 BACKEND_PORT=${BACKEND_PORT:-8000}
 FRONTEND_PORT=${FRONTEND_PORT:-4000}
-DB_PATH=${DB_PATH:-"${BACKEND_DIR}/database.db3"}
+DB_PATH=${DB_PATH:-"${BACKEND_DIR}/database/database.db3"}
 VAULTLS_DB_SECRET=${VAULTLS_DB_SECRET:-""}
 VAULTLS_API_SECRET=${VAULTLS_API_SECRET:-"$(openssl rand -base64 32)"}
 
+# PID and Log Files Location
+LOGS_DIR="${SCRIPT_DIR}/logs"
+mkdir -p "$LOGS_DIR"
+
 # PID Files
-BACKEND_PID_FILE="${SCRIPT_DIR}/backend.pid"
-FRONTEND_PID_FILE="${SCRIPT_DIR}/frontend.pid"
+BACKEND_PID_FILE="${LOGS_DIR}/backend.pid"
+FRONTEND_PID_FILE="${LOGS_DIR}/frontend.pid"
 
 # Log Files
-BACKEND_LOG_FILE="${SCRIPT_DIR}/backend.log"
-FRONTEND_LOG_FILE="${SCRIPT_DIR}/frontend.log"
+BACKEND_LOG_FILE="${LOGS_DIR}/backend.log"
+FRONTEND_LOG_FILE="${LOGS_DIR}/frontend.log"
 
 # Function to print colored output
 print_status() {
@@ -134,6 +138,7 @@ setup_backend() {
     fi
 
     # Setup database if it doesn't exist
+    mkdir -p "$(dirname "$DB_PATH")"
     if [ ! -f "$DB_PATH" ]; then
         print_status "Setting up database..."
         # The database will be created automatically by the application
@@ -538,7 +543,7 @@ show_menu() {
 
                 # Clean all remnants
                 print_status "Cleaning old database files..."
-                rm -f "$BACKEND_DIR/database.db3" "$BACKEND_DIR/database.db3-shm" "$BACKEND_DIR/database.db3-wal"
+                rm -f "$DB_PATH" "${DB_PATH}-shm" "${DB_PATH}-wal"
                 rm -f "$BACKEND_DIR/ca.cert" "$BACKEND_DIR/settings.json"
                 rm -f "$BACKEND_LOG_FILE" "$FRONTEND_LOG_FILE" "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
 

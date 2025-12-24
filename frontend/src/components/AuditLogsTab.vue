@@ -107,7 +107,7 @@
           </button>
         </div>
 
-        <div v-if="advancedFiltersExpanded" class="border rounded p-3 mt-3 bg-light">
+        <div v-if="advancedFiltersExpanded" class="border rounded p-3 mt-3 advanced-filters-container">
           <div class="row">
             <div class="col-md-3">
               <label for="eventCategory" class="form-label">Event Category</label>
@@ -205,7 +205,7 @@
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover mb-0">
-            <thead class="table-light">
+            <thead>
               <tr>
                 <th>Timestamp</th>
                 <th>Category</th>
@@ -652,45 +652,61 @@ if (!isAdmin.value) {
   height: 1rem;
 }
 
-/* Dark mode enhancements */
-@media (prefers-color-scheme: dark) {
-  .audit-logs-container {
-    background-color: var(--color-card, #2d3748);
-    color: var(--color-text-primary, #e2e8f0);
-  }
+/* Dark mode enhancements - using data-theme to match app logic */
+[data-theme="dark"] .audit-logs-container {
+  background-color: transparent;
+  color: var(--color-text-primary);
+}
 
-  .card {
-    background-color: var(--color-card, #2d3748);
-    border-color: var(--color-border, rgba(255, 255, 255, 0.1));
-    color: var(--color-text-primary, #e2e8f0);
-  }
+[data-theme="dark"] .card {
+  background-color: var(--color-card);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary);
+}
 
-  .card-header {
-    background-color: var(--color-hover, rgba(255, 255, 255, 0.05));
-    border-bottom-color: var(--color-border, rgba(255, 255, 255, 0.1));
-  }
+[data-theme="dark"] .card-header {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
 
-  .table {
-    color: var(--color-text-primary, #e2e8f0);
-  }
+[data-theme="dark"] .advanced-filters-container {
+  background-color: rgba(0, 0, 0, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
 
-  .table th {
-    background-color: var(--color-hover, rgba(255, 255, 255, 0.05));
-    border-color: var(--color-border, rgba(255, 255, 255, 0.1));
-  }
+[data-theme="dark"] .table {
+  color: var(--color-text-primary);
+}
 
-  .form-control, .form-select {
-    background-color: var(--color-card, #2d3748);
-    border-color: var(--color-border, rgba(255, 255, 255, 0.1));
-    color: var(--color-text-primary, #e2e8f0);
-  }
+[data-theme="dark"] .table th {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
 
-  .form-control:focus, .form-select:focus {
-    background-color: var(--color-card, #2d3748);
-    border-color: var(--primary, #007bff);
-    color: var(--color-text-primary, #e2e8f0);
-    box-shadow: 0 0 0 0.2rem rgba(66, 133, 244, 0.25);
-  }
+[data-theme="dark"] .form-control, 
+[data-theme="dark"] .form-select {
+  background-color: var(--color-hover);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .form-control:focus, 
+[data-theme="dark"] .form-select:focus {
+  background-color: var(--color-active);
+  border-color: var(--primary);
+  color: var(--color-text-primary);
+  box-shadow: 0 0 0 0.2rem rgba(66, 133, 244, 0.25);
+}
+
+[data-theme="dark"] .pagination .page-link {
+  background-color: var(--color-card);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .page-item.disabled .page-link {
+  background-color: var(--color-background);
+  opacity: 0.5;
 }
 
 @media (max-width: 768px) {

@@ -3,7 +3,7 @@ use const_format::formatcp;
 use once_cell::sync::Lazy;
 
 pub(crate) const SETTINGS_FILE_PATH: &str = "settings.json";
-pub(crate) const DB_FILE_PATH: &str = "database.db3";
+pub(crate) const DB_FILE_PATH: &str = "database/database.db3";
 pub(crate) const TEMP_DB_FILE_PATH: &str = "encrypted.db3";
 pub(crate) const CA_FILE_PATH: &str = "ca.cert";
 pub(crate) const CRL_DIR_PATH: &str = "crl";
