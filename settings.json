@@ -1,0 +1,27 @@
+{
+  "mail": {
+    "smtp_host": "",
+    "smtp_port": 0,
+    "encryption": 0,
+    "username": null,
+    "password": null,
+    "from": ""
+  },
+  "common": {
+    "password_enabled": true,
+    "vaultls_url": "",
+    "password_rule": 0
+  },
+  "auth": {
+    "jwt_key": "4v0tXj5J45a4er8z9mAf1HQcobC1/pCzrc+SNKh6OmE="
+  },
+  "oidc": {
+    "id": "",
+    "secret": "",
+    "auth_url": "",
+    "callback_url": ""
+  },
+  "logic": {
+    "db_encrypted": false
+  }
+}

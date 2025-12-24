@@ -1,444 +1,105 @@
-# ===========================================
-# VaulTLS - Certificate Management System
-# ===========================================
+# ==============================================================================
+# VaulTLS - Git Ignore Configuration
+# ==============================================================================
 
-# ===========================================
-# Build Artifacts & Dependencies
-# ===========================================
+# ------------------------------------------------------------------------------
+# 📦 Dependencies
+# ------------------------------------------------------------------------------
+node_modules/
+target/
+.pnp/
+.pnp.js
 
-# Rust build artifacts
-backend/target/
-backend/Cargo.lock
-backend/debug/
-backend/release/
+# ------------------------------------------------------------------------------
+# 🏗️ Build Outputs
+# ------------------------------------------------------------------------------
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
 
-# Node.js dependencies
-frontend/node_modules/
-frontend/package-lock.json
-frontend/yarn.lock
-frontend/pnpm-lock.yaml
-
-# Build outputs
-frontend/dist/
-frontend/build/
-frontend/.next/
-frontend/.nuxt/
-frontend/.output/
-backend/dist/
-
-# Package managers
-.yarn/
-.pnpm/
-.yarn-integrity
-
-# ===========================================
-# Certificate Files (Security Sensitive)
-# ===========================================
-
-# CA Certificates - These contain sensitive certificate data
-ca.cert
-ca_cert.der
-ca_cert.hex
-*.pfx
-*.p12
-*.pem
-
-# Certificate Authority files
-ca/
-certs/
-certificates/
-backend/crl/
-
-# ===========================================
-# Database Files
-# ===========================================
-
-# SQLite databases
-*.db
-*.db3
-*.sqlite
-*.sqlite3
-database.db3
-encrypted.db3
-temp.db3
-
-# Database backups
-*.db.backup
-*.db3.backup
-
-# ===========================================
-# Log Files
-# ===========================================
-
-# Application logs
-*.log
-backend.log
-frontend.log
-backend.pid
-frontend.pid
-
-# Log directories
-logs/
-log/
-
-# ===========================================
-# Configuration & Secrets
-# ===========================================
-
-# Settings files that may contain secrets
-settings.json
-config.json
+# ------------------------------------------------------------------------------
+# 🔐 Secrets & Environment
+# ------------------------------------------------------------------------------
 .env
 .env.local
-.env.production
-.env.development
+.env.development.local
+.env.test.local
+.env.production.local
+.env.backend
+!.env.example*
 
-# OpenSSL configuration files (temporary CA generation configs)
-*.cnf
+# ------------------------------------------------------------------------------
+# 📋 Runtime Artifacts (Logs, PIDs, DB)
+# ------------------------------------------------------------------------------
+# App root artifacts
+*.log
+*.pid
 
-# API secrets and keys
-secrets/
-keys/
+# Centralized logs directory
+logs/
 
-# ===========================================
-# IDE & Editor Files
-# ===========================================
+# Database artifacts
+backend/database/*.db3*
 
-# VS Code
-.vscode/
-*.code-workspace
+# Configuration generated at runtime
+backend/settings.json
 
-# Cursor
-.cursor/
+# ------------------------------------------------------------------------------
+# 🛡️ Security Sensitive (Certificates & Keys)
+# ------------------------------------------------------------------------------
+# Root CA and generated certificates
+backend/ca.cert
+*.key
+*.pem
+*.pfx
+*.p12
+*.der
+*.csr
+*.crt
 
-# Zed
-.zed/
+# CRL artifacts
+backend/crl/
 
-# Fleet
-.fleet/
-
-# IntelliJ IDEA
-.idea/
-*.iml
-*.ipr
-*.iws
-
-# Vim
-*.swp
-*.swo
-*~
-
-# Emacs
-*~
-\#*\#
-/.emacs.desktop
-/.emacs.desktop.lock
-*.elc
-auto-save-list
-tramp
-.\#*
-
-# Sublime Text
-*.tmlanguage.cache
-*.tmPreferences.cache
-*.stTheme.cache
-*.sublime-workspace
-*.sublime-project
-
-# ===========================================
-# OS Generated Files
-# ===========================================
-
+# ------------------------------------------------------------------------------
+# 💻 IDE & OS Specific
+# ------------------------------------------------------------------------------
 # macOS
 .DS_Store
-.DS_Store?
+.AppleDouble
+.LSOverride
 ._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
 
 # Windows
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-$RECYCLE.BIN/
 
 # Linux
 *~
 .fuse_hidden*
 .directory
 .Trash-*
-.nfs*
 
-# ===========================================
-# Temporary Files
-# ===========================================
-
-# General temp files
-*.tmp
-*.temp
-*.bak
-*.backup
-*.orig
-*.swp
-*.swo
-
-# Temporary directories
-tmp/
-temp/
-.cache/
-
-# ===========================================
-# Testing & Coverage
-# ===========================================
-
-# Test coverage reports
-coverage/
-*.lcov
-.nyc_output
-
-# Test artifacts
-test-results/
-junit.xml
-
-# Testing frameworks
-.jest/
-.cypress/
-.playwright/
-
-# ===========================================
-# Container & Deployment
-# ===========================================
-
-# Docker volumes
-volumes/
-# data/
-
-# Container logs
-docker-compose.override.yml
-
-# Cloud deployment
-.vercel/
-.netlify/
-.terraform/
-.serverless/
-
-# ===========================================
-# Archives & Packages
-# ===========================================
-
-# Zip files
-*.zip
-*.tar.gz
-*.tar.bz2
-*.7z
-*.rar
-
-# Package files
-*.deb
-*.rpm
-*.pkg
-
-# ===========================================
-# Documentation Build
-# ===========================================
-
-# Sphinx documentation
-docs/_build/
-docs/build/
-
-# Jekyll
-_site/
-.sass-cache/
-
-# ===========================================
-# Python (if any)
-# ===========================================
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
-.venv/
-venv/
-ENV/
-env/
-
-# ===========================================
-# Node.js Additional
-# ===========================================
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Directory for instrumented libs generated by jscoverage/JSCover
-lib-cov
-
-# Coverage directory used by tools like istanbul
-coverage/
-
-# Grunt intermediate storage
-.grunt
-
-# Bower dependency directory
-bower_components
-
-# node-waf configuration
-.lock-wscript
-
-# Compiled binary addons
-build/Release
-
-# Dependency directories
-jspm_packages/
-
-# Optional npm cache directory
-.npm
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# ===========================================
-# Rust Additional
-# ===========================================
-
-# Generated by Cargo
-Cargo.lock
-
-# Remove Cargo.lock from gitignore if creating an executable, leave it for libraries
-# More information here https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
-
-# These are backup files generated by rustfmt
-**/*.rs.bk
-
-# ===========================================
-# Security & Sensitive Files
-# ===========================================
-
-# Private keys
-*.key
-*.pem
-id_*
-*.pub
-
-# Password files
-passwords.txt
-secrets.txt
-
-# API keys and tokens
-api_keys/
-tokens/
-
-# ===========================================
-# Backup Files
-# ===========================================
-
-# General backup patterns
-*.backup
-*.bak
-*.old
-*.orig
-*.swp
-*.swo
-
-# ===========================================
-# Specific to VaulTLS
-# ===========================================
-
-# VaulTLS specific files that shouldn't be committed
-vaultls.log
-debug.log
-trace.log
-
-# Temporary certificate files
-temp_ca.cert
-temp_cert.pem
-
-# Session files
-sessions/
-
-# ===========================================
-# Git Related
-# ===========================================
-
-# Git merge conflict markers
-*.orig
-*.rej
-
-# Git LFS
-*.lfs
-
-# ===========================================
-# Miscellaneous
-# ===========================================
-
-# Files that might appear on external disk
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Files created by popular editors
+# Editors
+.vscode/
+!.vscode/extensions.json
+.idea/
 *.sublime-project
 *.sublime-workspace
-.vscode/
-.idea/
+.cursor/
+.zed/
 
-# Files created by operating systems
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# ------------------------------------------------------------------------------
+# 🧪 Testing
+# ------------------------------------------------------------------------------
+coverage/
+test-results/
+.playwright/
+.nyc_output
 
-# ===========================================
-# Version Managers & Tooling
-# ===========================================
-
-# asdf version manager
-.tool-versions
-.mise.toml
-
-# Rust toolchain
-.cargo/
-rust-toolchain.toml
-
-# Node version managers
-.nvmrc
-.node-version
-
-# ===========================================
+# ==============================================================================
 # END OF .GITIGNORE
-# ===========================================
+# ==============================================================================
