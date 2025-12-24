@@ -35,9 +35,9 @@ VaulTLS is a robust, lightweight solution for managing Mutual TLS (mTLS) certifi
    # Edit .env to set your secrets
    ```
 
-3. Start with Docker Compose:
+3. Build and Start with Docker Compose:
    ```bash
-   docker-compose up -d
+   docker compose up --build -d
    ```
 
 Access **VaulTLS GUI** at `http://localhost:4000` and the **API** at `http://localhost:8000`.
@@ -61,8 +61,8 @@ Key environment variables available in `.env`:
 |----------|-------------|---------|
 | `VAULTLS_API_SECRET` | Secret for JWT & session tokens | Auto-generated |
 | `VAULTLS_DB_SECRET` | Database encryption secret | - |
-| `HTTP_PORT` | External frontend port (Docker) | 80 |
-| `BACKEND_API_PORT` | External backend port (Docker) | 8000 |
+| `VAULTLS_FRONTEND_PORT` | External frontend port (Docker) | 4000 |
+| `VAULTLS_BACKEND_PORT` | External backend port (Docker) | 8000 |
 | `RUN_TESTS` | Run tests during build | false |
 
 ## 📖 Usage

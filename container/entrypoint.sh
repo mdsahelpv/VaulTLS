@@ -1,5 +1,4 @@
-certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.#!/bin/bash
-certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.certificate to include X509v3 Extended Key Usage: TLS Web Server Authentication.#!/bin/bash
+#!/bin/bash
 set -e
 
 # VaulTLS Container Entrypoint Script
