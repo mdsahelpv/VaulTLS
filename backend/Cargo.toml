@@ -45,6 +45,7 @@ zip = { version = "2.1", default-features = false, features = ["deflate"] }
 hex = "0.4"
 base64 = "0.22"
 md5 = "0.7"
+sha2 = "0.10"
 der = "0.7.10"
 rocket-governor = "0.2.0-rc.4"
 

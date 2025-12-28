@@ -430,7 +430,7 @@ async fn setup_common(
     aia_url: Option<String>,
     cdp_url: Option<String>,
     _crl_validity_days: Option<u64>,
-    _path_length: Option<u32>,
+    path_length: Option<u32>,
     // Root CA mode
     is_root_ca: bool
 ) -> Result<(), ApiError> {
@@ -536,6 +536,9 @@ async fn setup_common(
         if let Some(cdp_url) = cdp_url.clone() {
             builder = builder.set_crl_distribution_points(&cdp_url)?;
         }
+
+        // Set path length constraint if provided
+        builder.set_path_length(path_length);
 
         match builder.build_ca() {
             Ok(ca) => {
@@ -647,7 +650,7 @@ pub(crate) async fn login(
         let password_hash = Password::try_from(password_hash_str.as_str())?;
         if password_hash.verify(&login_req_opt.password) {
             let jwt_key = state.settings.get_jwt_key()?;
-            let token = generate_token(&jwt_key, user.id, user.role)?;
+            let token = generate_token(&jwt_key, user.id, user.role, None)?;
 
             let cookie = Cookie::build(("auth_token", token.clone()))
                 .http_only(true)
@@ -814,7 +817,7 @@ pub(crate) async fn oidc_callback(
             user = state.db.register_oidc_user(user).await?;
 
             let jwt_key = state.settings.get_jwt_key()?;
-            let token = generate_token(&jwt_key, user.id, user.role)?;
+            let token = generate_token(&jwt_key, user.id, user.role, None)?;
 
             let auth_cookie = Cookie::build(("auth_token", token))
                 .http_only(true)
@@ -2865,9 +2868,9 @@ pub(crate) async fn download_crl_logic(
             }
         };
 
-        // Extract serial number from user certificate PKCS#12 data
-        let serial_number = if let Some((cert_data, password)) = pkcs12_data_and_password.as_ref() {
-            match extract_serial_from_pkcs12(&cert_data, password) {
+        // Extract serial number and subject DN from user certificate PKCS#12 data
+        let (serial_number, subject_dn) = if let Some((cert_data, password)) = pkcs12_data_and_password.as_ref() {
+            let serial = match extract_serial_from_pkcs12(&cert_data, password) {
                 Ok(serial) => {
                     debug!("User certificate {} serial number (hex): {}", record.certificate_id,
                            hex::encode(&serial).to_uppercase());
@@ -2877,7 +2880,21 @@ pub(crate) async fn download_crl_logic(
                     warn!("Failed to extract serial from PKCS#12 for user certificate {}: {:?}", record.certificate_id, e);
                     continue;
                 }
-            }
+            };
+            
+            let subject = match extract_subject_from_pkcs12(&cert_data, password) {
+                Ok(subj) => {
+                    debug!("User certificate {} subject DN: {}", record.certificate_id, subj);
+                    subj
+                }
+                Err(e) => {
+                    warn!("Failed to extract subject DN from PKCS#12 for user certificate {}: {:?}", record.certificate_id, e);
+                    // Use a fallback subject if extraction fails
+                    format!("/CN=Certificate{}", record.certificate_id)
+                }
+            };
+            
+            (serial, subject)
         } else {
             warn!("No certificate data found for certificate ID {}", record.certificate_id);
             continue;
@@ -2889,6 +2906,7 @@ pub(crate) async fn download_crl_logic(
             serial_number,
             revocation_date: record.revocation_date,
             reason: record.revocation_reason,
+            subject: subject_dn,
         });
     }
     
@@ -3705,6 +3723,46 @@ fn extract_serial_from_pkcs12(pkcs12_data: &[u8], password: &str) -> Result<Vec<
 
     debug!("Extracted serial number: {} bytes", serial_number.len());
     Ok(serial_number)
+}
+
+/// Extract certificate subject DN from PKCS#12 data
+fn extract_subject_from_pkcs12(pkcs12_data: &[u8], password: &str) -> Result<String, ApiError> {
+    use openssl::pkcs12::Pkcs12;
+
+    debug!("Extracting subject DN from PKCS#12 data ({} bytes)", pkcs12_data.len());
+
+    // Parse the PKCS#12 data
+    let pkcs12 = Pkcs12::from_der(pkcs12_data)
+        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
+
+    // Try to parse with password
+    let parsed = if password.is_empty() {
+        pkcs12.parse2("")
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12: {e}")))?
+    } else {
+        pkcs12.parse2(password)
+            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {e}")))?
+    };
+
+    // Get the certificate
+    let cert = parsed.cert
+        .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;
+
+    // Extract subject DN in OpenSSL format (e.g., "/C=US/ST=CA/O=Example/CN=example.com")
+    let subject_name = cert.subject_name();
+    let mut subject_parts = Vec::new();
+    
+    for entry in subject_name.entries() {
+        let key = entry.object().nid().short_name()
+            .map_err(|e| ApiError::Other(format!("Failed to get subject field name: {e}")))?;
+        let value = entry.data().as_utf8()
+            .map_err(|e| ApiError::Other(format!("Failed to get subject field value: {e}")))?;
+        subject_parts.push(format!("/{}={}", key, value));
+    }
+    
+    let subject_dn = subject_parts.join("");
+    debug!("Extracted subject DN: {}", subject_dn);
+    Ok(subject_dn)
 }
 
 /// Extract certificate serial number from DER-encoded certificate data (used for CA certificates)

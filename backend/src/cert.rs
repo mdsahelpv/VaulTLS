@@ -18,9 +18,15 @@ use passwords::PasswordGenerator;
 use rocket_okapi::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
-use crate::constants::{CA_FILE_PATH, CRL_DIR_PATH, CURRENT_CRL_FILE_PATH};
+use crate::constants::{CA_FILE_PATH, CRL_DIR_PATH, CURRENT_CRL_FILE_PATH, TEMP_WORK_DIR};
 use crate::data::enums::{CertificateRenewMethod, CertificateType};
 use crate::ApiError;
+use std::path::PathBuf;
+
+/// Get the secure temporary work directory path
+fn get_secure_temp_dir() -> PathBuf {
+    PathBuf::from(TEMP_WORK_DIR)
+}
 
 #[derive(Default, Clone, Serialize, Deserialize, JsonSchema, Debug)]
 /// Certificate can be either CA or user certificate.
@@ -77,6 +83,7 @@ pub struct CRLEntry {
     pub serial_number: Vec<u8>,
     pub revocation_date: i64,
     pub reason: crate::data::enums::CertificateRevocationReason,
+    pub subject: String,
 }
 
 #[derive(Clone, Debug)]
@@ -177,6 +184,7 @@ pub struct CertificateBuilder {
     dns_names: Vec<String>,
     ip_addresses: Vec<String>,
     email_addresses: Vec<String>,
+    path_length: Option<u32>,
 }
 
 impl CertificateBuilder {
@@ -196,7 +204,7 @@ impl CertificateBuilder {
             .map_err(|e| anyhow!("Failed to convert PEM to string: {e}"))?;
 
         // Write certificate to a temporary file
-        let temp_cert_path = std::env::temp_dir().join(format!("cert_ext_import_{}.pem", std::process::id()));
+        let temp_cert_path = get_secure_temp_dir().join(format!("cert_ext_import_{}.pem", std::process::id()));
         std::fs::write(&temp_cert_path, &pem_str)
             .map_err(|e| anyhow!("Failed to write temp certificate: {e}"))?;
 
@@ -478,14 +486,14 @@ impl CertificateBuilder {
                 // If CA is provided, use matching key type for compatibility
                 let ca_key = PKey::private_key_from_der(&ca.key)?;
                 if ca_key.rsa().is_ok() {
-                    generate_rsa_private_key_of_size(2048)?
+                    generate_rsa_private_key_of_size(4096)?
                 } else if ca_key.ec_key().is_ok() {
                     generate_ecdsa_private_key(Nid::X9_62_PRIME256V1)?
                 } else {
                     return Err(anyhow!("Unsupported CA key type"));
                 }
             },
-            None => generate_rsa_private_key_of_size(2048)?, // Default fallback
+            None => generate_rsa_private_key_of_size(4096)?, // Default fallback
         };
 
         let asn1_serial = generate_serial_number()?;
@@ -522,6 +530,7 @@ impl CertificateBuilder {
             dns_names: Vec::new(),
             ip_addresses: Vec::new(),
             email_addresses: Vec::new(),
+            path_length: None,
         };
 
         // Apply CSR extensions - this preserves important CSR information
@@ -537,7 +546,7 @@ impl CertificateBuilder {
     pub fn new_with_ca_and_key_type_size(ca: Option<&CA>, key_type: Option<&str>, key_size: Option<&str>) -> Result<Self> {
         let private_key = match (ca, key_type, key_size) {
             // If no key type/size specified, default based on whether we have a CA or not
-            (None, None, _) | (None, _, None) => generate_rsa_private_key_of_size(2048)?,
+            (None, None, _) | (None, _, None) => generate_rsa_private_key_of_size(4096)?,
 
             // If CA is provided and no key params specified, use CA's key type for backward compatibility with sub-CAs
             (Some(ca), None, _) | (Some(ca), _, None) => {
@@ -556,7 +565,7 @@ impl CertificateBuilder {
                 let size = match key_size {
                     Some("2048") => 2048,
                     Some("4096") => 4096,
-                    _ => 2048, // Default to 2048
+                    _ => 4096, // Default to 4096
                 };
                 generate_rsa_private_key_of_size(size)?
             },
@@ -568,7 +577,7 @@ impl CertificateBuilder {
             };
             generate_ecdsa_private_key(nid)?
         },
-            (_, _, _) => generate_rsa_private_key_of_size(2048)?, // Default fallback
+            (_, _, _) => generate_rsa_private_key_of_size(4096)?, // Default fallback
         };
         let asn1_serial = generate_serial_number()?;
         let (created_on_unix, created_on_openssl) = get_timestamp(0)?;
@@ -606,7 +615,23 @@ impl CertificateBuilder {
         dns_names: Vec::new(),
         ip_addresses: Vec::new(),
         email_addresses: Vec::new(),
+        path_length: None,
     })
+    }
+
+    pub fn get_key_size(&self) -> Result<u32, anyhow::Error> {
+        if let Ok(rsa) = self.private_key.rsa() {
+            Ok(rsa.size() * 8)
+        } else if let Ok(ec) = self.private_key.ec_key() {
+            Ok(ec.group().degree())
+        } else {
+            Err(anyhow!("Unsupported key type"))
+        }
+    }
+
+    pub fn set_path_length(&mut self, path_length: Option<u32>) -> &mut Self {
+        self.path_length = path_length;
+        self
     }
 
     /// Copy information over from an existing certificate
@@ -773,7 +798,7 @@ impl CertificateBuilder {
         let subject_name = subject_builder.build();
 
         // Create temporary files for certificate generation from CSR
-        let temp_dir = std::env::temp_dir();
+        let temp_dir = get_secure_temp_dir();
         let ca_cert_path = temp_dir.join(format!("ca_cert_csr_{}.pem", self.created_on));
         let ca_key_path = temp_dir.join(format!("ca_key_csr_{}.pem", self.created_on));
         let cert_req_path = temp_dir.join(format!("cert_req_csr_{}.csr", self.created_on));
@@ -873,9 +898,25 @@ commonName = supplied
 emailAddress = optional
 
 [ v3_ca ]
-basicConstraints = CA:FALSE
-keyUsage = critical, digitalSignature, keyEncipherment
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
 "#.to_string();
+
+            let (bc, ku) = match certificate_type {
+                CertificateType::Client | CertificateType::Server => {
+                    ("basicConstraints = CA:FALSE\n".to_string(), "keyUsage = critical, digitalSignature, keyEncipherment\n".to_string())
+                },
+                CertificateType::SubordinateCA => {
+                    let bc = if let Some(pl) = self.path_length {
+                        format!("basicConstraints = critical, CA:TRUE, pathlen:{pl}\n")
+                    } else {
+                        "basicConstraints = critical, CA:TRUE\n".to_string()
+                    };
+                    (bc, "keyUsage = critical, digitalSignature, keyCertSign, cRLSign\n".to_string())
+                }
+            };
+            config_content.push_str(&bc);
+            config_content.push_str(&ku);
 
             // Add extended key usage based on certificate type
             let mut eku_string = String::new();
@@ -1101,7 +1142,7 @@ keyUsage = critical, digitalSignature, keyEncipherment
         use std::process::Command;
 
         // Create temporary files for the private key, certificate, and config
-        let temp_dir = std::env::temp_dir();
+        let temp_dir = get_secure_temp_dir();
         let key_path = temp_dir.join(format!("ca_key_{}.pem", self.created_on));
         let cert_path = temp_dir.join(format!("ca_cert_{}.pem", self.created_on));
         let config_path = temp_dir.join(format!("ca_config_{}.cnf", self.created_on));
@@ -1194,8 +1235,14 @@ emailAddress_default        = "#);
 [ v3_ca ]
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid:always,issuer
-basicConstraints = critical, CA:true
-keyUsage = critical, digitalSignature, cRLSign, keyCertSign
+"#);
+        let bc = if let Some(pl) = self.path_length {
+            format!("basicConstraints = critical, CA:true, pathlen:{pl}\n")
+        } else {
+            "basicConstraints = critical, CA:true\n".to_string()
+        };
+        config_content.push_str(&bc);
+        config_content.push_str(r#"keyUsage = critical, digitalSignature, cRLSign, keyCertSign
 "#);
 
         // Add certificate policies if provided
@@ -1388,7 +1435,7 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             let subject_name = subject_builder.build();
 
             // Create temporary files for certificate generation with extensions
-            let temp_dir = std::env::temp_dir();
+            let temp_dir = get_secure_temp_dir();
             let ca_cert_path = temp_dir.join(format!("ca_cert_ext_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
             let ca_key_path = temp_dir.join(format!("ca_key_ext_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
             let cert_req_path = temp_dir.join(format!("cert_req_ext_{}.csr", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
@@ -1776,7 +1823,7 @@ basicConstraints = CA:FALSE
         use std::process::Command;
 
         // Create temporary files for certificate generation
-        let temp_dir = std::env::temp_dir();
+        let temp_dir = get_secure_temp_dir();
         let ca_cert_path = temp_dir.join(format!("ca_cert_sub_{}.pem", self.created_on));
         let ca_key_path = temp_dir.join(format!("ca_key_sub_{}.pem", self.created_on));
         let cert_req_path = temp_dir.join(format!("cert_req_sub_{}.csr", self.created_on));
@@ -1903,9 +1950,15 @@ emailAddress = optional
 [ v3_ca ]
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always
-basicConstraints = critical, CA:TRUE
-keyUsage = critical, digitalSignature, keyCertSign, cRLSign
 "#.to_string();
+        let bc = if let Some(pl) = self.path_length {
+            format!("basicConstraints = critical, CA:TRUE, pathlen:{pl}\n")
+        } else {
+            "basicConstraints = critical, CA:TRUE\n".to_string()
+        };
+        config_content.push_str(&bc);
+        config_content.push_str(r#"keyUsage = critical, digitalSignature, keyCertSign, cRLSign
+"#);
 
         // Add AIA extension if provided
         if let Some(ref aia) = aia_url {
@@ -2362,7 +2415,7 @@ pub fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8
     use std::process::Command;
 
     // Create temporary files
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = get_secure_temp_dir();
     let ca_cert_path = temp_dir.join(format!("ca_cert_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
     let ca_key_path = temp_dir.join(format!("ca_key_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
     let index_path = temp_dir.join(format!("index_{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
@@ -2436,8 +2489,8 @@ pub fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8
         // Create a unique filename for this entry
         let filename = format!("unknown_{}", i + 1);
 
-        // Create subject (simplified - we don't have full subject info from CRLEntry)
-        let subject = format!("/CN=RevokedCertificate{}", i + 1);
+        // Use the actual subject DN from the certificate
+        let subject = &entry.subject;
 
         // Add entry for revoked certificate
         // Format: R\tExpiration\tRevocationDate\tSerial\tFilename\tSubject
@@ -3119,7 +3172,7 @@ pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiE
     use std::process::Command;
 
     // Create temporary files for the OCSP request
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = get_secure_temp_dir();
     let request_path = temp_dir.join(format!("ocsp_request_{}.der", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
     let text_output_path = temp_dir.join(format!("ocsp_request_text_{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
 
@@ -3294,7 +3347,7 @@ pub(crate) async fn generate_ocsp_response(
     debug!("Certificate status: {}, revoked: {}", cert_id, is_revoked);
 
     // Create temporary files
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = get_secure_temp_dir();
     let ca_cert_path = temp_dir.join(format!("ocsp_ca_cert_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
     let ca_key_path = temp_dir.join(format!("ocsp_ca_key_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
     let cert_path = temp_dir.join(format!("ocsp_cert_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
@@ -3593,7 +3646,7 @@ pub fn parse_crl_details(crl_der: &[u8]) -> Result<CrlParsedDetails, ApiError> {
     use std::process::Command;
 
     // Create temporary files
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = get_secure_temp_dir();
     let crl_path = temp_dir.join(format!("crl_details_{}.der", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
     let cert_path = temp_dir.join(format!("crl_cert_{}.pem", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
 

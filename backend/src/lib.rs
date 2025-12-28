@@ -11,7 +11,7 @@ use tracing::{debug, info, trace};
 use tracing_subscriber::EnvFilter;
 use crate::api::*;
 use crate::auth::oidc_auth::OidcAuth;
-use crate::constants::{API_PORT, DB_FILE_PATH, VAULTLS_VERSION};
+use crate::constants::{API_PORT, DB_FILE_PATH, TEMP_WORK_DIR, VAULTLS_VERSION};
 use crate::data::objects::AppState;
 use crate::db::VaulTLSDB;
 use crate::helper::get_secret;
@@ -89,6 +89,16 @@ pub async fn create_rocket() -> Rocket<Build> {
         fs::set_permissions(db_path, perms).unwrap();
     }
     info!("Database initialized");
+
+    // Create secure temporary work directory with restricted permissions
+    let temp_work_path = Path::new(TEMP_WORK_DIR);
+    if !temp_work_path.exists() {
+        fs::create_dir_all(temp_work_path).expect("Failed to create temporary work directory");
+        let mut perms = fs::metadata(temp_work_path).unwrap().permissions();
+        perms.set_mode(0o700); // Owner read/write/execute only
+        fs::set_permissions(temp_work_path, perms).unwrap();
+        info!("Created secure temporary work directory at {} with 0700 permissions", TEMP_WORK_DIR);
+    }
 
     let oidc_settings = settings.get_oidc();
     let oidc = match oidc_settings.auth_url.is_empty() {

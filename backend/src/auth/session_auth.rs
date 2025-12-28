@@ -72,7 +72,18 @@ pub struct AuthenticatedPrivileged {
 pub(crate) struct Claims {
     pub(crate) id: i64,
     pub(crate) role: UserRole,
-    pub(crate) exp: usize
+    pub(crate) exp: usize,
+    /// RFC 8705: Certificate-bound token confirmation claim
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) cnf: Option<CnfClaim>,
+}
+
+/// RFC 8705: Confirmation claim structure
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct CnfClaim {
+    /// x5t#S256: X.509 Certificate SHA-256 Thumbprint
+    #[serde(rename = "x5t#S256")]
+    pub(crate) x5t_s256: String,
 }
 
 /// Rocket guard implementation
@@ -121,13 +132,20 @@ pub(crate) fn authenticate_auth_token(request: &Request<'_>) -> Option<Claims> {
 }
 
 /// Generate JWT Token for authentication
-pub(crate) fn generate_token(jwt_key: &[u8], user_id: i64, user_role: UserRole) -> Result<String, ApiError> {
+/// If cert_thumbprint is provided, creates a certificate-bound token (RFC 8705)
+pub(crate) fn generate_token(jwt_key: &[u8], user_id: i64, user_role: UserRole, cert_thumbprint: Option<String>) -> Result<String, ApiError> {
     let expires = SystemTime::now() + Duration::from_secs(60 * 60 /* 1 hour */);
     let expires_unix = expires.duration_since(UNIX_EPOCH).unwrap().as_secs() as usize;
+    
+    let cnf = cert_thumbprint.map(|thumbprint| CnfClaim {
+        x5t_s256: thumbprint,
+    });
+    
     let claims = Claims {
         exp: expires_unix,
         id: user_id,
-        role: user_role
+        role: user_role,
+        cnf,
     };
 
     encode(

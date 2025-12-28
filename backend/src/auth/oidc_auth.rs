@@ -145,3 +145,17 @@ impl OidcAuth {
         })
     }
 }
+
+/// Calculate SHA-256 thumbprint of a certificate (RFC 8705)
+/// Returns base64url-encoded thumbprint for use in `cnf` claim
+pub(crate) fn calculate_cert_thumbprint(cert_der: &[u8]) -> Result<String, anyhow::Error> {
+    use sha2::{Sha256, Digest};
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    
+    let mut hasher = Sha256::new();
+    hasher.update(cert_der);
+    let hash = hasher.finalize();
+    
+    // Base64url encode without padding (RFC 8705 requirement)
+    Ok(URL_SAFE_NO_PAD.encode(hash))
+}
