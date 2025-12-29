@@ -1,11 +1,11 @@
 <template>
-  <div class="card text-center shadow-sm">
-    <div class="card-body">
-      <div class="avatar-circle mb-3" :style="avatarStyle">
-        {{ firstLetter }}
-      </div>
-      <h5 class="card-title">{{ authStore.current_user?.name }}</h5>
-      <p class="card-text text-muted email">{{ formatEmail(authStore.current_user?.email) }}</p>
+  <div class="profile-card">
+    <div class="avatar-circle">
+      {{ firstLetter }}
+    </div>
+    <div class="profile-info">
+      <div class="profile-name">{{ authStore.current_user?.name }}</div>
+      <div class="profile-email">{{ formatEmail(authStore.current_user?.email) }}</div>
     </div>
   </div>
 </template>
@@ -21,65 +21,45 @@ const formatEmail = (email?: string) => {
 };
 
 const userName = computed(() => authStore.current_user?.name || 'User');
-
 const firstLetter = computed(() => userName.value.charAt(0).toUpperCase());
-
-const avatarColors = [
-  'var(--color-avatar-1)',
-  'var(--color-avatar-2)',
-  'var(--color-avatar-3)',
-  'var(--color-avatar-4)',
-  'var(--color-avatar-5)'
-];
-
-// Generate a consistent background color for each user based on their name
-const avatarStyle = computed(() => {
-  const name = userName.value;
-  // Simple hash to get consistent color for each username
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = ((hash << 5) - hash) + name.charCodeAt(i);
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  const colorIndex = Math.abs(hash) % avatarColors.length;
-  return {
-    backgroundColor: 'var(--color-card)',
-    color: 'var(--color-text-primary)',
-    width: '100px',
-    height: '100px',
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '3.2rem',
-    fontWeight: '300',
-    letterSpacing: '-0.05em',
-    margin: '0 auto',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-    border: '0',
-    background: 'linear-gradient(145deg, var(--color-card) 0%, rgba(255, 255, 255, 0.05) 50%, var(--color-card) 100%)',
-    fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-    backgroundClip: 'content-box',
-    content: 'close-quote',
-    lineHeight: '1',
-    transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-  } as any;
-});
 </script>
 
 <style scoped>
-.card {
-  max-width: 220px;
-  margin: var(--spacing-md);
-  background-color: var(--color-card);
-  border: none;
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 10px var(--shadow-color);
-  transition: box-shadow var(--transition-fast);
+.profile-card {
+  padding: var(--spacing-lg) var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  text-align: center;
 }
 
-.card:hover {
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 4px 16px var(--shadow-color);
+.avatar-circle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--color-active);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: var(--font-weight-bold);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+}
+
+.profile-name {
+  font-weight: var(--font-weight-semibold);
+  font-size: 16px;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+.profile-email {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+  margin-top: 4px;
 }
 </style>

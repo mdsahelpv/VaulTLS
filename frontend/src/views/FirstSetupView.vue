@@ -695,6 +695,24 @@ const setupPassword = async () => {
 </script>
 
 <style scoped>
+.container {
+  background-color: var(--color-page-background);
+}
+
+.card {
+  max-width: 600px;
+  width: 100%;
+  padding: var(--spacing-xl) !important;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.form-label {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
 .file-input-wrapper {
   position: relative;
 }
@@ -710,68 +728,38 @@ const setupPassword = async () => {
 .file-input-custom {
   display: flex;
   align-items: center;
-  padding: 0.375rem 0.75rem;
-  border: 1px solid #ced4da;
-  border-radius: 0.375rem;
-  background-color: #fff;
-  min-height: 38px;
-}
-
-.file-input-custom:focus-within {
-  border-color: #86b7fe;
-  outline: 0;
-  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-background);
+  min-height: 42px;
 }
 
 .file-input-text {
   flex: 1;
-  color: #6c757d;
-  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.file-input-custom .btn {
-  flex-shrink: 0;
-}
-
-.validation-steps {
-  /* Remove max-height and scrolling */
-}
-
 .validation-step {
   display: flex;
   align-items: center;
-  margin-bottom: 0.125rem;
-  padding: 0.125rem 0;
-  font-size: 0.875rem;
-  line-height: 1.3;
-}
-
-.validation-step:hover {
-  background-color: rgba(0,0,0,0.03);
+  margin-bottom: 4px;
+  font-size: 13px;
 }
 
 .validation-status-success {
-  color: #198754;
+  color: var(--success);
   font-weight: bold;
-  margin-right: 0.375rem;
-  flex-shrink: 0;
-  font-size: 1rem;
+  margin-right: 8px;
 }
 
 .validation-status-error {
-  color: #dc3545;
+  color: var(--danger);
   font-weight: bold;
-  margin-right: 0.375rem;
-  flex-shrink: 0;
-  font-size: 1rem;
-}
-
-.validation-details {
-  margin-left: 0.75rem;
-  margin-top: 0.0625rem;
-  font-size: 0.8rem;
+  margin-right: 8px;
 }
 </style>

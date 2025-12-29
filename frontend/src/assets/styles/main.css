@@ -1,0 +1,189 @@
+/* Global Refinements */
+body {
+    background-color: var(--color-page-background);
+    color: var(--color-text-primary);
+    font-family: var(--font-family);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Transitions for all elements */
+* {
+    transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-active);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-hover);
+}
+
+/* Card Modernization */
+.card {
+    border: none !important;
+    background-color: var(--color-background) !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-md) !important;
+    overflow: hidden;
+    border: 1px solid var(--color-border) !important;
+}
+
+.card-header {
+    background-color: var(--color-card) !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    padding: var(--spacing-md) var(--spacing-lg) !important;
+}
+
+/* Table Modernization */
+.table {
+    margin-bottom: 0 !important;
+}
+
+.table th {
+    background-color: var(--color-card) !important;
+    border: none !important;
+    color: var(--color-text-secondary) !important;
+    font-weight: var(--font-weight-semibold) !important;
+    font-size: 12px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    padding: var(--spacing-md) var(--spacing-lg) !important;
+}
+
+.table td {
+    padding: var(--spacing-md) var(--spacing-lg) !important;
+    vertical-align: middle !important;
+    border-top: 1px solid var(--color-border) !important;
+    color: var(--color-text-primary) !important;
+    font-size: 14px !important;
+}
+
+.table-hover tbody tr:hover {
+    background-color: var(--color-hover) !important;
+}
+
+/* Button Modernization */
+.btn {
+    border-radius: var(--radius-md) !important;
+    font-weight: var(--font-weight-medium) !important;
+    padding: 8px 16px !important;
+    transition: all var(--transition-fast) !important;
+    border: none !important;
+}
+
+.btn-primary {
+    background-color: var(--primary) !important;
+    color: #ffffff !important;
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-hover) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);
+}
+
+.btn-success {
+    background-color: var(--success) !important;
+    color: #ffffff !important;
+}
+
+.btn-warning {
+    background-color: var(--warning) !important;
+    color: #ffffff !important;
+}
+
+.btn-danger {
+    background-color: var(--danger) !important;
+    color: #ffffff !important;
+}
+
+.btn-outline-secondary {
+    background-color: transparent !important;
+    border: 1px solid var(--color-border) !important;
+    color: var(--color-text-primary) !important;
+}
+
+.btn-outline-secondary:hover {
+    background-color: var(--color-hover) !important;
+}
+
+/* Badge Modernization */
+.badge {
+    padding: 6px 10px !important;
+    border-radius: 6px !important;
+    font-weight: var(--font-weight-medium) !important;
+    font-size: 11px !important;
+}
+
+/* Modal Modernization */
+.modal-content {
+    border: none !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-lg) !important;
+    background-color: var(--color-background) !important;
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--color-border) !important;
+    padding: var(--spacing-lg) !important;
+}
+
+.modal-footer {
+    border-top: 1px solid var(--color-border) !important;
+    padding: var(--spacing-lg) !important;
+}
+
+/* Form Elements */
+.form-control,
+.form-select {
+    border-radius: var(--radius-md) !important;
+    border: 1px solid var(--color-border) !important;
+    padding: 10px 14px !important;
+    font-size: 14px !important;
+    background-color: var(--color-background) !important;
+    color: var(--color-text-primary) !important;
+    box-shadow: none !important;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.1) !important;
+}
+
+/* Typography */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: -0.02em;
+}
+
+h1 {
+    font-size: 28px;
+    margin-bottom: var(--spacing-lg);
+}
+
+h2 {
+    font-size: 24px;
+}
+
+h3 {
+    font-size: 20px;
+}

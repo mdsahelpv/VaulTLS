@@ -1905,65 +1905,12 @@ const signCSR = async () => {
 
 <style scoped>
 .overview-container {
-  padding: 20px;
   background-color: transparent;
-}
-
-.card {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e9ecef;
-}
-
-.card-header {
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
-}
-
-.table th {
-  border-top: none;
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 0.875rem;
-  letter-spacing: 0.025em;
-}
-
-.table-hover tbody tr:hover {
-  background-color: rgba(0, 0, 123, 0.075);
-}
-
-.table-responsive {
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.modal {
-  z-index: 1050;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* When multiple modals are present, we want to stack them properly */
-.modal + .modal {
-  z-index: 1051;
-}
-
-.certificate-pem {
-  background-color: #f8f9fa;
-  padding: 15px;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.875rem;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 400px;
-  overflow-y: auto;
 }
 
 @media (max-width: 768px) {
   .overview-container {
-    padding: 10px;
+    padding: 0;
   }
 }
 </style>

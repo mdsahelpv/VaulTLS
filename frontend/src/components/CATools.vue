@@ -1086,170 +1086,55 @@ onMounted(() => {
 
 <style scoped>
 .ca-tools-container {
-  padding: 20px;
-}
-
-.card {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e9ecef;
-}
-
-.card-header {
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
-}
-
-.table th {
-  border-top: none;
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 0.875rem;
-  letter-spacing: 0.025em;
-}
-
-.table-hover tbody tr:hover {
-  background-color: rgba(0, 0, 123, 0.075);
-}
-
-.table-responsive {
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-  overflow: hidden;
+  background-color: transparent;
 }
 
 .certificate-pem {
-  background-color: #f8f9fa;
-  color: #212529;
-  padding: 15px;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.875rem;
-  line-height: 1.4;
+  background-color: var(--color-hover);
+  color: var(--color-text-primary);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-family: 'SF Mono', SFMono-Regular, ui-monospace, 'DejaVu Sans Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 400px;
   overflow-y: auto;
-}
-
-/* Dark mode overrides */
-[data-theme="dark"] .certificate-pem {
-  background-color: var(--color-hover) !important;
-  color: var(--color-text-primary) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.btn-group-sm .btn {
-  padding: 0.25rem 0.5rem;
-}
-
-.badge {
-  font-size: 0.75rem;
+  border: 1px solid var(--color-border);
 }
 
 @media (max-width: 768px) {
   .ca-tools-container {
-    padding: 10px;
-  }
-
-  .d-flex.justify-content-between {
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .table-responsive {
-    font-size: 0.875rem;
-  }
-
-  .btn-group {
-    flex-direction: column;
-  }
-}
-
-/* Modal styles */
-.modal-backdrop {
-  background-color: rgba(0, 0, 0, 0.5);
-}
-
-.modal {
-  display: none;
-}
-
-.modal.show {
-  display: block;
-}
-
-.modal-dialog {
-  margin: 1.75rem auto;
-}
-
-@media (min-width: 576px) {
-  .modal-dialog {
-    max-width: 500px;
-    margin: 1.75rem auto;
-  }
-
-  .modal-lg {
-    max-width: 800px;
-  }
-
-  .modal-xl {
-    max-width: 1140px;
+    padding: 0;
   }
 }
 
 /* Certificate Chain Card Styles */
 .certificate-card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-  border-left: 4px solid #007bff;
+  transition: all var(--transition-normal);
+  background: var(--color-card);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-md);
 }
 
 .certificate-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-md);
 }
 
 .certificate-card .certificate-number {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #007bff, #0056b3);
+  background: var(--primary);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
-  font-size: 0.875rem;
-}
-
-.certificate-info .badge.bg-primary {
-  background-color: #007bff !important;
-  /* border: 1px solid rgba(0, 123, 255, 0.2); */
-}
-
-.certificate-info .badge.bg-info {
-  background-color: #6c757d !important;
-}
-
-/* Responsive adjustments for certificate cards */
-@media (max-width: 992px) {
-  .certificate-card .d-flex.align-items-center {
-    flex-direction: column;
-    align-items: flex-start !important;
-    gap: 0.5rem !important;
-  }
-
-  .certificate-card .certificate-number {
-    align-self: flex-start;
-  }
-}
-
-@media (max-width: 576px) {
-  .certificate-card .certificate-info div {
-    margin-bottom: 0.75rem !important;
-  }
-
-  .certificate-card .certificate-info div:last-child {
-    margin-bottom: 0 !important;
-  }
+  font-weight: var(--font-weight-bold);
+  font-size: 14px;
 }
 </style>

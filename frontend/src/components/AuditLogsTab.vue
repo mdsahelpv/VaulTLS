@@ -606,125 +606,12 @@ if (!isAdmin.value) {
 
 <style scoped>
 .audit-logs-container {
-  padding: 20px;
-  background-color: var(--color-page-background, #f8f9fa);
-  color: var(--color-text-primary, #212529);
-}
-
-.stats-card {
-  border: none;
-  border-radius: 8px;
-}
-
-.table-responsive {
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-  overflow: hidden;
-}
-
-.table th {
-  border-top: none;
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 0.875rem;
-  letter-spacing: 0.025em;
-  vertical-align: middle;
-}
-
-.table-hover tbody tr:hover {
-  background-color: var(--color-hover, rgba(0, 123, 255, 0.075));
-}
-
-.badge {
-  font-size: 0.75rem;
-}
-
-.pagination .page-link {
-  color: var(--color-text-primary, #212529);
-}
-
-.pagination .page-item.active .page-link {
-  background-color: var(--primary, #007bff);
-  border-color: var(--primary, #007bff);
-}
-
-.spinner-border-sm {
-  width: 1rem;
-  height: 1rem;
-}
-
-/* Dark mode enhancements - using data-theme to match app logic */
-[data-theme="dark"] .audit-logs-container {
   background-color: transparent;
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .card {
-  background-color: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .card-header {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-bottom-color: rgba(255, 255, 255, 0.1);
-}
-
-[data-theme="dark"] .advanced-filters-container {
-  background-color: rgba(0, 0, 0, 0.2) !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-[data-theme="dark"] .table {
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .table th {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-[data-theme="dark"] .form-control, 
-[data-theme="dark"] .form-select {
-  background-color: var(--color-hover);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .form-control:focus, 
-[data-theme="dark"] .form-select:focus {
-  background-color: var(--color-active);
-  border-color: var(--primary);
-  color: var(--color-text-primary);
-  box-shadow: 0 0 0 0.2rem rgba(66, 133, 244, 0.25);
-}
-
-[data-theme="dark"] .pagination .page-link {
-  background-color: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .page-item.disabled .page-link {
-  background-color: var(--color-background);
-  opacity: 0.5;
 }
 
 @media (max-width: 768px) {
   .audit-logs-container {
-    padding: 10px;
-  }
-
-  .stats-card {
-    margin-bottom: 1rem;
-  }
-
-  .table-responsive {
-    font-size: 0.875rem;
-  }
-
-  .d-flex.justify-content-between {
-    flex-direction: column;
-    gap: 1rem;
+    padding: 0;
   }
 }
 </style>

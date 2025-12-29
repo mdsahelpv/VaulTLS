@@ -2,80 +2,82 @@
 [data-theme="light"],
 :root {
     /* Modern Apple-like Color Palette */
-    --color-background: #ffffff;     /* Pure white for clean look */
-    --color-card: #f5f5f7;          /* Off-white for cards */
-    --color-hover: #f2f2f2;         /* Subtle light gray hover */
-    --color-active: #e5e5e7;        /* Soft gray active state */
-    --color-page-background: #fafafc; /* Very light background */
-
-    /* Avatar Colors */
-    --color-avatar-1: #e0f7fa;     /* Light cyan */
-    --color-avatar-2: #f3e5f5;     /* Light purple */
-    --color-avatar-3: #e8f5e8;     /* Light green */
-    --color-avatar-4: #fff8e1;     /* Light yellow */
-    --color-avatar-5: #fce4ec;     /* Light pink */
+    --color-background: #ffffff;
+    --color-card: #fbfbfd;
+    --color-hover: #f5f5f7;
+    --color-active: #e8e8ed;
+    --color-page-background: #f5f5f7;
+    --color-border: rgba(0, 0, 0, 0.08);
 
     /* Text Colors */
-    --color-text-primary: #1d1d1f; /* Deep dark gray for primary text */
+    --color-text-primary: #1d1d1f;
+    --color-text-secondary: #86868b;
 
     /* Effects */
-    --shadow-color: rgba(0, 0, 0, 0.1); /* Subtle shadow */
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.4);
 
     /* Semantic Colors */
-    --primary: #4285F4; /* Light blue for active states */
-    --secondary: var(--color-avatar-3);
-    --accent: var(--color-avatar-4);
-    --warning: #f5c105;
+    --primary: #0071e3;
+    --primary-hover: #0077ed;
+    --secondary: #6e6e73;
+    --accent: #bf4800;
+    --success: #28cd41;
+    --warning: #ff9f0a;
     --danger: #ff3b30;
 
     /* Toggle Button */
-    --toggle-bg: #f5f5f7;
+    --toggle-bg: #e8e8ed;
     --toggle-thumb: #ffffff;
 }
 
 /* Dark Theme */
 [data-theme="dark"] {
-    /* Dark Modern Color Palette */
-    --color-background: #1a1a1a;        /* Deep dark background */
-    --color-card: #2c2c2c;             /* Dark gray for cards */
-    --color-hover: #3a3a3a;            /* Dark hover state */
-    --color-active: #404040;           /* Active state */
-    --color-page-background: #121212;   /* Very dark background */
-
-    /* Dark Avatar Colors */
-    --color-avatar-1: #1e3a5f;     /* Dark blue */
-    --color-avatar-2: #4a148c;     /* Dark purple */
-    --color-avatar-3: #1b5e20;     /* Dark green */
-    --color-avatar-4: #f57f17;     /* Dark orange */
-    --color-avatar-5: #880e4f;     /* Dark pink */
+    --color-background: #161617;
+    --color-card: #232325;
+    --color-hover: #2d2d30;
+    --color-active: #3a3a3c;
+    --color-page-background: #000000;
+    --color-border: rgba(255, 255, 255, 0.1);
 
     /* Text Colors */
-    --color-text-primary: #ffffff; /* Pure white text */
+    --color-text-primary: #f5f5f7;
+    --color-text-secondary: #86868b;
 
     /* Effects */
-    --shadow-color: rgba(0, 0, 0, 0.3); /* Stronger shadow for dark */
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+    --glass-bg: rgba(22, 22, 23, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.1);
 
-    /* Semantic Colors (adjusted for dark) */
-    --primary: #6fa8dc; /* Lighter blue for better contrast */
-    --secondary: var(--color-avatar-3);
-    --accent: #ffb74d; /* Lighter accent */
-    --warning: #ffeb3b;
-    --danger: #f44336;
+    /* Semantic Colors */
+    --primary: #0a84ff;
+    --primary-hover: #409cff;
+    --secondary: #86868b;
+    --accent: #ff9f0a;
+    --success: #32d74b;
+    --warning: #ffd60a;
+    --danger: #ff453a;
 
     /* Toggle Button */
-    --toggle-bg: #404040;
+    --toggle-bg: #3a3a3c;
     --toggle-thumb: #ffffff;
 }
 
-/* Common Variables (Shared between themes) */
+/* Common Variables */
 :root,
 [data-theme="light"],
 [data-theme="dark"] {
-    /* Typography (Modern & Simple) */
-    --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', sans-serif;
-    --font-weight-normal: 300;
-    --font-weight-medium: 400;
-    --font-weight-semibold: 500;
+    /* Typography */
+    --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, sans-serif;
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
 
     /* Spacing */
     --spacing-xs: 4px;
@@ -83,18 +85,21 @@
     --spacing-md: 16px;
     --spacing-lg: 24px;
     --spacing-xl: 32px;
+    --spacing-xxl: 48px;
 
     /* Border Radius */
-    --radius-sm: 6px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
 
     /* Transitions */
-    --transition-fast: 0.15s ease;
-    --transition-normal: 0.3s ease;
+    --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 
     /* Sidebar */
-    --sidebar-border: rgba(255, 255, 255, 0.1);
+    --sidebar-width: 260px;
 }
 
 /* Global Heading Styles */

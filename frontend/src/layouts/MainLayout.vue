@@ -47,30 +47,45 @@ watch(() => window.innerWidth, (width) => {
   min-height: 100vh;
   background-color: var(--color-page-background);
   font-family: var(--font-family);
+  overflow-x: hidden;
 }
 
 .container-fluid {
-  margin-left: 240px;
-  padding: var(--spacing-xl);
-  transition: margin-left var(--transition-normal);
+  margin-left: var(--sidebar-width);
+  padding: var(--spacing-xxl);
+  transition: all var(--transition-normal);
   background-color: transparent;
+  min-height: 100vh;
 }
 
 .content-shifted {
-  margin-left: 240px !important;
+  margin-left: var(--sidebar-width) !important;
+}
+
+/* Page Transition */
+.v-enter-active,
+.v-leave-active {
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
+}
+
+.v-enter-from,
+.v-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
 }
 
 @media (max-width: 991.98px) {
   .container-fluid {
     margin-left: 0;
     padding: var(--spacing-lg);
+    padding-top: var(--spacing-xxl);
   }
 }
 
 @media (min-width: 992px) {
   .container-fluid {
-    max-width: 100%;
+    max-width: 1400px;
+    margin-right: auto;
   }
 }
-
 </style>

@@ -332,108 +332,12 @@ onMounted(async () => {
 
 <style scoped>
 .settings-tab {
-  padding: var(--spacing-xl);
-  background-color: var(--color-page-background);
-  color: var(--color-text-primary);
-  min-height: 100vh;
+  background-color: transparent;
 }
 
-/* Dark mode form controls */
-[data-theme="dark"] .settings-tab ::v-deep(.form-control) {
-  background-color: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.form-control:focus) {
-  background-color: var(--color-card);
-  border-color: var(--primary);
-  color: var(--color-text-primary);
-  box-shadow: 0 0 0 0.2rem rgba(66, 133, 244, 0.25);
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.form-select) {
-  background-color: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.form-select:focus) {
-  background-color: var(--color-card);
-  border-color: var(--primary);
-  color: var(--color-text-primary);
-  box-shadow: 0 0 0 0.2rem rgba(66, 133, 244, 0.25);
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.form-check-input:checked) {
-  background-color: var(--primary);
-  border-color: var(--primary);
-}
-
-/* Dark mode card styles */
-[data-theme="dark"] .settings-tab ::v-deep(.card) {
-  background-color: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.card-header) {
-  background-color: var(--color-hover);
-  border-bottom-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-/* Dark mode text and labels */
-[data-theme="dark"] .settings-tab ::v-deep(.form-label) {
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.form-check-label) {
-  color: var(--color-text-primary);
-}
-
-/* Dark mode alerts */
-[data-theme="dark"] .settings-tab ::v-deep(.alert-danger) {
-  background-color: rgba(220, 53, 69, 0.1);
-  border-color: rgba(220, 53, 69, 0.2);
-  color: #ea868f;
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.alert-success) {
-  background-color: rgba(25, 135, 84, 0.1);
-  border-color: rgba(25, 135, 84, 0.2);
-  color: #75b798;
-}
-
-/* Custom text styling */
-.text-info {
-  color: #0dcaf0;
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.text-info) {
-  color: #0dcaf0;
-}
-
-/* Badge styling */
-.badge {
-  display: inline-block;
-  padding: 0.25em 0.5em;
-  font-size: 0.75em;
-  font-weight: 500;
-  line-height: 1;
-  text-align: center;
-  white-space: nowrap;
-  vertical-align: baseline;
-  border-radius: 0.25rem;
-}
-
-.badge.bg-warning {
-  background-color: #ffc107;
-  color: #212529;
-}
-
-[data-theme="dark"] .settings-tab ::v-deep(.badge.bg-warning) {
-  background-color: #ffc107;
-  color: #212529;
+@media (max-width: 768px) {
+  .settings-tab {
+    padding: 0;
+  }
 }
 </style>

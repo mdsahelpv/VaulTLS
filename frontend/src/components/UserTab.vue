@@ -237,44 +237,12 @@ const deleteUser = async () => {
 
 <style scoped>
 .user-container {
-  padding: 20px;
   background-color: transparent;
-}
-
-.card {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e9ecef;
-}
-
-.card-header {
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
-}
-
-.table th {
-  border-top: none;
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 0.875rem;
-  letter-spacing: 0.025em;
-}
-
-.table-hover tbody tr:hover {
-  background-color: rgba(0, 0, 123, 0.075);
-}
-
-.table-responsive {
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-:deep(.modal.show) {
-  background-color: rgba(0, 0, 0, 0.5);
 }
 
 @media (max-width: 768px) {
   .user-container {
-    padding: 10px;
+    padding: 0;
   }
 }
 </style>

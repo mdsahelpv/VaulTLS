@@ -580,60 +580,16 @@ onMounted(async () => {
 
 <style scoped>
 .crl-tools {
-  padding: var(--spacing-xl);
-  background-color: var(--color-page-background);
-  color: var(--color-text-primary);
-  min-height: 100vh;
-}
-
-/* Dark mode support */
-[data-theme="dark"] .crl-tools ::v-deep(.card) {
-  background-color: var(--color-card);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .crl-tools ::v-deep(.card-header) {
-  background-color: var(--color-hover);
-  border-bottom-color: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .crl-tools ::v-deep(.table) {
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .crl-tools ::v-deep(.table-striped tbody tr:nth-of-type(odd)) {
-  background-color: var(--color-hover);
-}
-
-/* Spinner styling */
-.spinner-border {
-  width: 1rem;
-  height: 1rem;
-}
-
-/* Alert styling */
-[data-theme="dark"] .crl-tools ::v-deep(.alert-danger) {
-  background-color: rgba(220, 53, 69, 0.1);
-  border-color: rgba(220, 53, 69, 0.2);
-  color: #ea868f;
-}
-
-[data-theme="dark"] .crl-tools ::v-deep(.alert-info) {
-  background-color: rgba(66, 133, 244, 0.1);
-  border-color: rgba(66, 133, 244, 0.2);
-  color: var(--color-text-primary);
-}
-
-[data-theme="dark"] .crl-tools ::v-deep(.alert-success) {
-  background-color: rgba(40, 167, 69, 0.1);
-  border-color: rgba(40, 167, 69, 0.2);
-  color: var(--color-text-primary);
-  white-space: pre-line;
+  background-color: transparent;
 }
 
 .crl-tools ::v-deep(.alert-success) {
   white-space: pre-line;
+}
+
+@media (max-width: 768px) {
+  .crl-tools {
+    padding: 0;
+  }
 }
 </style>
