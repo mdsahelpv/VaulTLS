@@ -187,3 +187,43 @@
 [data-theme="dark"] .text-muted {
     color: #adb5bd !important; /* Lighter gray for muted text in dark mode */
 }
+
+/* Form labels and text for dark mode */
+[data-theme="dark"] .form-label,
+[data-theme="dark"] .form-check-label,
+[data-theme="dark"] label,
+[data-theme="dark"] .form-text,
+[data-theme="dark"] .text-muted,
+[data-theme="dark"] small,
+[data-theme="dark"] .card-title,
+[data-theme="dark"] .card-text,
+[data-theme="dark"] p,
+[data-theme="dark"] span:not(.badge),
+[data-theme="dark"] div:not(.card):not(.modal):not(.alert) {
+    color: var(--color-text-primary) !important;
+}
+
+/* Specific overrides for CRL/OCSP and Settings pages */
+[data-theme="dark"] .alert,
+[data-theme="dark"] .alert p,
+[data-theme="dark"] .alert span {
+    color: var(--color-text-primary) !important;
+}
+
+/* Select options for dark mode */
+[data-theme="dark"] .form-select option {
+    background-color: var(--color-card);
+    color: var(--color-text-primary);
+}
+
+/* Input placeholders for dark mode */
+[data-theme="dark"] .form-control::placeholder,
+[data-theme="dark"] .form-select::placeholder {
+    color: var(--color-text-secondary) !important;
+}
+
+/* Strong/bold text in dark mode */
+[data-theme="dark"] strong,
+[data-theme="dark"] b {
+    color: var(--color-text-primary) !important;
+}
