@@ -118,7 +118,7 @@ impl VaulTLSClient {
         };
 
         let request = self
-            .post("/certificates")
+            .post("/certificates/cert")
             .header(ContentType::JSON)
             .body(serde_json::to_string(&cert_req)?);
         let response = request.dispatch().await;
@@ -149,7 +149,7 @@ impl VaulTLSClient {
         };
 
         let request = self
-            .post("/certificates")
+            .post("/certificates/cert")
             .header(ContentType::JSON)
             .body(serde_json::to_string(&cert_req)?);
         let response = request.dispatch().await;
@@ -236,6 +236,20 @@ impl VaulTLSClient {
         Ok(body)
     }
 
+    pub(crate) async fn download_cert_pem(&self, cert_id: &str) -> Result<String> {
+        let request = self
+            .get(format!("/certificates/cert/{}/download?format=pem", cert_id));
+        let response = request.dispatch().await;
+
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(response.content_type(), Some(ContentType::Text));
+
+        let Some(body) = response.into_bytes().await else { return Err(anyhow::anyhow!("No body")) };
+        assert!(!body.is_empty());
+
+        Ok(String::from_utf8(body)?)
+    }
+
     pub(crate) async fn download_cert_as_p12(&self, cert_id: &str) -> Result<Vec<u8>> {
         let p12_der = self.download_cert(cert_id).await?;
         let p12 = Pkcs12::from_der(&p12_der)?;
@@ -245,7 +259,11 @@ impl VaulTLSClient {
     }
 
     pub(crate) async fn download_ca(&self) -> Result<Pem> {
-        let x509_pem = self.download_cert("ca").await?;
+        let request = self.get("/certificates/ca/download");
+        let response = request.dispatch().await;
+        assert_eq!(response.status(), Status::Ok);
+        let x509_pem = response.into_bytes().await.unwrap();
+
         Ok(Pem::iter_from_buffer(&x509_pem)
             .nth(0)
             .expect("No PEM block found")?)

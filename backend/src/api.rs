@@ -2746,36 +2746,57 @@ pub(crate) async fn download_crl(
     state: &State<AppState>,
     _rate_limit: RateLimitGuard
 ) -> Result<DownloadResponse, ApiError> {
-    download_crl_logic(state).await
+    download_crl_logic(state, None).await
+}
+
+#[openapi(tag = "Certificates")]
+#[get("/certificates/crl/<ca_id>")]
+/// Download the Certificate Revocation List (CRL) for a specific CA.
+pub(crate) async fn download_crl_by_id(
+    state: &State<AppState>,
+    ca_id: i64,
+    _rate_limit: RateLimitGuard
+) -> Result<DownloadResponse, ApiError> {
+    download_crl_logic(state, Some(ca_id)).await
 }
 
 // Internal helper without rate limit
 pub(crate) async fn download_crl_logic(
-    state: &State<AppState>
+    state: &State<AppState>,
+    ca_id: Option<i64>
 ) -> Result<DownloadResponse, ApiError> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    debug!("CRL download requested");
+    debug!("CRL download requested (CA ID: {:?})", ca_id);
 
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
+    
+    // Determine CA first to check cache correctly
+    let ca = if let Some(id) = ca_id {
+        state.db.get_ca(id).await
+            .map_err(|_| ApiError::NotFound(Some(format!("CA with ID {} not found", id))))?
+    } else {
+        state.db.get_current_ca().await?
+    };
 
-    // Check if we have a valid cached CRL
+    // Check if we have a valid cached CRL for this CA
     let mut cache = state.crl_cache.lock().await;
     if let Some(cached_crl) = &*cache {
-        // Check if cache is still valid (within 5 minutes)
-        if current_time < cached_crl.valid_until {
-            debug!("Returning cached CRL (valid until {})", cached_crl.valid_until);
+        // Check if cache matches the requested CA and is still valid (within 5 minutes)
+        if cached_crl.ca_id == ca.id && current_time < cached_crl.valid_until {
+            debug!("Returning cached CRL for CA {} (valid until {})", ca.id, cached_crl.valid_until);
             return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
+        } else if cached_crl.ca_id == ca.id {
+             debug!("Cached CRL for CA {} expired, regenerating", ca.id);
         } else {
-            debug!("Cached CRL expired, regenerating");
+             debug!("Cached CRL is for CA {}, requested CA {}, regenerating", cached_crl.ca_id, ca.id);
         }
     }
 
     // Generate new CRL
-    let ca = state.db.get_current_ca().await?;
     let revoked_records = state.db.get_all_revocation_records().await?;
 
     // Convert to CRLEntry format with proper serial numbers
@@ -2870,6 +2891,7 @@ pub(crate) async fn download_crl_logic(
         data: crl_pem.clone(),
         last_updated: current_time,
         valid_until,
+        ca_id: ca.id,
     });
 
     debug!("Generated, saved to file system, and cached new CRL (valid until {}, cache timeout: {} hours)",
@@ -3057,7 +3079,7 @@ pub(crate) async fn generate_crl_endpoint(
 
     // Generate new CRL by calling download_crl (which handles the generation)
     // We don't actually need the file, just to ensure it's generated
-    match download_crl_logic(state).await {
+    match download_crl_logic(state, None).await {
         Ok(_) => {
             info!("Manual CRL generation completed successfully");
             Ok(Json(json!({
@@ -3215,6 +3237,7 @@ pub(crate) async fn ocsp_responder_get(
     _rate_limit: RateLimitGuard
 ) -> Result<Vec<u8>, ApiError> {
     debug!("OCSP GET request received (base64 length: {})", request.len());
+    println!("DEBUG: OCSP GET received request string: '{}'", request);
 
     // Decode base64 request
     let request_data = base64::engine::general_purpose::STANDARD
@@ -3611,8 +3634,17 @@ async fn process_ocsp_request(
     // Extract certificate ID from OCSP request (now with database access)
     let cert_id = extract_certificate_id_from_ocsp_request(&ocsp_request, state).await?;
 
+    // Get certificate to find out which CA issued it
+    let cert = state.db.get_user_cert_by_id(cert_id).await
+        .map_err(|e| ApiError::Other(format!("Certificate not found: {e}")))?;
+
+    // Get the CA that issued this certificate
+    let ca = state.db.get_ca(cert.ca_id).await
+        .map_err(|e| ApiError::Other(format!("CA not found: {e}")))?;
+
+    debug!("Generating OCSP response for cert {} (CA: {})", cert_id, ca.id);
+
     // Generate new OCSP response
-    let ca = state.db.get_current_ca().await?;
     let response_der = generate_ocsp_response(&ocsp_request, cert_id, &ca, &state.db).await?;
 
     // Cache the response for 1 hour (OCSP responses are typically valid for 1 hour)
@@ -3726,7 +3758,7 @@ async fn extract_certificate_id_from_ocsp_request(
     request: &OCSPRequest,
     state: &State<AppState>,
 ) -> Result<i64, ApiError> {
-
+    println!("DEBUG: extract_certificate_id_from_ocsp_request started for serial {:?}", request.certificate_id.serial_number);
 
     debug!("Looking for certificate with serial number: {:?}", request.certificate_id.serial_number);
 
@@ -3734,14 +3766,23 @@ async fn extract_certificate_id_from_ocsp_request(
     let certificates = state.db.get_all_user_cert(None).await
         .map_err(|e| ApiError::Other(format!("Database error: {e}")))?;
 
+    println!("DEBUG: Found {} certificates in DB", certificates.len());
+
     // Check each certificate's serial number
     for cert in certificates {
+        println!("DEBUG: checking cert id {}", cert.id);
         if let Ok(details) = crate::cert::get_certificate_details(&cert) {
+            let mut serial_str = details.serial_number.trim_start_matches("0x").trim_start_matches("0X").to_string();
+            if serial_str.len() % 2 != 0 {
+                serial_str = format!("0{}", serial_str);
+            }
+            println!("DEBUG: Checking cert {} with serial string '{}'", cert.id, serial_str);
             // Convert the hex serial number from details back to bytes for comparison
-            if let Ok(cert_serial) = hex::decode(details.serial_number.trim_start_matches("0x").trim_start_matches("0X")) {
+            if let Ok(cert_serial) = hex::decode(&serial_str) {
                 // Compare serial numbers (they are both Vec<u8>)
+                println!("DEBUG: Request serial {:?} vs Cert serial {:?}", request.certificate_id.serial_number, cert_serial);
                 if cert_serial == request.certificate_id.serial_number {
-                    debug!("Found matching certificate with ID: {}", cert.id);
+                    println!("DEBUG: Found matching certificate with ID: {}", cert.id);
                     return Ok(cert.id);
                 }
             }

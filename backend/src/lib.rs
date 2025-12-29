@@ -324,7 +324,14 @@ pub async fn create_test_rocket() -> Rocket<Build> {
                 sign_csr_certificate,
                 preview_csr,
                 get_certificate_details,
-                update_user
+                update_user,
+                revoke_certificate,
+                unrevoke_certificate,
+                download_crl,
+                download_crl_by_id,
+                generate_crl_endpoint,
+                list_crl_files_endpoint,
+                download_crl_backup
             ],
         )
         .mount("/", routes![ocsp_responder_get, ocsp_responder_post])

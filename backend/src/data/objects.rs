@@ -98,6 +98,7 @@ pub struct CrlCache {
     pub data: Vec<u8>,
     pub last_updated: i64,
     pub valid_until: i64,
+    pub ca_id: i64,
 }
 
 /// Cache for OCSP response data

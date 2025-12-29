@@ -3370,6 +3370,7 @@ pub fn parse_csr_from_der(csr_der: &[u8]) -> Result<ParsedCSR, ApiError> {
 /// Uses OpenSSL command-line tools for OCSP request parsing since
 /// rust-openssl OCSP bindings are limited
 pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiError> {
+    println!("DEBUG: parse_ocsp_request started, {} bytes", request_der.len());
     debug!("Parsing OCSP request ({} bytes)", request_der.len());
 
     // Use OpenSSL command-line to extract OCSP request information
@@ -3408,6 +3409,7 @@ pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiE
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("DEBUG: OpenSSL OCSP parsing failed: {}", stderr);
         cleanup_temp_files();
         return Err(ApiError::Other(format!("OpenSSL OCSP parsing failed: {stderr}")));
     }
@@ -3417,6 +3419,8 @@ pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiE
             cleanup_temp_files();
             ApiError::Other(format!("Failed to decode OpenSSL output: {e}"))
         })?;
+    
+    // println!("DEBUG: OpenSSL output: {}", text_output);
 
     // Parse the text output to extract certificate ID information
     // This is a basic parser that looks for the certificate ID fields
@@ -3470,11 +3474,18 @@ pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiE
             if let Some(hex_start) = line_trimmed.find(':') {
                 let serial_str = line_trimmed[hex_start + 1..].trim();
                 // Try to parse as hex first, then as decimal
-                let serial_bytes = if let Ok(bytes) = hex::decode(serial_str.replace(" ", "")) {
+                let mut serial_str_clean = serial_str.replace(" ", "").replace(":", "");
+                if serial_str_clean.len() % 2 != 0 {
+                    serial_str_clean = format!("0{}", serial_str_clean);
+                }
+                
+                let serial_bytes = if let Ok(bytes) = hex::decode(&serial_str_clean) {
                     bytes
                 } else if let Ok(int_val) = u64::from_str_radix(serial_str, 10) {
-                    // Convert to big-endian bytes
-                    int_val.to_be_bytes().to_vec()
+                    // Convert to big-endian bytes and remove leading zeros
+                    let bytes = int_val.to_be_bytes();
+                    let start = bytes.iter().position(|&x| x != 0).unwrap_or(bytes.len() - 1);
+                    bytes[start..].to_vec()
                 } else {
                     debug!("Failed to parse serial number: {}", serial_str);
                     continue;

@@ -121,6 +121,7 @@ backend/ca.key
 backend/crl/
 crl/
 *.crl
+.crl
 
 # OCSP artifacts
 ocsp/
