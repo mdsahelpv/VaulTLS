@@ -103,7 +103,7 @@ const redirectToOIDC = () => {
 }
 
 .card {
-  max-width: 420px;
+  max-width: 550px;
   width: 100%;
   padding: var(--spacing-xxl) !important;
   border: 1px solid var(--color-border);

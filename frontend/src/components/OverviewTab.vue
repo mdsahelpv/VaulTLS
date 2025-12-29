@@ -47,7 +47,7 @@
         </button>
         <button
             v-if="authStore.isAdmin"
-            class="btn btn-outline-secondary"
+            class="btn btn-warning"
             @click="showRevocationHistory = true"
             title="View Certificate Revocation History"
         >
@@ -84,8 +84,7 @@
     </div>
     <div class="card">
       <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0">
+        <table class="table table-hover mb-0">
             <thead class="table-light">
               <tr>
                 <th v-if="authStore.isAdmin" class="text-center" title="Select certificates for bulk operations">
@@ -199,7 +198,6 @@
               </tr>
             </tbody>
           </table>
-        </div>
       </div>
     </div>
 
