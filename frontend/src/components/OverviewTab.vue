@@ -381,12 +381,17 @@
               </div>
             </div>
             <div class="mb-3" v-if="certReq.cert_type == CertificateType.Server">
-              <label class="form-label">DNS Names</label>
+              <label class="form-label">
+                DNS Names
+                <span class="text-danger">*</span>
+                <small class="text-muted">(required for server certificates)</small>
+              </label>
               <div v-for="(_, index) in certReq.dns_names" :key="index" class="mb-2">
                 <div class="input-group">
                   <input
                       type="text"
                       class="form-control"
+                      :class="{ 'is-invalid': certReq.cert_type == CertificateType.Server && !hasValidDNSNames }"
                       v-model="certReq.dns_names[index]"
                       :placeholder="'DNS Name ' + (index + 1)"
                   />
@@ -407,6 +412,9 @@
                     −
                   </button>
                 </div>
+              </div>
+              <div v-if="certReq.cert_type == CertificateType.Server && !hasValidDNSNames" class="invalid-feedback d-block">
+                At least one DNS name is required for server certificates.
               </div>
             </div>
             <div class="mb-3">
@@ -1300,6 +1308,16 @@ const isRevokeValid = computed(() => {
   return true; // All RFC 5280 reasons are now predefined and valid
 });
 
+// Computed property to check if DNS names are valid for server certificates
+const hasValidDNSNames = computed(() => {
+  if (certReq.cert_type !== CertificateType.Server) {
+    return true; // Not a server certificate, so validation passes
+  }
+
+  // For server certificates, check if there are any non-empty DNS names
+  return certReq.dns_names.some(dns => dns.trim().length > 0);
+});
+
 // Watch for Root CA mode changes and set certificate type to Subordinate CA
 watch(isRootCA, (newIsRootCA: boolean) => {
   if (newIsRootCA) {
@@ -1408,6 +1426,12 @@ const closeGenerateModal = () => {
 };
 
 const createCertificate = async () => {
+    // Client-side validation for server certificates
+    if (certReq.cert_type === CertificateType.Server && !hasValidDNSNames.value) {
+        alert('DNS name is empty. Server certificates must include at least one DNS name.');
+        return; // Don't proceed with certificate creation
+    }
+
     await certificateStore.createCertificate(certReq);
     closeGenerateModal();
 };
