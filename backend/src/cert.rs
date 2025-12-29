@@ -189,7 +189,6 @@ pub struct CertificateBuilder {
     // SAN extensions tracking
     dns_names: Vec<String>,
     ip_addresses: Vec<String>,
-    email_addresses: Vec<String>,
     path_length: Option<u32>,
 }
 
@@ -547,7 +546,6 @@ impl CertificateBuilder {
             authority_info_access: None, crl_distribution_points: None,
             dns_names: Vec::new(),
             ip_addresses: Vec::new(),
-            email_addresses: Vec::new(),
             path_length: None,
         };
 
@@ -634,7 +632,6 @@ impl CertificateBuilder {
         crl_distribution_points: None,
         dns_names: Vec::new(),
         ip_addresses: Vec::new(),
-        email_addresses: Vec::new(),
         path_length: None,
     })
     }
@@ -647,7 +644,7 @@ impl CertificateBuilder {
                 return Ok(ec.group().degree());
             }
         }
-        
+
         if let Some(pkey) = &self.csr_public_key {
             if let Ok(rsa) = pkey.rsa() {
                 return Ok(rsa.size() * 8);
@@ -2315,7 +2312,7 @@ pub(crate) fn certificate_pkcs12_to_key(cert: &Certificate) -> Result<Vec<u8>, A
 }
 
 /// Convert a user certificate from PKCS#12 to DER format.
-pub(crate) fn certificate_pkcs12_to_der(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
+pub fn certificate_pkcs12_to_der(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
     // If it's a CSR-based certificate, the pkcs12 field is already the DER cert
     if X509::from_der(&cert.pkcs12).is_ok() {
         return Ok(cert.pkcs12.clone());

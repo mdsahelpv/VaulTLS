@@ -1,6 +1,6 @@
-use rocket::http::Status;
+use rocket::http::Method;
 use rocket::request::{FromRequest, Outcome, Request};
-use rocket_governor::{Method, Quota, RocketGovernable, RocketGovernor};
+use rocket_governor::{Quota, RocketGovernable};
 use rocket_okapi::request::{OpenApiFromRequest, RequestHeaderInput};
 use rocket_okapi::gen::OpenApiGenerator;
 

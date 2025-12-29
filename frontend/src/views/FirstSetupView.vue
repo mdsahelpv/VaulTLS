@@ -696,7 +696,7 @@ const setupPassword = async () => {
 
 <style scoped>
 .container {
-  background-color: var(--color-page-background);
+  background-color: #ffffff !important; /* Force white background for setup page */
 }
 
 .card {

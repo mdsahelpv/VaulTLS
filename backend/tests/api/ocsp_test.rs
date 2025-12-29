@@ -8,11 +8,63 @@ use openssl::pkey::PKey;
 use openssl::x509::X509;
 use rocket::http::{ContentType, Status};
 use serde_json::Value;
+use std::process::Command;
 use vaultls::cert::Certificate;
 use vaultls::data::enums::{CertificateRevocationReason, CertificateType, CertificateRenewMethod};
 use vaultls::data::api::CreateUserCertificateRequest;
 
 const TEST_PASSWORD: &str = "testpassword123";
+
+/// Generate a valid OCSP request using OpenSSL CLI
+async fn generate_ocsp_request(cert_der: &[u8], ca_der: &[u8], serial_hex: &str) -> Result<String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use vaultls::constants::TEMP_WORK_DIR;
+
+    let temp_dir = std::path::Path::new(TEMP_WORK_DIR);
+
+    // Create temporary files for certificate and CA
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    let cert_file = temp_dir.join(format!("ocsp_cert_{}.pem", timestamp));
+    let ca_file = temp_dir.join(format!("ocsp_ca_{}.pem", timestamp));
+    let req_file = temp_dir.join(format!("ocsp_req_{}.der", timestamp));
+
+    // Write certificate to PEM
+    let cert_x509 = X509::from_der(cert_der)?;
+    let cert_pem = cert_x509.to_pem()?;
+    std::fs::write(&cert_file, &cert_pem)?;
+
+    // Write CA to PEM
+    let ca_x509 = X509::from_der(ca_der)?;
+    let ca_pem = ca_x509.to_pem()?;
+    std::fs::write(&ca_file, &ca_pem)?;
+
+    // Generate OCSP request using OpenSSL
+    let output = Command::new("openssl")
+        .args([
+            "ocsp",
+            "-issuer", &ca_file.to_string_lossy(),
+            "-cert", &cert_file.to_string_lossy(),
+            "-reqout", &req_file.to_string_lossy(),
+            "-no_nonce"
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("Failed to generate OCSP request: {}", stderr));
+    }
+
+    // Read the generated OCSP request
+    let ocsp_req_der = std::fs::read(&req_file)?;
+
+    // Clean up temp files
+    let _ = std::fs::remove_file(&cert_file);
+    let _ = std::fs::remove_file(&ca_file);
+    let _ = std::fs::remove_file(&req_file);
+
+    // Return base64 encoded request
+    Ok(general_purpose::STANDARD.encode(&ocsp_req_der))
+}
 
 #[tokio::test]
 async fn test_ocsp_good_certificate_status() -> Result<()> {
@@ -84,41 +136,29 @@ async fn test_ocsp_revoked_certificate_status() -> Result<()> {
     println!("✅ Certificate revoked successfully");
 
     // Now test OCSP for revoked certificate
-    let cert_details: Value = client.get_certificate_details(cert.id.to_string().as_str()).await?;
-    let serial_hex = cert_details["serial_number"].as_str().unwrap().trim_start_matches("0x").trim_start_matches("0X");
-    let serial_bytes = hex::decode(serial_hex)?;
-
-    // Create OCSP request
     let ca = client.download_ca().await?;
-    let ca_x509 = X509::from_der(&ca.contents)?;
+    let cert_details: Value = client.get_certificate_details(cert.id.to_string().as_str()).await?;
 
-    let issuer_name_hash = hash(MessageDigest::sha1(), &ca_x509.subject_name().to_der()?)?;
-    let issuer_key_hash = hash(MessageDigest::sha1(), &ca_x509.public_key()?.public_key_to_der()?)?;
+    // Generate proper OCSP request using OpenSSL
+    // For CSR-signed certificates, the pkcs12 field contains DER data directly
+    let cert_der = if cert.pkcs12.starts_with(b"\x30") {
+        // Looks like DER data (starts with 0x30)
+        cert.pkcs12.clone()
+    } else {
+        // Regular PKCS#12, extract DER
+        vaultls::cert::certificate_pkcs12_to_der(cert)?
+    };
+    let ocsp_request_b64 = generate_ocsp_request(&cert_der, &ca.contents, cert_details["serial_number"].as_str().unwrap()).await?;
 
-    let mut ocsp_request = Vec::new();
-    ocsp_request.push(0); // Version
-    ocsp_request.extend_from_slice(&issuer_name_hash);
-    ocsp_request.extend_from_slice(&issuer_key_hash);
-
-    // Serial number as DER integer
-    let mut serial_der = Vec::new();
-    serial_der.push(0x02); // INTEGER tag
-    serial_der.push(serial_bytes.len() as u8);
-    serial_der.extend_from_slice(&serial_bytes);
-    ocsp_request.extend_from_slice(&serial_der);
-
-    // Base64 encode and send request
-    let request_b64 = general_purpose::STANDARD.encode(&ocsp_request);
-    let request_encoded = request_b64.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D");
+    // Send the request
+    let request_encoded = ocsp_request_b64.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D");
     let ocsp_url = format!("/ocsp?request={}", request_encoded);
-    let request = client
-        .get(&ocsp_url);
+    let request = client.get(&ocsp_url);
     let response = request.dispatch().await;
 
-    // Since OCSP uses OpenSSL CLI, parsing may fail but endpoint should handle gracefully
+    // Should return OK (even if parsing fails internally, endpoint handles gracefully)
     let status = response.status();
-    assert!(status == Status::Ok || status == Status::BadRequest,
-            "OCSP should handle requests gracefully, got status: {}", status);
+    assert_eq!(status, Status::Ok, "OCSP should handle requests gracefully, got status: {}", status);
 
     let response_bytes = response.into_bytes().await.unwrap();
     assert!(!response_bytes.is_empty());
@@ -257,32 +297,23 @@ async fn test_ocsp_caching_behavior() -> Result<()> {
     let cert = &certs[0];
 
     let cert_details: Value = client.get_certificate_details(cert.id.to_string().as_str()).await?;
-    let serial_hex = cert_details["serial_number"].as_str().unwrap().trim_start_matches("0x").trim_start_matches("0X");
-    let serial_bytes = hex::decode(serial_hex)?;
 
-    // Create multiple identical OCSP requests to test caching
+    // Generate proper OCSP request using OpenSSL
     let ca = client.download_ca().await?;
-    let ca_x509 = X509::from_der(&ca.contents)?;
+    // For CSR-signed certificates, the pkcs12 field contains DER data directly
+    let cert_der = if cert.pkcs12.starts_with(b"\x30") {
+        // Looks like DER data (starts with 0x30)
+        cert.pkcs12.clone()
+    } else {
+        // Regular PKCS#12, extract DER
+        vaultls::cert::certificate_pkcs12_to_der(cert)?
+    };
+    let ocsp_request_b64 = generate_ocsp_request(&cert_der, &ca.contents, cert_details["serial_number"].as_str().unwrap()).await?;
 
-    let issuer_name_hash = hash(MessageDigest::sha1(), &ca_x509.subject_name().to_der()?)?;
-    let issuer_key_hash = hash(MessageDigest::sha1(), &ca_x509.public_key()?.public_key_to_der()?)?;
-
-    let mut ocsp_request = Vec::new();
-    ocsp_request.push(0);
-    ocsp_request.extend_from_slice(&issuer_name_hash);
-    ocsp_request.extend_from_slice(&issuer_key_hash);
-
-    let mut serial_der = Vec::new();
-    serial_der.push(0x02);
-    serial_der.push(serial_bytes.len() as u8);
-    serial_der.extend_from_slice(&serial_bytes);
-    ocsp_request.extend_from_slice(&serial_der);
-
-    let request_b64 = general_purpose::STANDARD.encode(&ocsp_request);
+    let request_encoded = ocsp_request_b64.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D");
+    let ocsp_url = format!("/ocsp?request={}", request_encoded);
 
     // Send first request
-    let request_encoded = request_b64.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D");
-    let ocsp_url = format!("/ocsp?request={}", request_encoded);
     let request = client.get(&ocsp_url);
     let response1 = request.dispatch().await;
     assert_eq!(response1.status(), Status::Ok);
@@ -339,37 +370,21 @@ async fn test_ocsp_integration_with_crl() -> Result<()> {
     println!("✅ CRL download successful, contains revoked certificate");
 
     // Verify OCSP still works for the revoked certificate
-    let cert_details: Value = client.get_certificate_details(cert.id.to_string().as_str()).await?;
-    let serial_hex = cert_details["serial_number"].as_str().unwrap().trim_start_matches("0x").trim_start_matches("0X");
-    let serial_bytes = hex::decode(serial_hex)?;
-
     let ca = client.download_ca().await?;
-    let ca_x509 = X509::from_der(&ca.contents)?;
+    let cert_details: Value = client.get_certificate_details(cert.id.to_string().as_str()).await?;
 
-    let issuer_name_hash = hash(MessageDigest::sha1(), &ca_x509.subject_name().to_der()?)?;
-    let issuer_key_hash = hash(MessageDigest::sha1(), &ca_x509.public_key()?.public_key_to_der()?)?;
+    // Generate proper OCSP request using OpenSSL
+    let cert_der = vaultls::cert::certificate_pkcs12_to_der(cert)?;
+    let ocsp_request_b64 = generate_ocsp_request(&cert_der, &ca.contents, cert_details["serial_number"].as_str().unwrap()).await?;
 
-    let mut ocsp_request = Vec::new();
-    ocsp_request.push(0);
-    ocsp_request.extend_from_slice(&issuer_name_hash);
-    ocsp_request.extend_from_slice(&issuer_key_hash);
-
-    let mut serial_der = Vec::new();
-    serial_der.push(0x02);
-    serial_der.push(serial_bytes.len() as u8);
-    serial_der.extend_from_slice(&serial_bytes);
-    ocsp_request.extend_from_slice(&serial_der);
-
-    let request_b64 = general_purpose::STANDARD.encode(&ocsp_request);
-    let request_encoded = request_b64.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D");
+    let request_encoded = ocsp_request_b64.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D");
     let ocsp_url = format!("/ocsp?request={}", request_encoded);
     let request = client.get(&ocsp_url);
     let response = request.dispatch().await;
     let status = response.status();
 
-    // Since OCSP uses OpenSSL CLI, parsing may fail but endpoint should handle gracefully
-    assert!(status == Status::Ok || status == Status::BadRequest,
-            "OCSP should handle requests gracefully, got status: {}", status);
+    // Should return OK (even if parsing fails internally, endpoint handles gracefully)
+    assert_eq!(status, Status::Ok, "OCSP should handle requests gracefully, got status: {}", status);
 
     let response_bytes = response.into_bytes().await.unwrap();
     assert!(!response_bytes.is_empty());
@@ -463,29 +478,15 @@ async fn test_ocsp_multiple_certificates_scenarios() -> Result<()> {
 
     // Test OCSP for all three certificates
     let ca = client.download_ca().await?;
-    let ca_x509 = X509::from_der(&ca.contents)?;
-
-    let issuer_name_hash = hash(MessageDigest::sha1(), &ca_x509.subject_name().to_der()?)?;
-    let issuer_key_hash = hash(MessageDigest::sha1(), &ca_x509.public_key()?.public_key_to_der()?)?;
 
     for cert in &certificates {
         let cert_details: Value = client.get_certificate_details(cert.id.to_string().as_str()).await?;
-        let serial_hex = cert_details["serial_number"].as_str().unwrap().trim_start_matches("0x").trim_start_matches("0X");
-        let serial_bytes = hex::decode(serial_hex)?;
 
-        let mut ocsp_request = Vec::new();
-        ocsp_request.push(0);
-        ocsp_request.extend_from_slice(&issuer_name_hash);
-        ocsp_request.extend_from_slice(&issuer_key_hash);
+        // Generate proper OCSP request using OpenSSL
+        let cert_der = vaultls::cert::certificate_pkcs12_to_der(cert)?;
+        let ocsp_request_b64 = generate_ocsp_request(&cert_der, &ca.contents, cert_details["serial_number"].as_str().unwrap()).await?;
 
-        let mut serial_der = Vec::new();
-        serial_der.push(0x02);
-        serial_der.push(serial_bytes.len() as u8);
-        serial_der.extend_from_slice(&serial_bytes);
-        ocsp_request.extend_from_slice(&serial_der);
-
-        let request_b64 = general_purpose::STANDARD.encode(&ocsp_request);
-        let request_encoded = request_b64.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D");
+        let request_encoded = ocsp_request_b64.replace("+", "%2B").replace("/", "%2F").replace("=", "%3D");
         let ocsp_url = format!("/ocsp?request={}", request_encoded);
         let request = client.get(&ocsp_url);
         let response = request.dispatch().await;

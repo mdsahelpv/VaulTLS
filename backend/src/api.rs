@@ -1686,7 +1686,7 @@ pub(crate) async fn preview_csr(
     let mut state_or_province_name = None;
     let mut country_name = None;
     let mut email_address = None;
-    let subject_alt_names: Vec<String> = Vec::new();
+
 
     debug!("Parsing {} subject entries from CSR", parsed_csr.subject_name.entries().count());
     for entry in parsed_csr.subject_name.entries() {

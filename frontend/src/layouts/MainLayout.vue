@@ -84,8 +84,7 @@ watch(() => window.innerWidth, (width) => {
 
 @media (min-width: 992px) {
   .container-fluid {
-    max-width: 1400px;
-    margin-right: auto;
+    /* Removed max-width constraint for full-width usage */
   }
 }
 </style>
