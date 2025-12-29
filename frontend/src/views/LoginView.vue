@@ -112,6 +112,13 @@ const redirectToOIDC = () => {
 .logo {
   max-width: 120px;
   margin-bottom: var(--spacing-xxl);
+  animation: logoPulse 2s ease-in-out infinite;
+  transition: transform 0.3s ease;
+}
+
+.logo:hover {
+  transform: scale(1.05);
+  animation-play-state: paused;
 }
 
 .form-label {
@@ -144,5 +151,40 @@ const redirectToOIDC = () => {
 
 .border-top {
   border-top: 1px solid var(--color-border) !important;
+}
+
+/* Logo Animations */
+@keyframes logoEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.8);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translateY(-5px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes logoPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: brightness(1) hue-rotate(0deg) saturate(1);
+  }
+  25% {
+    transform: scale(1.01);
+    filter: brightness(1.05) hue-rotate(5deg) saturate(1.1);
+  }
+  50% {
+    transform: scale(1.02);
+    filter: brightness(1.1) hue-rotate(10deg) saturate(1.2);
+  }
+  75% {
+    transform: scale(1.01);
+    filter: brightness(1.05) hue-rotate(5deg) saturate(1.1);
+  }
 }
 </style>
