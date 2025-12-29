@@ -9,7 +9,7 @@ use openssl::error::ErrorStack;
 use openssl::hash::MessageDigest;
 use openssl::nid::Nid;
 use openssl::pkcs12::Pkcs12;
-use openssl::pkey::{PKey, Private};
+use openssl::pkey::{PKey, Private, Public};
 use openssl::stack::Stack;
 use openssl::x509::{X509Name, X509NameBuilder, X509, X509Req};
 use openssl::x509::extension::{BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName};
@@ -18,6 +18,7 @@ use passwords::PasswordGenerator;
 use rocket_okapi::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
+use x509_parser::prelude::FromDer;
 use crate::constants::{CA_FILE_PATH, CRL_DIR_PATH, CURRENT_CRL_FILE_PATH, TEMP_WORK_DIR};
 use crate::data::enums::{CertificateRenewMethod, CertificateType};
 use crate::ApiError;
@@ -151,11 +152,16 @@ pub struct ParsedCSR {
     pub signature_valid: bool,
     pub key_algorithm: String,
     pub key_size: String,
+    pub is_weak: bool,
+    pub security_warnings: Vec<String>,
+    pub raw_der: Vec<u8>,
 }
 
 pub struct CertificateBuilder {
     x509: X509Builder,
-    private_key: PKey<Private>,
+    private_key: Option<PKey<Private>>,
+    csr_public_key: Option<PKey<Public>>,
+    csr_data: Option<Vec<u8>>,
     created_on: i64,
     valid_until: Option<i64>,
     name: Option<String>,
@@ -347,9 +353,9 @@ impl CertificateBuilder {
         debug!("Certificate extracted from PKCS#12: subject={:?}", cert.subject_name());
 
         // Extract the full certificate chain (including intermediate certificates if present)
-        let mut cert_chain = Vec::new();
-
+    
         // Start with the end-entity certificate
+        let mut cert_chain = Vec::new();
         cert_chain.push(cert.to_der().map_err(|e| {
             error!("Failed to encode end-entity certificate to DER: {}", e);
             anyhow!("Failed to process end-entity certificate: {e}")
@@ -481,21 +487,6 @@ impl CertificateBuilder {
         debug!("Creating CertificateBuilder from CSR");
 
         // Start with basic builder setup
-        let private_key = match ca {
-            Some(ca) => {
-                // If CA is provided, use matching key type for compatibility
-                let ca_key = PKey::private_key_from_der(&ca.key)?;
-                if ca_key.rsa().is_ok() {
-                    generate_rsa_private_key_of_size(4096)?
-                } else if ca_key.ec_key().is_ok() {
-                    generate_ecdsa_private_key(Nid::X9_62_PRIME256V1)?
-                } else {
-                    return Err(anyhow!("Unsupported CA key type"));
-                }
-            },
-            None => generate_rsa_private_key_of_size(4096)?, // Default fallback
-        };
-
         let asn1_serial = generate_serial_number()?;
         let (created_on_unix, created_on_openssl) = get_timestamp(0)?;
 
@@ -511,8 +502,9 @@ impl CertificateBuilder {
         // Apply CSR extensions (this is the key extension preservation logic)
         let mut builder = Self {
             x509,
-            private_key, // Note: This is a new private key, not the one from CSR
-                        // The CSR only contains the public key, not the private key
+            private_key: None, // No private key for CSR-based signing
+            csr_public_key: Some(parsed_csr.public_key.clone()),
+            csr_data: Some(parsed_csr.csr.to_der()?),
             created_on: created_on_unix,
             valid_until: None,
             name: None, // Will be set by user
@@ -523,8 +515,34 @@ impl CertificateBuilder {
             certificate_type: None,
             key_size: Some(parsed_csr.key_size.clone()),
             hash_algorithm: None,
-            country: None, state: None, locality: None, organization: None,
-            organizational_unit: None, common_name: None, email: None,
+            country: parsed_csr.subject_name.entries()
+                .find(|e| e.object().nid().as_raw() == 14) // C
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string()),
+            state: parsed_csr.subject_name.entries()
+                .find(|e| e.object().nid().as_raw() == 16) // ST
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string()),
+            locality: parsed_csr.subject_name.entries()
+                .find(|e| e.object().nid().as_raw() == 15) // L
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string()),
+            organization: parsed_csr.subject_name.entries()
+                .find(|e| e.object().nid().as_raw() == 17) // O
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string()),
+            organizational_unit: parsed_csr.subject_name.entries()
+                .find(|e| e.object().nid().as_raw() == 18) // OU
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string()),
+            common_name: parsed_csr.subject_name.entries()
+                .find(|e| e.object().nid().as_raw() == 13) // CN
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string()),
+            email: parsed_csr.subject_name.entries()
+                .find(|e| e.object().nid().as_raw() == 48) // emailAddress
+                .and_then(|e| e.data().as_utf8().ok())
+                .map(|s| s.to_string()),
             certificate_policies_oid: None, certificate_policies_cps_url: None,
             authority_info_access: None, crl_distribution_points: None,
             dns_names: Vec::new(),
@@ -590,7 +608,9 @@ impl CertificateBuilder {
 
     Ok(Self {
         x509,
-        private_key,
+        private_key: Some(private_key),
+        csr_public_key: None,
+        csr_data: None,
         created_on: created_on_unix,
         valid_until: None,
         name: None,
@@ -620,13 +640,23 @@ impl CertificateBuilder {
     }
 
     pub fn get_key_size(&self) -> Result<u32, anyhow::Error> {
-        if let Ok(rsa) = self.private_key.rsa() {
-            Ok(rsa.size() * 8)
-        } else if let Ok(ec) = self.private_key.ec_key() {
-            Ok(ec.group().degree())
-        } else {
-            Err(anyhow!("Unsupported key type"))
+        if let Some(pkey) = &self.private_key {
+            if let Ok(rsa) = pkey.rsa() {
+                return Ok(rsa.size() * 8);
+            } else if let Ok(ec) = pkey.ec_key() {
+                return Ok(ec.group().degree());
+            }
         }
+        
+        if let Some(pkey) = &self.csr_public_key {
+            if let Ok(rsa) = pkey.rsa() {
+                return Ok(rsa.size() * 8);
+            } else if let Ok(ec) = pkey.ec_key() {
+                return Ok(ec.group().degree());
+            }
+        }
+
+        Err(anyhow!("Key missing or unsupported key type"))
     }
 
     pub fn set_path_length(&mut self, path_length: Option<u32>) -> &mut Self {
@@ -839,19 +869,27 @@ impl CertificateBuilder {
                 anyhow!("Failed to write CA private key to temp file: {e}")
             })?;
 
-        // Build the CSR from the X.509 builder's private key and subject
-        let mut req_builder = openssl::x509::X509ReqBuilder::new()?;
-        req_builder.set_version(0)?;
-        req_builder.set_subject_name(&subject_name)?;
-        req_builder.set_pubkey(&self.private_key)?;
-        req_builder.sign(&self.private_key, MessageDigest::sha256())?;
-        let cert_req = req_builder.build();
+        // Write CSR to temp file
+        let cert_req_pem = if let Some(csr_data) = &self.csr_data {
+            let req = X509Req::from_der(csr_data)?;
+            req.to_pem().map_err(|e| anyhow!("Failed to encode CSR to PEM: {e}"))?
+        } else {
+             // Fallback for when we DON'T have a CSR but we're calling build_csr_certificate?
+             // This might happen for subordinate CA creation if it uses this method.
+             // If we have a private key, we can generate a temporary request.
+             if let Some(pkey) = &self.private_key {
+                let mut req_builder = openssl::x509::X509ReqBuilder::new()?;
+                req_builder.set_version(0)?;
+                req_builder.set_subject_name(&subject_name)?;
+                req_builder.set_pubkey(pkey)?;
+                req_builder.sign(pkey, MessageDigest::sha256())?;
+                let cert_req = req_builder.build();
+                cert_req.to_pem()?
+             } else {
+                return Err(anyhow!("CSR Certificate: CSR data or private key not set"));
+             }
+        };
 
-        let cert_req_pem = cert_req.to_pem()
-            .map_err(|e| {
-                cleanup_temp_files();
-                anyhow!("Failed to encode certificate request to PEM: {e}")
-            })?;
         std::fs::write(&cert_req_path, &cert_req_pem)
             .map_err(|e| {
                 cleanup_temp_files();
@@ -886,7 +924,7 @@ default_md = sha256
 policy = policy_anything
 email_in_dn = no
 unique_subject = no
-copy_extensions = copy
+copy_extensions = none
 
 [ policy_anything ]
 countryName = optional
@@ -930,6 +968,18 @@ authorityKeyIdentifier = keyid:always
                 _ => {}
             }
             config_content.push_str(&eku_string);
+
+            // Manual Subject Alternative Name (SAN) whitelisting from CSR
+            // This replaces the risky 'copy_extensions = copy' logic
+            if let Some(csr_der) = &self.csr_data {
+                if let Ok(req) = openssl::x509::X509Req::from_der(csr_der) {
+                    let sans = extract_sans_from_csr(&req);
+                    if !sans.is_empty() {
+                        config_content.push_str(&format!("subjectAltName = {}\n", sans.join(", ")));
+                    }
+                }
+            }
+
             std::fs::write(&config_path, &config_content)
                 .map_err(|e| {
                     cleanup_temp_files();
@@ -1007,12 +1057,22 @@ authorityKeyIdentifier = keyid:always
             ca_stack.push(chain_cert)?;
         }
 
-        let pkcs12 = Pkcs12::builder()
-            .name(&name)
-            .ca(ca_stack)
-            .cert(&cert)
-            .pkey(&self.private_key)
-            .build2(&self.pkcs12_password)?;
+        // If it's a CSR-based certificate, we don't have the private key.
+        // We store the DER-encoded certificate in the pkcs12 field.
+        // We'll mark it as a CSR-based certificate by an empty password or other convention if needed,
+        // but for now, we just return the DER cert.
+        let certificate_data = if let Some(pkey) = &self.private_key {
+            let pkcs12 = Pkcs12::builder()
+                .name(&name)
+                .ca(ca_stack)
+                .cert(&cert)
+                .pkey(pkey)
+                .build2(&self.pkcs12_password)?;
+            pkcs12.to_der()?
+        } else {
+            // No private key - store DER certificate
+            cert.to_der()?
+        };
 
         Ok(Certificate {
             id: -1,
@@ -1020,7 +1080,7 @@ authorityKeyIdentifier = keyid:always
             created_on: self.created_on,
             valid_until,
             certificate_type,
-            pkcs12: pkcs12.to_der()?,
+            pkcs12: certificate_data,
             pkcs12_password: self.pkcs12_password,
             ca_id: ca.id,
             user_id,
@@ -1148,12 +1208,11 @@ authorityKeyIdentifier = keyid:always
         let config_path = temp_dir.join(format!("ca_config_{}.cnf", self.created_on));
 
         // Write the private key to a temporary file in the appropriate format
-        let key_pem = if self.private_key.rsa().is_ok() {
-            // Use PKCS#1 format for RSA keys (traditional format expected by OpenSSL)
-            self.private_key.rsa().unwrap().private_key_to_pem()?
-        } else if self.private_key.ec_key().is_ok() {
-            // Use PKCS#8 format for ECDSA keys
-            self.private_key.private_key_to_pem_pkcs8()?
+        let pkey = self.private_key.as_ref().ok_or_else(|| anyhow!("CA requires a private key"))?;
+        let key_pem = if pkey.rsa().is_ok() {
+            pkey.rsa().unwrap().private_key_to_pem()?
+        } else if pkey.ec_key().is_ok() {
+            pkey.private_key_to_pem_pkcs8()?
         } else {
             return Err(anyhow!("Unsupported key type for CA certificate"));
         };
@@ -1369,7 +1428,7 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             can_create_subordinate_ca: false, // Will be set by the API caller
             cert: cert_der.clone(),
             cert_chain: vec![cert_der], // Self-signed CA has single certificate in chain
-            key: self.private_key.private_key_to_der()?,
+            key: self.private_key.as_ref().ok_or_else(|| anyhow!("Private key required"))?.private_key_to_der()?,
             aia_url: self.authority_info_access.clone(),
             cdp_url: self.crl_distribution_points.clone(),
         })
@@ -1479,8 +1538,9 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             let mut req_builder = openssl::x509::X509ReqBuilder::new()?;
             req_builder.set_version(0)?;
             req_builder.set_subject_name(&subject_name)?;
-            req_builder.set_pubkey(&self.private_key)?;
-            req_builder.sign(&self.private_key, MessageDigest::sha256())?;
+            let pkey = self.private_key.as_ref().ok_or_else(|| anyhow!("Certificate operation requires a private key"))?;
+            req_builder.set_pubkey(pkey)?;
+            req_builder.sign(pkey, MessageDigest::sha256())?;
             let cert_req = req_builder.build();
 
             let cert_req_pem = cert_req.to_pem()
@@ -1694,7 +1754,7 @@ basicConstraints = CA:FALSE
                 .name(&name)
                 .ca(ca_stack)
                 .cert(&cert)
-                .pkey(&self.private_key)
+                .pkey(self.private_key.as_ref().ok_or_else(|| anyhow!("Private key required for PKCS#12"))?)
                 .build2(&self.pkcs12_password)?;
 
             Ok(Certificate{
@@ -1781,7 +1841,7 @@ basicConstraints = CA:FALSE
                 .name(&name)
                 .ca(ca_stack)
                 .cert(&cert)
-                .pkey(&self.private_key)
+                .pkey(self.private_key.as_ref().ok_or_else(|| anyhow!("Private key required for PKCS#12"))?)
                 .build2(&self.pkcs12_password)?;
 
             Ok(Certificate{
@@ -1893,8 +1953,9 @@ basicConstraints = CA:FALSE
         let subject_name = subject_builder.build();
 
         req_builder.set_subject_name(&subject_name)?;
-        req_builder.set_pubkey(&self.private_key)?;
-        req_builder.sign(&self.private_key, MessageDigest::sha256())?;
+        let pkey = self.private_key.as_ref().ok_or_else(|| anyhow!("Subordinate CA requires a private key"))?;
+        req_builder.set_pubkey(pkey)?;
+        req_builder.sign(pkey, MessageDigest::sha256())?;
         let cert_req = req_builder.build();
 
         let cert_req_pem = cert_req.to_pem()
@@ -2062,7 +2123,7 @@ authorityKeyIdentifier = keyid:always
             .name(&name)
             .ca(ca_stack)
             .cert(&cert)
-            .pkey(&self.private_key)
+            .pkey(self.private_key.as_ref().ok_or_else(|| anyhow!("Private key required for PKCS#12"))?)
             .build2(&self.pkcs12_password)?;
 
         Ok(Certificate{
@@ -2196,6 +2257,12 @@ pub(crate) fn get_dns_names(cert: &Certificate) -> Result<Vec<String>, anyhow::E
 
 /// Convert a user certificate from PKCS#12 to PEM format.
 pub(crate) fn certificate_pkcs12_to_pem(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
+    // If it's a CSR-based certificate, the pkcs12 field contains the DER cert directly
+    if let Ok(x509) = X509::from_der(&cert.pkcs12) {
+        return x509.to_pem()
+            .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {e}")));
+    }
+
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
         .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
 
@@ -2220,6 +2287,11 @@ pub(crate) fn certificate_pkcs12_to_pem(cert: &Certificate) -> Result<Vec<u8>, A
 
 /// Convert a user certificate's private key from PKCS#12 to PEM format.
 pub(crate) fn certificate_pkcs12_to_key(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
+    // If it's a CSR-based certificate, we don't have the private key
+    if X509::from_der(&cert.pkcs12).is_ok() {
+        return Err(ApiError::BadRequest("This certificate was signed via CSR and does not have a server-side private key.".to_string()));
+    }
+
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
         .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
 
@@ -2244,6 +2316,11 @@ pub(crate) fn certificate_pkcs12_to_key(cert: &Certificate) -> Result<Vec<u8>, A
 
 /// Convert a user certificate from PKCS#12 to DER format.
 pub(crate) fn certificate_pkcs12_to_der(cert: &Certificate) -> Result<Vec<u8>, ApiError> {
+    // If it's a CSR-based certificate, the pkcs12 field is already the DER cert
+    if X509::from_der(&cert.pkcs12).is_ok() {
+        return Ok(cert.pkcs12.clone());
+    }
+
     let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
         .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
 
@@ -2315,23 +2392,28 @@ fn format_x509_name(name: &openssl::x509::X509NameRef) -> String {
 
 /// Extract detailed information from a user certificate's PKCS#12 data
 pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails, ApiError> {
-    let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
-        .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
-
-    let parsed = if cert.pkcs12_password.is_empty() {
-        // Try without password first
-        match encrypted_p12.parse2("") {
-            Ok(parsed) => parsed,
-            Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {e}"))),
-        }
+    debug!("get_certificate_details for cert {}: pkcs12 length {}", cert.id, cert.pkcs12.len());
+    let x509_cert = if let Ok(x509) = X509::from_der(&cert.pkcs12) {
+        x509
     } else {
-        // Try with provided password
-        encrypted_p12.parse2(&cert.pkcs12_password)
-            .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {e}")))?
-    };
+        let encrypted_p12 = Pkcs12::from_der(&cert.pkcs12)
+            .map_err(|e| ApiError::Other(format!("Failed to parse PKCS#12: {e}")))?;
 
-    let x509_cert = parsed.cert
-        .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?;
+        let parsed = if cert.pkcs12_password.is_empty() {
+            // Try without password first
+            match encrypted_p12.parse2("") {
+                Ok(parsed) => parsed,
+                Err(e) => return Err(ApiError::Other(format!("Failed to decrypt PKCS#12 without password: {e}"))),
+            }
+        } else {
+            // Try with provided password
+            encrypted_p12.parse2(&cert.pkcs12_password)
+                .map_err(|e| ApiError::Other(format!("Failed to decrypt PKCS#12 with password: {e}")))?
+        };
+
+        parsed.cert
+            .ok_or_else(|| ApiError::Other("No certificate found in PKCS#12".to_string()))?
+    };
 
     // Extract certificate details
     let subject_name = x509_cert.subject_name();
@@ -2846,6 +2928,112 @@ fn parse_ca_id_from_filename(filename: &str) -> Option<i64> {
     }
 }
 
+/// Evaluate the strength of a public key and return warnings if it's considered weak
+pub fn evaluate_key_strength(public_key: &PKey<openssl::pkey::Public>) -> (bool, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut is_weak = false;
+
+    if let Ok(rsa) = public_key.rsa() {
+        let bits = rsa.size() * 8;
+        if bits < 2048 {
+            is_weak = true;
+            warnings.push(format!("RSA key size is too small: {} bits. Industry standard is at least 2048 bits.", bits));
+        } else if bits < 3072 {
+            warnings.push(format!("RSA key size is {} bits. While currently acceptable, 3072 bits or higher is recommended for long-term security.", bits));
+        }
+    } else if let Ok(ec) = public_key.ec_key() {
+        let group = ec.group();
+        if let Some(nid) = group.curve_name() {
+            // NIST P-256 (prime256v1) is NID 415
+            // NIST P-384 is NID 715
+            // NIST P-521 is NID 716
+            let nid_val = nid.as_raw();
+            if nid_val != 415 && nid_val != 715 && nid_val != 716 {
+                is_weak = true;
+                warnings.push(format!("Using non-standard or legacy elliptic curve (NID: {}). NIST curves (P-256, P-384, P-521) are recommended.", nid_val));
+            }
+        } else {
+            is_weak = true;
+            warnings.push("Could not determine Eliptic Curve group name.".to_string());
+        }
+    } else {
+        is_weak = true;
+        warnings.push("Unknown or unsupported public key algorithm.".to_string());
+    }
+
+    (is_weak, warnings)
+}
+
+/// Evaluate CSR extensions for sensitive or risky entries
+pub fn evaluate_csr_extensions(csr: &openssl::x509::X509Req) -> Vec<String> {
+    use x509_parser::extensions::ParsedExtension;
+
+    let mut warnings = Vec::new();
+
+    if let Ok(extensions) = csr.extensions() {
+        for ext in extensions {
+            if let Ok(der) = ext.to_der() {
+                if let Ok((_, x509_ext)) = x509_parser::extensions::X509Extension::from_der(&der) {
+                    match x509_ext.parsed_extension() {
+                        ParsedExtension::BasicConstraints(bc) => {
+                            if bc.ca {
+                                warnings.push("CSR contains 'CA:TRUE' in Basic Constraints. This is a highly sensitive extension that should only be granted to Subordinate CAs.".to_string());
+                            }
+                        }
+                        ParsedExtension::KeyUsage(ku) => {
+                            if ku.key_cert_sign() {
+                                warnings.push("CSR requests 'keyCertSign' usage. This is typically reserved for CA certificates.".to_string());
+                            }
+                        }
+                        _ => {
+                            // Check Name Constraints by OID (2.5.29.30)
+                            if x509_ext.oid.to_id_string() == "2.5.29.30" {
+                                warnings.push("CSR contains Name Constraints. This is a complex extension that can restrict the CA's issuance scope.".to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    warnings
+}
+
+/// Extract Subject Alternative Names (SANs) from a CSR
+pub fn extract_sans_from_csr(csr: &openssl::x509::X509Req) -> Vec<String> {
+    use x509_parser::extensions::ParsedExtension;
+    use x509_parser::extensions::GeneralName;
+
+    let mut sans = Vec::new();
+
+    if let Ok(extensions) = csr.extensions() {
+        for ext in extensions {
+            if let Ok(der) = ext.to_der() {
+                if let Ok((_, x509_ext)) = x509_parser::extensions::X509Extension::from_der(&der) {
+                    if let ParsedExtension::SubjectAlternativeName(san) = x509_ext.parsed_extension() {
+                        for name in &san.general_names {
+                            match name {
+                                GeneralName::DNSName(dns) => sans.push(format!("DNS:{}", dns)),
+                                GeneralName::IPAddress(ip) => {
+                                    if ip.len() == 4 {
+                                        sans.push(format!("IP:{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]));
+                                    } else if ip.len() == 16 {
+                                        sans.push(format!("IP:{:?}", ip));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    sans
+}
+
 /// Extract DER data from PEM format
 fn extract_der_from_pem(pem_str: &str) -> Result<Vec<u8>, ApiError> {
     // Find the PEM content between BEGIN and END markers
@@ -3102,8 +3290,13 @@ pub fn parse_csr_from_pem(csr_data: &[u8]) -> Result<ParsedCSR, ApiError> {
         ("Unknown".to_string(), "Unknown".to_string())
     };
 
-    debug!("CSR parsed successfully: subject=<X509Name>, key_algorithm={}, key_size={}, signature_valid={}",
-           key_algorithm, key_size, signature_valid);
+    let (is_weak, mut security_warnings) = evaluate_key_strength(&public_key);
+    let raw_der = csr.to_der().map_err(|e| ApiError::Other(format!("Failed to encode CSR: {e}")))?;
+    let extension_warnings = evaluate_csr_extensions(&csr);
+    security_warnings.extend(extension_warnings);
+
+    debug!("CSR parsed successfully: subject=<X509Name>, key_algorithm={}, key_size={}, signature_valid={}, is_weak={}",
+           key_algorithm, key_size, signature_valid, is_weak);
 
     Ok(ParsedCSR {
         csr,
@@ -3112,6 +3305,9 @@ pub fn parse_csr_from_pem(csr_data: &[u8]) -> Result<ParsedCSR, ApiError> {
         signature_valid,
         key_algorithm,
         key_size,
+        is_weak,
+        security_warnings,
+        raw_der,
     })
 }
 
@@ -3149,8 +3345,13 @@ pub fn parse_csr_from_der(csr_der: &[u8]) -> Result<ParsedCSR, ApiError> {
         ("Unknown".to_string(), "Unknown".to_string())
     };
 
-    debug!("DER CSR parsed successfully: subject=<X509Name>, key_algorithm={}, key_size={}, signature_valid={}",
-           key_algorithm, key_size, signature_valid);
+    // Evaluate key strength and extensions
+    let (is_weak, mut security_warnings) = evaluate_key_strength(&public_key);
+    let extension_warnings = evaluate_csr_extensions(&csr);
+    security_warnings.extend(extension_warnings);
+
+    debug!("DER CSR parsed successfully: subject=<X509Name>, key_algorithm={}, key_size={}, signature_valid={}, is_weak={}",
+           key_algorithm, key_size, signature_valid, is_weak);
 
     Ok(ParsedCSR {
         csr,
@@ -3159,6 +3360,9 @@ pub fn parse_csr_from_der(csr_der: &[u8]) -> Result<ParsedCSR, ApiError> {
         signature_valid,
         key_algorithm,
         key_size,
+        is_weak,
+        security_warnings,
+        raw_der: csr_der.to_vec(),
     })
 }
 
@@ -3462,9 +3666,12 @@ pub(crate) async fn generate_ocsp_response(
                 })?;
 
             // Create subject (simplified - we don't store full subject in DB)
+            // Verify certificate subject
             let subject_name = user_cert.subject_name();
-            let cn_entry = subject_name.entries()
-                .find(|e| e.object().nid().as_raw() == 13) // CN
+            let cn_entry = subject_name.entries().find(|e| {
+                let s = e.object().to_string();
+                s == "CN" || s == "commonName"
+            })
                 .and_then(|e| e.data().as_utf8().ok())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| "Unknown".to_string());

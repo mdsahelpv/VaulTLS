@@ -321,6 +321,9 @@ pub async fn create_test_rocket() -> Rocket<Build> {
                 get_users,
                 create_user,
                 delete_user,
+                sign_csr_certificate,
+                preview_csr,
+                get_certificate_details,
                 update_user
             ],
         )

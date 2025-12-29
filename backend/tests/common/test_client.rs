@@ -107,6 +107,7 @@ impl VaulTLSClient {
             pkcs12_password: password,
             cert_type: None,
             dns_names: None,
+            ip_addresses: None,
             renew_method: Some(CertificateRenewMethod::Renew),
             ca_id: None,
             key_type: None,
@@ -137,6 +138,7 @@ impl VaulTLSClient {
             pkcs12_password: Some(TEST_PASSWORD.to_string()),
             cert_type: Some(CertificateType::Server),
             dns_names: Some(vec![TEST_SERVER_CERT_DNS_NAME.to_string()]),
+            ip_addresses: None,
             renew_method: None,
             ca_id: None,
             key_type: None,
@@ -222,7 +224,7 @@ impl VaulTLSClient {
 
     pub(crate) async fn download_cert(&self, cert_id: &str) -> Result<Vec<u8>> {
         let request = self
-            .get(format!("/certificates/{cert_id}/download"));
+            .get(format!("/certificates/cert/{}/download", cert_id));
         let response = request.dispatch().await;
 
         assert_eq!(response.status(), Status::Ok);
@@ -280,6 +282,7 @@ impl VaulTLSClient {
             pkcs12_password: Some(TEST_PASSWORD.to_string()),
             cert_type: Some(CertificateType::Client),
             dns_names: None,
+            ip_addresses: None,
             renew_method: Some(CertificateRenewMethod::Renew),
             ca_id: None,
             key_type: None,
@@ -290,7 +293,7 @@ impl VaulTLSClient {
         };
 
         let request = self
-            .post("/certificates")
+            .post("/certificates/cert")
             .header(ContentType::JSON)
             .body(serde_json::to_string(&cert_req)?);
         let response = request.dispatch().await;
@@ -341,9 +344,8 @@ impl VaulTLSClient {
         Ok(serde_json::from_str(&response.into_string().await.unwrap())?)
     }
 
-    pub(crate) async fn get_certificate_details(&self, cert_id: &str) -> Result<ValidatedCertificateDetails> {
-        let request = self.get(format!("/certificates/cert/{}/details", cert_id));
-        let response = request.dispatch().await;
+    pub(crate) async fn get_certificate_details(&self, cert_id: &str) -> Result<Value> {
+        let response = self.get(format!("/certificates/cert/{}/details", cert_id)).dispatch().await;
         assert_eq!(response.status(), Status::Ok);
         Ok(serde_json::from_str(&response.into_string().await.unwrap())?)
     }

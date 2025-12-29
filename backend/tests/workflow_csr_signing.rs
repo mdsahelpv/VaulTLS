@@ -7,6 +7,7 @@ use vaultls::data::enums::CertificateType;
 use vaultls::cert::get_certificate_details;
 use anyhow::Result;
 use openssl::pkcs12::Pkcs12;
+use openssl::x509::X509;
 
 // Helper function to get approximate memory usage in KB
 fn get_memory_usage_kb() -> u64 {
@@ -27,7 +28,7 @@ fn get_memory_usage_kb() -> u64 {
 }
 
 // Helper function to generate CSR using OpenSSL command line
-async fn generate_openssl_csr(key_path: &Path, csr_path: &Path, key_size: &str, subject: &str) {
+async fn generate_openssl_csr(key_path: &Path, csr_path: &Path, key_size: &str, subject: &str, extra_args: &[&str]) {
     // Generate private key
     let key_output = Command::new("openssl")
         .args(["genrsa", "-out", &key_path.to_string_lossy(), key_size])
@@ -38,11 +39,16 @@ async fn generate_openssl_csr(key_path: &Path, csr_path: &Path, key_size: &str, 
     assert!(key_path.exists(), "Private key file was not created");
 
     // Generate CSR
+    let mut args = vec![
+        "req".to_string(), "-new".to_string(), "-key".to_string(), key_path.to_string_lossy().to_string(),
+        "-out".to_string(), csr_path.to_string_lossy().to_string(), "-subj".to_string(), subject.to_string()
+    ];
+    for arg in extra_args {
+        args.push(arg.to_string());
+    }
+
     let csr_output = Command::new("openssl")
-        .args([
-            "req", "-new", "-key", &key_path.to_string_lossy(),
-            "-out", &csr_path.to_string_lossy(), "-subj", subject
-        ])
+        .args(args)
         .output()
         .expect("Failed to generate CSR");
 
@@ -71,18 +77,10 @@ async fn test_csr_signing_workflow_end_to_end() {
     assert!(key_output.status.success(), "Failed to generate private key with OpenSSL");
     assert!(key_path.exists(), "Private key file was not created");
 
-    // Generate CSR
-    let csr_output = Command::new("openssl")
-        .args([
-            "req", "-new", "-key", &key_path.to_string_lossy(),
-            "-out", &csr_path.to_string_lossy(),
-            "-subj", "/C=QA/ST=Doha/L=Test/O=Test/CN=test.example.com/emailAddress=test@example.com"
-        ])
-        .output()
-        .expect("Failed to generate CSR");
-
-    assert!(csr_output.status.success(), "Failed to generate CSR with OpenSSL");
-    assert!(csr_path.exists(), "CSR file was not created");
+    // Generate CSR using helper
+    generate_openssl_csr(&key_path, &csr_path, "2048", 
+                        "/C=QA/ST=Doha/L=Test/O=Test/CN=test.example.com/emailAddress=test@example.com",
+                        &[]).await;
 
     // Sign the CSR
     let signed_cert = client.sign_csr(&csr_path, 1, 1, Some("client")).await
@@ -93,12 +91,15 @@ async fn test_csr_signing_workflow_end_to_end() {
     assert_eq!(signed_cert.user_id, 1);
 
     // Verify the signed certificate works
-    let cert_details = get_certificate_details(&signed_cert)
+    let cert_details_val = client.get_certificate_details(&signed_cert.id.to_string()).await
         .expect("Should be able to get certificate details");
-
-    assert_eq!(cert_details.certificate_type, CertificateType::Client);
-    assert!(cert_details.certificate_pem.contains("BEGIN CERTIFICATE"));
-    assert!(cert_details.certificate_pem.contains("END CERTIFICATE"));
+    
+    // Explicitly check CertificateType from the JSON response (integer 0 for Client)
+    let cert_type_int = cert_details_val["certificate_type"].as_u64().expect("Should have certificate_type");
+    assert_eq!(cert_type_int, 0); // 0 = Client
+    let cert_pem = cert_details_val["certificate_pem"].as_str().expect("Should have certificate_pem");
+    assert!(cert_pem.contains("BEGIN CERTIFICATE"));
+    assert!(cert_pem.contains("END CERTIFICATE"));
 
     // Clean up temporary files
     let _ = std::fs::remove_file(&key_path);
@@ -118,7 +119,7 @@ async fn test_csr_signing_with_openssl_generated_csr() {
     let csr_path = temp_dir.join("openssl_test_csr.pem");
 
     // Test 1: RSA 2048 CSR
-    generate_openssl_csr(&key_path, &csr_path, "2048", "/C=QA/CN=test.example.com").await;
+    generate_openssl_csr(&key_path, &csr_path, "2048", "/C=QA/CN=test.example.com", &[]).await;
 
     let signed_cert = client.sign_csr(&csr_path, 1, 1, Some("client")).await
         .expect("RSA CSR signing should succeed");
@@ -131,7 +132,8 @@ async fn test_csr_signing_with_openssl_generated_csr() {
     let server_key_path = temp_dir.join("server_key.pem");
 
     generate_openssl_csr(&server_key_path, &server_csr_path, "2048",
-                        "/C=QA/CN=server.example.com/emailAddress=admin@example.com").await;
+                        "/C=QA/CN=server.example.com/emailAddress=admin@example.com",
+                        &["-addext", "subjectAltName = DNS:server.example.com"]).await;
 
     let server_cert = client.sign_csr(&server_csr_path, 1, 1, Some("server")).await
         .expect("Server CSR signing should succeed");
@@ -164,7 +166,7 @@ async fn test_csr_signing_with_java_keytool_generated_csr() {
     let key_path = temp_dir.join("test_key.pem");
 
     // Generate key and PEM CSR first
-    generate_openssl_csr(&key_path, &pem_csr_path, "2048", "/C=QA/CN=java-test.example.com").await;
+    generate_openssl_csr(&key_path, &pem_csr_path, "2048", "/C=QA/CN=java-test.example.com", &[]).await;
 
     // Convert PEM to DER format (simulating keytool output)
     let der_output = Command::new("openssl")
@@ -206,7 +208,7 @@ async fn test_csr_signing_validation_and_error_handling() {
     // Test 2: Non-existent CA
     let valid_csr_path = temp_dir.join("valid.csr");
     let key_path = temp_dir.join("key.pem");
-    generate_openssl_csr(&key_path, &valid_csr_path, "2048", "/C=QA/CN=test.example.com").await;
+    generate_openssl_csr(&key_path, &valid_csr_path, "2048", "/C=QA/CN=test.example.com", &[]).await;
 
     let result = client.sign_csr(&valid_csr_path, 99999, 1, Some("client")).await;
     assert!(result.is_err(), "Non-existent CA should be rejected");
@@ -233,7 +235,7 @@ async fn test_signed_certificate_installation_verification() {
     // Generate and sign a client certificate
     let key_path = temp_dir.join("client_key.pem");
     let csr_path = temp_dir.join("client_csr.pem");
-    generate_openssl_csr(&key_path, &csr_path, "2048", "/C=QA/CN=client-test.example.com").await;
+    generate_openssl_csr(&key_path, &csr_path, "2048", "/C=QA/CN=client-test.example.com", &[]).await;
 
     let signed_cert = client.sign_csr(&csr_path, 1, 1, Some("client")).await
         .expect("Client certificate signing should succeed");
@@ -242,20 +244,16 @@ async fn test_signed_certificate_installation_verification() {
     let cert_p12_data = client.download_cert(&signed_cert.id.to_string()).await
         .expect("Should be able to download signed certificate");
 
-    // Verify PKCS#12 structure
-    let p12 = Pkcs12::from_der(&cert_p12_data)
-        .expect("Signed certificate should be valid PKCS#12");
-
-    let parsed = p12.parse2(TEST_PASSWORD)
-        .expect("Should be able to parse PKCS#12 with correct password");
-
-    assert!(parsed.cert.is_some(), "PKCS#12 should contain a certificate");
-    assert!(parsed.pkey.is_some(), "PKCS#12 should contain a private key");
+    // Verify certificate structure (now raw DER for CSR certs)
+    let cert = X509::from_der(&cert_p12_data)
+        .expect("Signed certificate should be valid DER X.509");
 
     // Verify certificate subject matches CSR
-    let cert = parsed.cert.unwrap();
     let subject_name = cert.subject_name();
-    let cn_entry = subject_name.entries().find(|e| e.object().to_string() == "CN");
+    let cn_entry = subject_name.entries().find(|e| {
+        let s = e.object().to_string();
+        s == "CN" || s == "commonName"
+    });
     assert!(cn_entry.is_some(), "Certificate should have CN in subject");
 
     let cn_value = cn_entry.unwrap().data().as_utf8().unwrap().to_string();
@@ -264,8 +262,9 @@ async fn test_signed_certificate_installation_verification() {
     // Generate and sign a server certificate with SAN extension
     let server_key_path = temp_dir.join("server_key.pem");
     let server_csr_path = temp_dir.join("server_csr.pem");
-    generate_openssl_csr(&server_key_path, &server_csr_path, "2048",
-                        "/C=QA/CN=web.example.com/emailAddress=webmaster@example.com").await;
+    generate_openssl_csr(&server_key_path, &server_csr_path, "2048", 
+                         "/C=QA/CN=web.example.com/emailAddress=webmaster@example.com",
+                         &["-addext", "subjectAltName = DNS:web.example.com"]).await;
 
     let server_cert = client.sign_csr(&server_csr_path, 1, 1, Some("server")).await
         .expect("Server certificate signing should succeed");
@@ -273,16 +272,8 @@ async fn test_signed_certificate_installation_verification() {
     let server_cert_data = client.download_cert(&server_cert.id.to_string()).await
         .expect("Should be able to download server certificate");
 
-    let server_p12 = Pkcs12::from_der(&server_cert_data)
-        .expect("Server certificate should be valid PKCS#12");
-
-    let server_parsed = server_p12.parse2(TEST_PASSWORD)
-        .expect("Should be able to parse server PKCS#12");
-
-    assert!(server_parsed.cert.is_some(), "Server PKCS#12 should contain a certificate");
-
-    // Check for server certificate extensions (basic verification)
-    let server_x509 = server_parsed.cert.unwrap();
+    let server_x509 = X509::from_der(&server_cert_data)
+        .expect("Server certificate should be valid DER X.509");
     let subject_alt_names = server_x509.subject_alt_names();
     assert!(subject_alt_names.is_some(), "Server certificate should have SAN extension");
 
@@ -315,7 +306,7 @@ async fn test_csr_signing_multiple_clients() {
         let key_path = temp_dir.join(format!("{}_key.pem", client_name));
         let csr_path = temp_dir.join(format!("{}_csr.pem", client_name));
 
-        generate_openssl_csr(&key_path, &csr_path, "2048", subject).await;
+        generate_openssl_csr(&key_path, &csr_path, "2048", subject, &[]).await;
 
         let cert = client.sign_csr(&csr_path, 1, 1, Some("client")).await
             .expect(&format!("CSR signing should succeed for {}", client_name));
@@ -331,13 +322,8 @@ async fn test_csr_signing_multiple_clients() {
         let cert_data = client.download_cert(&cert.id.to_string()).await
             .expect(&format!("Should download certificate for {}", client_name));
 
-        let p12 = Pkcs12::from_der(&cert_data)
-            .expect(&format!("Certificate should be valid PKCS#12 for {}", client_name));
-
-        let parsed = p12.parse2(TEST_PASSWORD)
-            .expect(&format!("Should parse PKCS#12 for {}", client_name));
-
-        let x509_cert = parsed.cert.expect("Certificate should exist");
+        let x509_cert = X509::from_der(&cert_data)
+            .expect(&format!("Certificate should be valid DER X.509 for {}", client_name));
         let serial_bytes = x509_cert.serial_number().to_bn()
             .expect("Should get serial number").to_vec();
 
@@ -346,7 +332,10 @@ async fn test_csr_signing_multiple_clients() {
 
         // Verify certificate subject
         let subject = x509_cert.subject_name();
-        let cn = subject.entries().find(|e| e.object().to_string() == "CN")
+        let cn = subject.entries().find(|e| {
+            let s = e.object().to_string();
+            s == "CN" || s == "commonName"
+        })
             .expect("Should have CN").data().as_utf8().unwrap();
 
         assert!(cn.to_string().starts_with(client_name), "CN should start with client name");
@@ -380,7 +369,7 @@ async fn test_csr_performance_large_files() {
 
         // Generate CSR with specified key size
         let start_time = std::time::Instant::now();
-        generate_openssl_csr(&key_path, &csr_path, key_size, "/C=QA/CN=largetest.example.com").await;
+        generate_openssl_csr(&key_path, &csr_path, key_size, "/C=QA/CN=largetest.example.com", &[]).await;
         let generation_time = start_time.elapsed();
 
         // Verify file sizes are reasonable
@@ -429,7 +418,7 @@ async fn test_csr_parsing_performance_measurement() {
         let csr_path = temp_dir.join(format!("perf_csr_{}.pem", i));
 
         // Generate CSR
-        generate_openssl_csr(&key_path, &csr_path, "2048", &format!("/C=QA/CN=perf-test{}.example.com", i)).await;
+        generate_openssl_csr(&key_path, &csr_path, "2048", &format!("/C=QA/CN=perf-test{}.example.com", i), &[]).await;
 
         // Measure signing performance (which includes parsing)
         let start_time = std::time::Instant::now();
@@ -479,7 +468,7 @@ async fn test_concurrent_csr_signing_operations() {
         let csr_path = temp_dir.join(format!("concurrent_csr_{}.pem", i));
 
         generate_openssl_csr(&key_path, &csr_path, "2048",
-                           &format!("/C=QA/CN=concurrent-test{}.example.com", i)).await;
+                           &format!("/C=QA/CN=concurrent-test{}.example.com", i), &[]).await;
 
         csr_paths.push(csr_path);
         key_paths.push(key_path);
@@ -541,7 +530,7 @@ async fn test_csr_memory_usage_validation() {
 
         // Generate and sign CSR
         generate_openssl_csr(&key_path, &csr_path, "2048",
-                           &format!("/C=QA/CN=memory-test{}.example.com", i)).await;
+                           &format!("/C=QA/CN=memory-test{}.example.com", i), &[]).await;
 
         let _signed_cert = client.sign_csr(&csr_path, 1, 1, Some("client")).await
             .expect(&format!("Memory test CSR signing {} should succeed", i));
@@ -559,7 +548,8 @@ async fn test_csr_memory_usage_validation() {
                      i + 1, current_memory, memory_increase);
 
             // Memory should not grow excessively (under 50MB increase for 10 operations)
-            assert!(memory_increase.abs() < 50000,
+            // We use simple comparison instead of .abs() because drops (negative growth) are acceptable
+            assert!(memory_increase < 50000,
                     "Memory usage grew too much: {} KB increase after {} operations",
                     memory_increase, i + 1);
         }
@@ -574,6 +564,6 @@ async fn test_csr_memory_usage_validation() {
     println!("  Total increase: {} KB", total_increase);
 
     // Final memory requirement: reasonable increase for the operations performed
-    assert!(total_increase.abs() < 100000,
+    assert!(total_increase < 100000,
             "Total memory increase too high: {} KB for {} operations", total_increase, operations);
 }

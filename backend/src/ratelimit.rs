@@ -13,6 +13,9 @@ impl<'r> FromRequest<'r> for RateLimitGuard {
     type Error = String;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if request.client_ip().is_none() {
+             return Outcome::Success(RateLimitGuard);
+        }
         match rocket_governor::RocketGovernor::<'r, RateLimitConfig>::from_request(request).await {
             Outcome::Success(_) => Outcome::Success(RateLimitGuard),
             Outcome::Error((status, e)) => Outcome::Error((status, format!("Rate limit error: {:?}", e))),
@@ -45,6 +48,9 @@ impl<'r> FromRequest<'r> for AuthRateLimitGuard {
     type Error = String;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if request.client_ip().is_none() {
+             return Outcome::Success(AuthRateLimitGuard);
+        }
         match rocket_governor::RocketGovernor::<'r, AuthRateLimitConfig>::from_request(request).await {
             Outcome::Success(_) => Outcome::Success(AuthRateLimitGuard),
             Outcome::Error((status, e)) => Outcome::Error((status, format!("Rate limit error: {:?}", e))),

@@ -1626,6 +1626,8 @@ pub struct CsrPreviewResponse {
     pub key_size: String,
     pub signature_valid: bool,
     pub subject_alt_names: Vec<String>,
+    pub is_weak_key: bool,
+    pub security_warnings: Vec<String>,
 }
 
 #[derive(FromForm, JsonSchema, Debug)]
@@ -1713,100 +1715,7 @@ pub(crate) async fn preview_csr(
     }
 
     // Extract subject alternative names from CSR extensions
-    let subject_alt_names: Vec<String> = if let Ok(pem_bytes) = parsed_csr.csr.to_pem() {
-        if let Ok(pem_str) = String::from_utf8(pem_bytes) {
-            let temp_csr_path = std::env::temp_dir().join(format!("csr_san_{}.pem", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
-
-            if std::fs::write(&temp_csr_path, &pem_str).is_ok() {
-                let openssl_output = std::process::Command::new("openssl")
-                    .args([
-                        "req",
-                        "-in", &temp_csr_path.to_string_lossy(),
-                        "-text",
-                        "-noout"
-                    ])
-                    .output();
-
-                let _ = std::fs::remove_file(&temp_csr_path);
-
-                if let Ok(output) = openssl_output {
-                    if output.status.success() {
-                        if let Ok(text_output) = String::from_utf8(output.stdout) {
-                            let mut names = Vec::new();
-
-                            // Parse the output to find DNS and IP addresses
-                            for line in text_output.lines() {
-                                let line_trimmed = line.trim();
-
-                                // Look for DNS names
-                                if line_trimmed.contains("DNS:") && line_trimmed.contains(", DNS:") {
-                                    // Extract multiple DNS names separated by commas
-                                    let dns_part = &line_trimmed[line_trimmed.find("DNS:").unwrap()..];
-                                    let dns_entries: Vec<&str> = dns_part.split("DNS:").collect();
-
-                                    for entry in dns_entries {
-                                        if entry.trim().starts_with(|c: char| c.is_alphanumeric()) {
-                                            if let Some(comma_pos) = entry.find(',') {
-                                                let dns_name = entry[..comma_pos].trim().trim_end_matches(',').to_string();
-                                                if !dns_name.is_empty() {
-                                                    names.push(dns_name);
-                                                }
-                                            } else {
-                                                let dns_name = entry.trim().trim_end_matches(',').to_string();
-                                                if !dns_name.is_empty() {
-                                                    names.push(dns_name);
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else if line_trimmed.starts_with("DNS:") {
-                                    // Single DNS name
-                                    if let Some(dns_name) = line_trimmed.strip_prefix("DNS:") {
-                                        let clean_dns = dns_name.trim().trim_end_matches(',');
-                                        if !clean_dns.is_empty() {
-                                            names.push(clean_dns.to_string());
-                                        }
-                                    }
-                                }
-                                // Look for IP addresses
-                                else if line_trimmed.starts_with("IP Address:") || line_trimmed.starts_with("IP:") {
-                                    if let Some(ip_part) = line_trimmed.strip_prefix("IP Address:").or_else(|| line_trimmed.strip_prefix("IP:")) {
-                                        let clean_ip = ip_part.trim().trim_end_matches(',');
-                                        if !clean_ip.is_empty() {
-                                            names.push(clean_ip.to_string());
-                                        }
-                                    }
-                                }
-                                // Look for email addresses in SAN
-                                else if line_trimmed.starts_with("email:") && !line_trimmed.contains("emailAddress") {
-                                    if let Some(email_part) = line_trimmed.strip_prefix("email:") {
-                                        let clean_email = email_part.trim().trim_end_matches(',');
-                                        if !clean_email.is_empty() {
-                                            names.push(clean_email.to_string());
-                                        }
-                                    }
-                                }
-                            }
-
-                            names
-                        } else {
-                            vec!["Failed to parse OpenSSL output".to_string()]
-                        }
-                    } else {
-                        vec!["OpenSSL command failed".to_string()]
-                    }
-                } else {
-                    vec!["Failed to run OpenSSL command".to_string()]
-                }
-            } else {
-                vec!["Failed to write temporary CSR file".to_string()]
-            }
-        } else {
-            vec!["Failed to convert CSR to string".to_string()]
-        }
-    } else {
-        vec!["Failed to convert CSR to PEM".to_string()]
-    };
+    let subject_alt_names = crate::cert::extract_sans_from_csr(&parsed_csr.csr);
 
     Ok(Json(CsrPreviewResponse {
         common_name,
@@ -1820,6 +1729,8 @@ pub(crate) async fn preview_csr(
         key_size: parsed_csr.key_size.clone(),
         signature_valid,
         subject_alt_names,
+        is_weak_key: parsed_csr.is_weak,
+        security_warnings: parsed_csr.security_warnings.clone(),
     }))
 }
 
@@ -1997,28 +1908,37 @@ pub(crate) async fn download_certificate(
     format: Option<&str>,
     authentication: Authenticated
 ) -> Result<DownloadResponse, ApiError> {
-    let (user_id, name, pkcs12) = state.db.get_user_cert_pkcs12(id).await?;
-    if user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin { return Err(ApiError::Forbidden(None)) }
+    let cert = state.db.get_user_cert_by_id(id).await?;
+    let is_csr_signed = openssl::x509::X509::from_der(&cert.pkcs12).is_ok();
 
-    let cert_format = match format {
+    let mut cert_format = match format {
         Some(fmt) => CertificateFormat::from_str(fmt).map_err(|_| ApiError::BadRequest("Invalid format parameter. Supported formats: pkcs12, pem, der, pem_key".to_string()))?,
-        None => CertificateFormat::PKCS12,
+        None => if is_csr_signed { CertificateFormat::DER } else { CertificateFormat::PKCS12 },
     };
 
+    // If CSR-signed, we can't provide PKCS12 or PemKey (which includes private key)
+    if is_csr_signed && (cert_format == CertificateFormat::PKCS12 || cert_format == CertificateFormat::PemKey) {
+        // Fallback to PEM if they asked for PKCS12 by default, or return error if they explicitly asked
+        if format.is_none() || format == Some("pkcs12") {
+             cert_format = CertificateFormat::DER;
+        } else {
+             return Err(ApiError::BadRequest("This certificate was signed via CSR and does not have a private key. Please use 'pem' or 'der' format.".to_string()));
+        }
+    }
+
+    if cert.user_id != authentication.claims.id && authentication.claims.role != UserRole::Admin { return Err(ApiError::Forbidden(None)) }
+
     let (content, filename) = match cert_format {
-        CertificateFormat::PKCS12 => (pkcs12, format!("{}.{}", name, cert_format.extension())),
+        CertificateFormat::PKCS12 => (cert.pkcs12, format!("{}.{}", cert.name, cert_format.extension())),
         CertificateFormat::PEM => {
-            let cert = state.db.get_user_cert_by_id(id).await?;
             let pem = certificate_pkcs12_to_pem(&cert)?;
-            (pem, format!("{}.{}", name, cert_format.extension()))
+            (pem, format!("{}.{}", cert.name, cert_format.extension()))
         },
         CertificateFormat::DER => {
-            let cert = state.db.get_user_cert_by_id(id).await?;
             let der = certificate_pkcs12_to_der(&cert)?;
-            (der, format!("{}.{}", name, cert_format.extension()))
+            (der, format!("{}.{}", cert.name, cert_format.extension()))
         },
         CertificateFormat::PemKey => {
-            let cert = state.db.get_user_cert_by_id(id).await?;
             let cert_pem = certificate_pkcs12_to_pem(&cert)?;
             let cert_key = certificate_pkcs12_to_key(&cert)?;
 
@@ -2029,15 +1949,15 @@ pub(crate) async fn download_certificate(
                 let mut zip_writer = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buffer));
 
                 // Add certificate file
-                zip_writer.start_file::<_, ()>(format!("{name}.pem"), Default::default())?;
+                zip_writer.start_file::<_, ()>(format!("{}.pem", cert.name), Default::default())?;
                 zip_writer.write_all(&cert_pem)?;
 
                 // Add private key file
-                zip_writer.start_file::<_, ()>(format!("{name}.key"), Default::default())?;
+                zip_writer.start_file::<_, ()>(format!("{}.key", cert.name), Default::default())?;
                 zip_writer.write_all(&cert_key)?;
             }
 
-            (zip_buffer, format!("{}.{}", name, cert_format.extension()))
+            (zip_buffer, format!("{}.{}", cert.name, cert_format.extension()))
         },
     };
 
@@ -2566,19 +2486,35 @@ pub(crate) async fn sign_csr_certificate(
         return Err(ApiError::BadRequest("CSR file is empty".to_string()));
     }
 
-    // Parse the CSR
-    let parsed_csr = crate::cert::parse_csr_from_pem(&csr_data)
-        .map_err(|e| {
-            error!("Failed to parse CSR: {:?}", e);
-            ApiError::BadRequest("Failed to parse CSR. Please ensure it is a valid Certificate Signing Request in PEM or DER format.".to_string())
-        })?;
+    // Parse the CSR (try PEM first, then DER)
+    // We normalize to PEM for the CertificateBuilder to ensure OpenSSL shell-outs work consistently
+    let (parsed_csr, csr_pem) = match crate::cert::parse_csr_from_pem(&csr_data) {
+        Ok(p) => {
+            let pem = String::from_utf8_lossy(&csr_data).to_string();
+            (p, pem)
+        },
+        Err(_) => {
+            let p = crate::cert::parse_csr_from_der(&csr_data).map_err(|e| {
+                error!("Failed to parse CSR (tried PEM and DER): {:?}", e);
+                ApiError::BadRequest("Failed to parse CSR. Please ensure it is a valid Certificate Signing Request in PEM or DER format.".to_string())
+            })?;
+            let pem = p.csr.to_pem().map_err(|e| ApiError::Other(format!("Failed to encode CSR to PEM: {e}")))?;
+            let pem_str = String::from_utf8_lossy(&pem).to_string();
+            (p, pem_str)
+        }
+    };
 
     // Validate CSR (signature verification, etc.)
     if !parsed_csr.signature_valid {
         return Err(ApiError::BadRequest("CSR signature verification failed. The CSR may be corrupted or was not signed correctly.".to_string()));
     }
 
-    debug!("CSR validation passed. Subject: <X509Name>, Key: {} {}", parsed_csr.key_algorithm, parsed_csr.key_size);
+    if parsed_csr.is_weak && !upload.allow_weak_key.unwrap_or(false) {
+        let warnings = parsed_csr.security_warnings.join(" ");
+        return Err(ApiError::BadRequest(format!("Security Warning: The CSR uses a weak public key. {}. Please confirm you want to proceed by checking 'Allow weak keys'.", warnings)));
+    }
+
+    debug!("CSR validation passed. Subject: <X509Name>, Key: {} {}, Weak: {}", parsed_csr.key_algorithm, parsed_csr.key_size, parsed_csr.is_weak);
 
     // Get the CA for signing
     let ca = state.db.get_ca(upload.ca_id)
@@ -2719,6 +2655,7 @@ pub mod multipart {
         pub certificate_type: Option<String>,
         pub validity_in_days: Option<i64>,
         pub cert_name: Option<String>,
+        pub allow_weak_key: Option<bool>,
         pub notify_user: Option<bool>,
         #[schemars(skip)]
         pub csr_file: TempFile<'r>,
