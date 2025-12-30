@@ -785,7 +785,7 @@ impl CertificateBuilder {
 
     /// Build and sign a certificate from the CSR configuration
     /// This method validates that all required fields are set before signing
-    pub fn build_csr_certificate(mut self, certificate_type: CertificateType) -> Result<Certificate, anyhow::Error> {
+    pub fn build_csr_certificate(self, certificate_type: CertificateType) -> Result<Certificate, anyhow::Error> {
         info!("Building CSR-based certificate => {:?}", &certificate_type);
         let name = self.name.ok_or(anyhow!("CSR Certificate: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("CSR Certificate: valid_until not set"))?;
@@ -2802,7 +2802,7 @@ pub fn get_crl_metadata(ca_id: i64) -> Result<CrlMetadata, ApiError> {
 
     debug!("Getting CRL metadata for CA {}", ca_id);
 
-    let current_time = SystemTime::now()
+    let _current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
@@ -3909,7 +3909,7 @@ pub fn parse_crl_details(crl_der: &[u8]) -> Result<CrlParsedDetails, ApiError> {
     let mut next_update: Option<i64> = None;
     let mut version: Option<i32> = None;
     let mut signature_algorithm = String::from("Unknown");
-    let mut revoked_count: Option<usize> = None;
+    let _revoked_count: Option<usize> = None;
     let mut ca_name = String::from("Unknown CA");
 
     let mut collecting_revoked = false;

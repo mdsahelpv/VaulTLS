@@ -350,7 +350,7 @@ impl AuditService {
 }
 
 /// Utility function to extract user info from request context
-pub fn extract_user_from_request(req: &rocket::Request<'_>) -> (Option<i64>, Option<String>, Option<String>, Option<String>) {
+pub fn extract_user_from_request(_req: &rocket::Request<'_>) -> (Option<i64>, Option<String>, Option<String>, Option<String>) {
     // Extract user ID from JWT claims (this would need to be implemented based on your auth system)
     // For now, return None - this should be filled in by your authentication middleware
     (None, None, None, None)

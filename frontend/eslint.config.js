@@ -3,6 +3,7 @@ import globals from 'globals'
 import vue from 'eslint-plugin-vue'
 import ts from '@typescript-eslint/eslint-plugin'
 import tsParser from '@typescript-eslint/parser'
+import vueParser from 'vue-eslint-parser'
 
 export default [
   {
@@ -28,8 +29,28 @@ export default [
   ...vue.configs['flat/recommended'],
   {
     files: ['**/*.{ts,tsx,vue}'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2020,
+        sourceType: 'module',
+        extraFileExtensions: ['.vue'],
+      },
+    },
     plugins: {
       '@typescript-eslint': ts,
+    },
+  },
+  {
+    files: ['**/*.vue'],
+    languageOptions: {
+      parser: vueParser,
+      parserOptions: {
+        parser: tsParser,
+        ecmaVersion: 2020,
+        sourceType: 'module',
+        extraFileExtensions: ['.vue'],
+      },
     },
   },
   {

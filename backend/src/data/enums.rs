@@ -184,7 +184,7 @@ impl CertificateRevocationReason {
     }
 
     /// Get human-readable reason text
-    pub fn human_readable_reason(&self, custom_reason: Option<&str>) -> String {
+    pub fn human_readable_reason(&self, _custom_reason: Option<&str>) -> String {
         self.as_str().to_string()
     }
 }

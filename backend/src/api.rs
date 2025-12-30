@@ -2488,7 +2488,7 @@ pub(crate) async fn sign_csr_certificate(
 
     // Parse the CSR (try PEM first, then DER)
     // We normalize to PEM for the CertificateBuilder to ensure OpenSSL shell-outs work consistently
-    let (parsed_csr, csr_pem) = match crate::cert::parse_csr_from_pem(&csr_data) {
+    let (parsed_csr, _csr_pem) = match crate::cert::parse_csr_from_pem(&csr_data) {
         Ok(p) => {
             let pem = String::from_utf8_lossy(&csr_data).to_string();
             (p, pem)
@@ -2546,7 +2546,7 @@ pub(crate) async fn sign_csr_certificate(
     // Determine certificate validity
     let validity_in_days = upload.validity_in_days.unwrap_or(365);
     let created_at = chrono::Utc::now();
-    let valid_until = created_at + chrono::Duration::days(validity_in_days);
+    let _valid_until = created_at + chrono::Duration::days(validity_in_days);
 
     // Generate certificate name from CSR or use provided name
     let cert_name = upload.cert_name
@@ -2810,7 +2810,7 @@ pub(crate) async fn download_crl_logic(
 
         // Get user certificate data
         let pkcs12_data_and_password = match state.db.get_user_cert_pkcs12(record.certificate_id).await {
-            Ok((user_id, name, pkcs12_data)) => {
+            Ok((_user_id, _name, pkcs12_data)) => {
                 // Get password for this certificate
                 match state.db.get_user_cert_pkcs12_password(record.certificate_id).await {
                     Ok((_, password)) => Some((pkcs12_data, password)), // Extract password string
@@ -3039,7 +3039,7 @@ fn current_time() -> i64 {
 /// ]
 /// ```
 pub(crate) async fn list_crl_files_endpoint(
-    state: &State<AppState>,
+    _state: &State<AppState>,
     _authentication: AuthenticatedPrivileged
 ) -> Result<Json<Vec<crate::cert::CrlFileInfo>>, ApiError> {
     let files = crate::cert::list_crl_files()?;
@@ -3895,11 +3895,11 @@ pub async fn get_audit_settings(
 
 #[put("/audit/settings", data = "<settings>")]
 pub async fn update_audit_settings(
-    state: &State<AppState>,
+    _state: &State<AppState>,
     settings: Json<serde_json::Value>,
     _authentication: AuthenticatedPrivileged,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let new_settings = AuditSettings {
+    let _new_settings = AuditSettings {
         enabled: settings.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
         retention_days: settings.get("retention_days").and_then(|v| v.as_i64()).unwrap_or(365) as i32,
         log_authentication: settings.get("log_authentication").and_then(|v| v.as_bool()).unwrap_or(true),
