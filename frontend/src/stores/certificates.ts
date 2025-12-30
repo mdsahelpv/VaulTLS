@@ -31,7 +31,7 @@ export const useCertificateStore = defineStore('certificate', {
 
         // Get active (non-expired, non-revoked) certificates
         activeCertificates: (state): Certificate[] => {
-            const now = Date.now();
+            const now = Date.now() / 1000; // Convert to seconds
             return Array.from(state.certificates.values()).filter(cert =>
                 !cert.is_revoked && parseInt(cert.valid_until) > now
             );
@@ -39,7 +39,7 @@ export const useCertificateStore = defineStore('certificate', {
 
         // Get expired certificates
         expiredCertificates: (state): Certificate[] => {
-            const now = Date.now();
+            const now = Date.now() / 1000; // Convert to seconds
             return Array.from(state.certificates.values()).filter(cert =>
                 parseInt(cert.valid_until) <= now
             );
@@ -209,8 +209,10 @@ export const useCertificateStore = defineStore('certificate', {
             this.certificates.clear();
 
             // Add new certificates
-            for (const cert of certificates) {
-                this.certificates.set(cert.id, cert);
+            if (certificates) {
+                for (const cert of certificates) {
+                    this.certificates.set(cert.id, cert);
+                }
             }
         },
 
