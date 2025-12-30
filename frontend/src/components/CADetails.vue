@@ -205,7 +205,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useCAStore } from '@/stores/ca';
-import type { CADetails } from '@/types/Certificate';
 
 const caStore = useCAStore();
 

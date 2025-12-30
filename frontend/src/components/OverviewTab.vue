@@ -32,7 +32,7 @@
             id="CreateCertificateButton"
             v-if="authStore.isAdmin"
             class="btn btn-primary me-2"
-            @click="showGenerateModal"
+            @click="isGenerateModalVisible = true"
         >
           {{ isRootCA ? 'Create Subordinate CA' : 'Create New Certificate' }}
         </button>
@@ -205,308 +205,14 @@
     <div v-if="error" class="alert alert-danger mt-3">{{ error }}</div>
 
     <!-- Generate Certificate Modal -->
-    <div
-        v-if="isGenerateModalVisible"
-        class="modal show d-block"
-        tabindex="-1"
-        style="background: rgba(0, 0, 0, 0.5)"
-    >
-      <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Generate New Certificate</h5>
-            <button type="button" class="btn-close" @click="closeGenerateModal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="mb-3">
-              <label for="certName" class="form-label">Common Name</label>
-              <input
-                  id="certName"
-                  v-model="certReq.cert_name"
-                  type="text"
-                  class="form-control"
-                  placeholder="Enter certificate name"
-              />
-            </div>
-            <div class="mb-3">
-              <label for="certType" class="form-label">Certificate Type</label>
-              <select
-                  class="form-select"
-                  id="certType"
-                  v-model="certReq.cert_type"
-                  required
-              >
-                <option v-if="!isRootCA" :value="CertificateType.Client">Client</option>
-                <option v-if="!isRootCA" :value="CertificateType.Server">Server</option>
-                <option v-if="isRootCA" :value="CertificateType.SubordinateCA">Subordinate CA</option>
-              </select>
-              <div v-if="isRootCA" class="form-text text-info">
-                <i class="bi bi-info-circle me-1"></i>
-                Root CA Server mode: Only subordinate CA certificates can be issued.
-              </div>
-            </div>
-            <div class="mb-3">
-              <label for="caId" class="form-label">Certificate Authority (CA)</label>
-              <select
-                  id="caId"
-                  v-model="certReq.ca_id"
-                  class="form-control"
-              >
-                <option value="" disabled>Select a CA</option>
-                <option v-for="ca in availableCAs" :key="ca.id" :value="ca.id">
-                  {{ ca.name }} ({{ ca.is_self_signed ? 'Self-Signed' : 'Imported' }})
-                </option>
-              </select>
-              <div class="form-text">
-                Choose which CA to use for signing this certificate.
-              </div>
-            </div>
-
-            <!-- Advanced Certificate Configuration (Collapsible) -->
-            <div class="mb-3">
-              <button
-                type="button"
-                class="btn btn-outline-secondary btn-sm"
-                @click="advancedConfigExpanded = !advancedConfigExpanded"
-              >
-                <i :class="advancedConfigExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'"></i>
-                Advanced Certificate Configuration
-                <!-- <small class="text-muted ms-1">(Key Type, Key Size, Hash Algorithm, URLs)</small> -->
-              </button>
-            </div>
-
-            <div v-if="advancedConfigExpanded" class="border rounded p-3 mb-3 bg-light">
-              <!-- Cryptographic Parameters -->
-              <h6 class="mb-3">Cryptographic Parameters</h6>
-              <div class="mb-3">
-                <label class="form-label">Key Type</label>
-                <div class="form-check">
-                  <input
-                    class="form-check-input"
-                    type="radio"
-                    id="keyTypeRSA-overview"
-                    value="RSA"
-                    v-model="certReq.key_type"
-                    required
-                  >
-                  <label class="form-check-label" for="keyTypeRSA-overview">
-                    RSA
-                  </label>
-                </div>
-                <div class="form-check">
-                  <input
-                    class="form-check-input"
-                    type="radio"
-                    id="keyTypeECDSA-overview"
-                    value="ECDSA"
-                    v-model="certReq.key_type"
-                    required
-                  >
-                  <label class="form-check-label" for="keyTypeECDSA-overview">
-                    ECDSA
-                  </label>
-                </div>
-              </div>
-
-              <div class="row mb-3">
-                <div class="col-md-6">
-                  <label for="keySize-overview" class="form-label">Key Size</label>
-                  <select
-                    class="form-select"
-                    id="keySize-overview"
-                    v-model="certReq.key_size"
-                    required
-                  >
-                    <option v-if="certReq.key_type === 'RSA'" value="2048">2048</option>
-                    <option v-if="certReq.key_type === 'RSA'" value="4096">4096</option>
-                    <option v-if="certReq.key_type === 'ECDSA'" value="P-256">P-256</option>
-                    <option v-if="certReq.key_type === 'ECDSA'" value="P-521">P-521</option>
-                  </select>
-                </div>
-                <div class="col-md-6">
-                  <label for="hashAlgorithm-overview" class="form-label">Hash Algorithm</label>
-                  <select
-                    class="form-select"
-                    id="hashAlgorithm-overview"
-                    v-model="certReq.hash_algorithm"
-                    required
-                  >
-                    <option value="sha256">SHA-256</option>
-                    <option value="sha512">SHA-512</option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- Certificate URLs -->
-              <h6 class="mb-3">Certificate Extensions URLs</h6>
-              <div class="row">
-                <div class="col-md-6 mb-3">
-                  <label for="aiaUrl-overview" class="form-label">AIA URL (Authority Information Access)</label>
-                  <input
-                    type="url"
-                    class="form-control"
-                    id="aiaUrl-overview"
-                    v-model="certReq.aia_url"
-                    placeholder="https://your-ca.example.com/certs/ca.cert.pem"
-                    :title="certReq.aia_url ? 'Custom AIA URL' : 'Will inherit from selected CA'"
-                  />
-                  <small class="text-muted">
-                    URL where the CA certificate can be downloaded for client validation.
-                    <strong v-if="!certReq.aia_url">Default: inherited from CA</strong>
-                  </small>
-                </div>
-                <div class="col-md-6 mb-3">
-                  <label for="cdpUrl-overview" class="form-label">CDP URL (Certificate Revocation List)</label>
-                  <input
-                    type="url"
-                    class="form-control"
-                    id="cdpUrl-overview"
-                    v-model="certReq.cdp_url"
-                    placeholder="https://your-ca.example.com/crl/ca.crl.pem"
-                    :title="certReq.cdp_url ? 'Custom CDP URL' : 'Will inherit from selected CA'"
-                  />
-                  <small class="text-muted">
-                    URL where the Certificate Revocation List can be downloaded.
-                    <strong v-if="!certReq.cdp_url">Default: inherited from CA</strong>
-                  </small>
-                </div>
-              </div>
-
-              <div class="alert alert-info">
-                <i class="bi bi-info-circle me-2"></i>
-                These settings configure the cryptographic parameters and certificate extensions for this certificate.
-                By default, these values match your selected CA's parameters and URLs.
-              </div>
-            </div>
-            <div class="mb-3" v-if="certReq.cert_type == CertificateType.Server">
-              <label class="form-label">
-                DNS Names
-                <span class="text-danger">*</span>
-                <small class="text-muted">(required for server certificates)</small>
-              </label>
-              <div v-for="(_, index) in certReq.dns_names" :key="index" class="mb-2">
-                <div class="input-group">
-                  <input
-                      type="text"
-                      class="form-control"
-                      :class="{ 'is-invalid': certReq.cert_type == CertificateType.Server && !hasValidDNSNames }"
-                      v-model="certReq.dns_names[index]"
-                      :placeholder="'DNS Name ' + (index + 1)"
-                  />
-                  <button
-                      v-if="index === certReq.dns_names.length - 1"
-                      type="button"
-                      class="btn btn-outline-secondary"
-                      @click="addDNSField"
-                  >
-                    +
-                  </button>
-                  <button
-                      v-if="certReq.dns_names.length > 1"
-                      type="button"
-                      class="btn btn-outline-danger"
-                      @click="removeDNSField(index)"
-                  >
-                    −
-                  </button>
-                </div>
-              </div>
-              <div v-if="certReq.cert_type == CertificateType.Server && !hasValidDNSNames" class="invalid-feedback d-block">
-                At least one DNS name is required for server certificates.
-              </div>
-            </div>
-            <div class="mb-3">
-              <label for="userId" class="form-label">User</label>
-              <select
-                  id="userId"
-                  v-model="certReq.user_id"
-                  class="form-control"
-              >
-                <option value="" disabled>Select a user</option>
-                <option v-for="user in userStore.users" :key="user.id" :value="user.id">
-                  {{ user.name }}
-                </option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label for="validity" class="form-label">Validity (years)</label>
-              <input
-                  id="validity"
-                  v-model.number="certReq.validity_in_years"
-                  type="number"
-                  class="form-control"
-                  min="1"
-                  placeholder="Enter validity period"
-              />
-            </div>
-            <div class="mb-3 form-check form-switch">
-              <input
-                  type="checkbox"
-                  class="form-check-input"
-                  id="systemGeneratedPassword"
-                  v-model="certReq.system_generated_password"
-                  :disabled="passwordRule == PasswordRule.System"
-                  role="switch"
-              />
-              <label class="form-check-label" for="system_generated_password">
-                System Generated Password
-              </label>
-            </div>
-            <div class="mb-3" v-if="!certReq.system_generated_password">
-              <label for="certPassword" class="form-label">Password</label>
-              <input
-                  id="certPassword"
-                  v-model="certReq.pkcs12_password"
-                  type="text"
-                  class="form-control"
-                  placeholder="Enter password"
-              />
-            </div>
-            <div class="mb-3">
-              <label for="renewMethod" class="form-label">Certificate Renew Method</label>
-              <select
-                  class="form-select"
-                  id="renewMethod"
-                  v-model="certReq.renew_method"
-                  required
-              >
-                <option :value="CertificateRenewMethod.None">None</option>
-                <option :value="CertificateRenewMethod.Notify">Remind</option>
-                <option :value="CertificateRenewMethod.Renew">Renew</option>
-                <option :value="CertificateRenewMethod.RenewAndNotify">Renew and Notify</option>
-              </select>
-            </div>
-
-            <div v-if="isMailValid" class="mb-3 form-check form-switch">
-              <input
-                  type="checkbox"
-                  class="form-check-input"
-                  id="notify-user"
-                  v-model="certReq.notify_user"
-                  role="switch"
-              />
-              <label class="form-check-label" for="notify-user">
-                Notify User
-              </label>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeGenerateModal">
-              Cancel
-            </button>
-            <button
-                type="button"
-                class="btn btn-primary"
-                :disabled="loading || (passwordRule == PasswordRule.Required && !certReq.system_generated_password && certReq.pkcs12_password.length == 0)"
-                @click="createCertificate"
-            >
-              <span v-if="loading">Creating...</span>
-              <span v-else>Create Certificate</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <CertificateCreateModal
+      v-model="isGenerateModalVisible"
+      :is-root-ca="isRootCA"
+      :available-cas="availableCAs"
+      :users="userStore.users"
+      :password-rule="passwordRule"
+      @certificate-created="onCertificateCreated"
+    />
 
     <!-- Revoke Confirmation Modal -->
     <div
@@ -1163,17 +869,17 @@
     </div>
 </template>
 <script setup lang="ts">
-import {computed, onMounted, reactive, ref, watch} from 'vue';
+import {computed, onMounted, reactive, ref} from 'vue';
 import {useCertificateStore} from '@/stores/certificates';
 import {type Certificate, type CertificateDetails, CertificateRenewMethod, CertificateType} from "@/types/Certificate";
-import type {CertificateRequirements} from "@/types/CertificateRequirements";
 import type {CAAndCertificate} from "@/types/CA";
 import {useAuthStore} from "@/stores/auth.ts";
 import {useUserStore} from "@/stores/users.ts";
 import {useSettingsStore} from "@/stores/settings.ts";
 import {PasswordRule} from "@/types/Settings.ts";
-import {downloadCA, fetchCAs, getCertificateDetails} from "@/api/certificates.ts";
+import {fetchCAs, getCertificateDetails} from "@/api/certificates.ts";
 import RevocationHistoryModal from "@/components/RevocationHistoryModal.vue";
+import CertificateCreateModal from "@/components/CertificateCreateModal.vue";
 
 // stores
 const certificateStore = useCertificateStore();
@@ -1235,7 +941,6 @@ const selectableCertificates = computed(() => {
 const showRevocationHistory = ref(false);
 
 // Advanced configuration collapse state
-const advancedConfigExpanded = ref(false);
 
 // CSR Signing modal state
 const showSignCSRModal = ref(false);
@@ -1256,128 +961,20 @@ const passwordRule = computed(() => {
   return settings.value?.common.password_rule ?? PasswordRule.Optional;
 });
 
-const certReq = reactive<CertificateRequirements>({
-  cert_name: '',
-  user_id: 0,
-  validity_in_years: 1,
-  system_generated_password: passwordRule.value == PasswordRule.System,
-  pkcs12_password: '',
-  notify_user: false,
-  cert_type: CertificateType.Client,
-  dns_names: [''],
-  renew_method: CertificateRenewMethod.None,
-  key_type: 'RSA',
-  key_size: '2048',
-  hash_algorithm: 'sha256',
-  aia_url: '',
-  cdp_url: '',
-});
-
 const isMailValid = computed(() => {
   return (settings.value?.mail.smtp_host.length ?? 0) > 0 && (settings.value?.mail.smtp_port ?? 0) > 0;
-});
-
-const selectedCA = computed(() => {
-  return availableCAs.value.find(ca => ca.id === certReq.ca_id);
 });
 
 const isRootCA = computed(() => {
   return settings.value?.common.is_root_ca ?? false;
 });
 
-// Auto-select logic for dropdowns with single options
-const availableCertificateTypes = computed(() => {
-  if (isRootCA.value) {
-    return [CertificateType.SubordinateCA];
-  } else {
-    return [CertificateType.Client, CertificateType.Server];
-  }
-});
-
-const isSingleCA = computed(() => {
-  return availableCAs.value.length === 1;
-});
-
-const isSingleUser = computed(() => {
-  return userStore.users.length === 1;
-});
 
 const isRevokeValid = computed(() => {
   return true; // All RFC 5280 reasons are now predefined and valid
 });
 
-// Computed property to check if DNS names are valid for server certificates
-const hasValidDNSNames = computed(() => {
-  if (certReq.cert_type !== CertificateType.Server) {
-    return true; // Not a server certificate, so validation passes
-  }
 
-  // For server certificates, check if there are any non-empty DNS names
-  return certReq.dns_names.some(dns => dns.trim().length > 0);
-});
-
-// Watch for Root CA mode changes and set certificate type to Subordinate CA
-watch(isRootCA, (newIsRootCA: boolean) => {
-  if (newIsRootCA) {
-    // In Root CA mode, only Subordinate CA is available, so auto-select it
-    certReq.cert_type = CertificateType.SubordinateCA;
-  } else {
-    // When not in Root CA mode, we have Client and Server options
-    // Don't auto-select here - let user choose between Client and Server
-    certReq.cert_type = CertificateType.Client;
-  }
-}, { immediate: true });
-
-watch(passwordRule, (newVal) => {
-  certReq.system_generated_password = (newVal === PasswordRule.System);
-}, { immediate: true });
-
-// Watch for key type changes and reset key size to appropriate default
-watch(() => certReq.key_type, (newKeyType: string | undefined) => {
-  if (newKeyType === 'RSA' && certReq.key_size !== '2048' && certReq.key_size !== '4096') {
-    certReq.key_size = '2048';
-  } else if (newKeyType === 'ECDSA' && certReq.key_size !== 'P-256' && certReq.key_size !== 'P-521') {
-    certReq.key_size = 'P-256';
-  }
-});
-
-// Watch for selected CA changes and set defaults to match CA's parameters
-watch(selectedCA, (newSelectedCA: CAAndCertificate | undefined) => {
-  if (newSelectedCA) {
-    // Set defaults to match the selected CA's cryptographic parameters
-    const keySizeStr = newSelectedCA.key_size;
-    const sigAlgStr = newSelectedCA.signature_algorithm;
-
-    // Determine key type from signature algorithm or key size
-    if (sigAlgStr.includes('RSA') || keySizeStr.startsWith('2048') || keySizeStr.startsWith('4096')) {
-      certReq.key_type = 'RSA';
-      // Extract just the number from key size (e.g., "RSA 2048" -> "2048")
-      const rsaSize = keySizeStr.match(/(\d+)/)?.[1];
-      certReq.key_size = rsaSize && ['2048', '4096'].includes(rsaSize) ? rsaSize : '2048';
-    } else if (sigAlgStr.includes('ECDSA') || keySizeStr.includes('P-256') || keySizeStr.includes('P-521')) {
-      certReq.key_type = 'ECDSA';
-      // Extract curve from key size (e.g., "ECDSA P-256" -> "P-256")
-      if (keySizeStr.includes('P-256')) {
-        certReq.key_size = 'P-256';
-      } else if (keySizeStr.includes('P-521')) {
-        certReq.key_size = 'P-521';
-      } else {
-        certReq.key_size = 'P-256';
-      }
-    }
-
-    // Determine hash algorithm from signature algorithm
-    if (sigAlgStr.includes('SHA512') || sigAlgStr.includes('sha512')) {
-      certReq.hash_algorithm = 'sha512';
-    } else if (sigAlgStr.includes('SHA256') || sigAlgStr.includes('sha256')) {
-      certReq.hash_algorithm = 'sha256';
-    }
-
-    // Set AIA and CDP URLs from the selected CA (can be overridden by user)
-    certReq.aia_url = newSelectedCA.aia_url || '';
-    certReq.cdp_url = newSelectedCA.cdp_url || '';
-  }
-});
 
 onMounted(async () => {
   await certificateStore.fetchCertificates();
@@ -1387,21 +984,9 @@ onMounted(async () => {
   }
 });
 
-const showGenerateModal = async () => {
-  await userStore.fetchUsers();
-  await fetchAvailableCAs();
-
-  // Auto-select single CA after fetching
-  if (isSingleCA.value && availableCAs.value.length > 0) {
-    certReq.ca_id = availableCAs.value[0].id;
-  }
-
-  // Auto-select single user after fetching
-  if (isSingleUser.value && userStore.users.length > 0) {
-    certReq.user_id = userStore.users[0].id;
-  }
-
-  isGenerateModalVisible.value = true;
+const onCertificateCreated = () => {
+  // Refresh the certificate list after creation
+  certificateStore.fetchCertificates();
 };
 
 const fetchAvailableCAs = async () => {
@@ -1412,27 +997,6 @@ const fetchAvailableCAs = async () => {
   }
 };
 
-const closeGenerateModal = () => {
-  isGenerateModalVisible.value = false;
-  certReq.cert_name = '';
-  certReq.user_id = 0;
-  certReq.validity_in_years = 1;
-  certReq.pkcs12_password = '';
-  certReq.notify_user = false;
-  certReq.aia_url = '';
-  certReq.cdp_url = '';
-};
-
-const createCertificate = async () => {
-    // Client-side validation for server certificates
-    if (certReq.cert_type === CertificateType.Server && !hasValidDNSNames.value) {
-        alert('DNS name is empty. Server certificates must include at least one DNS name.');
-        return; // Don't proceed with certificate creation
-    }
-
-    await certificateStore.createCertificate(certReq);
-    closeGenerateModal();
-};
 
 const confirmDeletion = (cert: Certificate) => {
   // Check if certificate is revoked
@@ -1558,13 +1122,6 @@ const togglePasswordShown = async (cert: Certificate) => {
   }
 };
 
-const addDNSField = () => {
-  certReq.dns_names.push('');
-};
-
-const removeDNSField = (index: number) => {
-  certReq.dns_names.splice(index, 1);
-};
 
 const viewCertificateDetails = async (certId: number) => {
   try {
@@ -1792,7 +1349,7 @@ const handleDragOver = (event: DragEvent) => {
   }
 };
 
-const handleDragLeave = (event: DragEvent) => {
+const handleDragLeave = () => {
   // Visual feedback handled by CSS
 };
 
@@ -1905,7 +1462,7 @@ const signCSR = async () => {
     formData.append('certificate_type', csrSignData.certificate_type);
     formData.append('validity_in_days', csrSignData.validity_in_days);
 
-    const certificate = await certificateStore.signCsrCertificate(formData);
+    await certificateStore.signCsrCertificate(formData);
 
     // Show success and refresh certificates
     await certificateStore.fetchCertificates();
