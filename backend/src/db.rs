@@ -972,7 +972,7 @@ impl VaulTLSDB {
 
             // Top users (last 30 days)
             let mut top_users_stmt = conn.prepare(
-                "SELECT user_id, user_name, COUNT(*) as count, MAX(timestamp) as last_activity FROM audit_logs WHERE timestamp >= ? AND user_id IS NOT NULL GROUP BY user_id, user_name ORDER BY count DESC LIMIT 10"
+                "SELECT user_id, user_name, COUNT(*) as count, MAX(timestamp) as last_activity FROM audit_logs WHERE timestamp >= ? AND user_id IS NOT NULL AND user_name IS NOT NULL GROUP BY user_id, user_name ORDER BY count DESC LIMIT 10"
             )?;
             let top_users_rows = top_users_stmt.query_map(params![thirty_days_ago], |row| {
                 Ok(UserActivity {
@@ -1000,20 +1000,20 @@ impl VaulTLSDB {
                     timestamp: row.get(1)?,
                     event_type: serde_json::from_str(&event_type_str).unwrap_or(AuditEventType::UserAction),
                     event_category: serde_json::from_str(&event_category_str).unwrap_or(AuditEventCategory::System),
-                    user_id: row.get(4)?,
-                    user_name: row.get(5)?,
-                    ip_address: row.get(6)?,
-                    user_agent: row.get(7)?,
-                    resource_type: row.get(8)?,
-                    resource_id: row.get(9)?,
-                    resource_name: row.get(10)?,
+                    user_id: row.get::<_, Option<i64>>(4)?,
+                    user_name: row.get::<_, Option<String>>(5)?,
+                    ip_address: row.get::<_, Option<String>>(6)?,
+                    user_agent: row.get::<_, Option<String>>(7)?,
+                    resource_type: row.get::<_, Option<String>>(8)?,
+                    resource_id: row.get::<_, Option<i64>>(9)?,
+                    resource_name: row.get::<_, Option<String>>(10)?,
                     action: row.get(11)?,
                     success: row.get::<_, i64>(12)? != 0,
-                    details: row.get(13)?,
+                    details: row.get::<_, Option<String>>(13)?,
                     old_values: old_values.and_then(|s| serde_json::from_str(&s).ok()),
                     new_values: new_values.and_then(|s| serde_json::from_str(&s).ok()),
-                    error_message: row.get(16)?,
-                    session_id: row.get(17)?,
+                    error_message: row.get::<_, Option<String>>(16)?,
+                    session_id: row.get::<_, Option<String>>(17)?,
                     source: row.get(18)?,
                 })
             })?;
