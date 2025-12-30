@@ -54,6 +54,12 @@ export default [
     },
   },
   {
+    files: ['src/api/ApiClient.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  {
     ignores: ['*.config.*', '**/*.min.js', 'node_modules/', 'dist/', '**/*.d.ts', 'public/', '.git/', 'playwright-report/', 'test-results/'],
   }
 ]

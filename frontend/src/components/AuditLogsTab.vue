@@ -448,8 +448,8 @@ const loadLogs = async () => {
     logs.value = response.logs;
     totalResults.value = response.total;
 
-  } catch (err: any) {
-    error.value = err.message || 'Failed to load audit logs';
+  } catch (err: unknown) {
+    error.value = err instanceof Error ? err.message : 'Failed to load audit logs';
     console.error('Audit logs error:', err);
   } finally {
     loading.value = false;
@@ -460,7 +460,7 @@ const loadStats = async () => {
   try {
     const response = await getAuditStats();
     stats.value = response;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to load audit stats:', err);
     // Set empty stats to avoid errors in UI
     stats.value = {
@@ -607,6 +607,28 @@ if (!isAdmin.value) {
 <style scoped>
 .audit-logs-container {
   background-color: transparent;
+  width: 100%;
+}
+
+.audit-logs-container .table-responsive {
+  width: 100%;
+}
+
+.audit-logs-container .table {
+  width: 100%;
+  min-width: 800px; /* Ensure minimum width for readability */
+}
+
+/* Ensure stats cards are fully responsive */
+.audit-logs-container .row {
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.audit-logs-container .col-md-3 {
+  padding-left: 15px;
+  padding-right: 15px;
 }
 
 @media (max-width: 768px) {

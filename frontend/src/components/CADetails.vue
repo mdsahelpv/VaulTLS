@@ -245,9 +245,9 @@ const loadCADetails = async () => {
 
     const caData = await response.json();
     caDetails.value = caData;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to load CA details:', err);
-    error.value = `Failed to load CA details: ${err.message}`;
+    error.value = `Failed to load CA details: ${err instanceof Error ? err.message : String(err)}`;
   } finally {
     loading.value = false;
   }
@@ -267,7 +267,7 @@ const downloadCA = async () => {
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to download CA certificate:', err);
     alert('Failed to download CA certificate');
   }

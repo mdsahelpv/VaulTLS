@@ -8,6 +8,7 @@ import {
     deleteCertificate,
     revokeCertificate as revokeCertificateApi,
     previewCsr,
+    type CsrPreviewResponse,
 } from '../api/certificates';
 import type {CertificateRequirements} from "@/types/CertificateRequirements.ts";
 import ApiClient from '../api/ApiClient';
@@ -124,11 +125,11 @@ export const useCertificateStore = defineStore('certificate', {
         },
 
         // Sign a CSR and create a certificate
-        async signCsrCertificate(formData: FormData): Promise<any> {
+        async signCsrCertificate(formData: FormData): Promise<Certificate> {
             this.loading = true;
             this.error = null;
             try {
-                const response = await ApiClient.post('/certificates/cert/sign-csr', formData, {
+                const response = await ApiClient.post<Certificate>('/certificates/cert/sign-csr', formData, {
                     headers: {
                         'Content-Type': 'multipart/form-data',
                     },
@@ -145,7 +146,7 @@ export const useCertificateStore = defineStore('certificate', {
         },
 
         // Preview a CSR file
-        async previewCsr(formData: FormData): Promise<any> {
+        async previewCsr(formData: FormData): Promise<CsrPreviewResponse> {
             try {
                 return await previewCsr(formData);
             } catch (err) {

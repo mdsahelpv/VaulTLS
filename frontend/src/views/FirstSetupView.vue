@@ -456,7 +456,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import router from '../router/router';
-import { setup, validate_pfx } from "@/api/auth.ts";
+import { setup, validate_pfx, type ValidationCheck } from "@/api/auth.ts";
 import {useSetupStore} from "@/stores/setup.ts";
 import {hashPassword} from "@/utils/hash.ts";
 
@@ -482,7 +482,7 @@ const selectedFileName = ref<string>('');
 const isValidating = ref(false);
 const validationStatus = ref<'none' | 'success' | 'error'>('none');
 const validationError = ref('');
-const detailedValidation = ref<{ validations?: any[]; error?: string }>({});
+const detailedValidation = ref<{ validations?: ValidationCheck[]; error?: string }>({});
 
 // DN fields with defaults from openssl_rootca.cnf
 const countryName = ref('QA');

@@ -28,6 +28,38 @@ use crate::ratelimit::{RateLimitGuard, AuthRateLimitGuard};
 use crate::notification::mail::{MailMessage, Mailer};
 use crate::settings::{FrontendSettings, InnerSettings};
 
+/// Request info extractor for audit logging
+#[derive(Debug)]
+pub struct RequestInfo {
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+#[rocket::async_trait]
+impl<'r> rocket::request::FromRequest<'r> for RequestInfo {
+    type Error = ();
+
+    async fn from_request(req: &'r rocket::Request<'_>) -> rocket::request::Outcome<Self, Self::Error> {
+        let ip_address = req.client_ip().map(|ip| ip.to_string());
+        let user_agent = req.headers().get_one("User-Agent").map(|ua| ua.to_string());
+
+        rocket::request::Outcome::Success(RequestInfo {
+            ip_address,
+            user_agent,
+        })
+    }
+}
+
+impl rocket_okapi::request::OpenApiFromRequest<'_> for RequestInfo {
+    fn from_request_input(
+        _gen: &mut rocket_okapi::gen::OpenApiGenerator,
+        _name: String,
+        _required: bool,
+    ) -> rocket_okapi::Result<rocket_okapi::request::RequestHeaderInput> {
+        Ok(rocket_okapi::request::RequestHeaderInput::None)
+    }
+}
+
 
 #[openapi(tag = "Health")]
 #[get("/health")]
@@ -636,7 +668,8 @@ pub(crate) async fn login(
     state: &State<AppState>,
     jar: &CookieJar<'_>,
     login_req_opt: Json<LoginRequest>,
-    _rate_limit: AuthRateLimitGuard
+    _rate_limit: AuthRateLimitGuard,
+    request_info: RequestInfo
 ) -> Result<(), ApiError> {
     if !state.settings.get_password_enabled() {
         warn!("Password login is disabled.");
@@ -664,8 +697,8 @@ pub(crate) async fn login(
             if let Err(e) = state.audit.log_authentication(
                 Some(user.id),
                 Some(user.name.clone()),
-                None, // TODO: extract IP from request
-                None, // TODO: extract User-Agent from request
+                request_info.ip_address,
+                request_info.user_agent,
                 "login",
                 true,
                 None,
@@ -683,8 +716,8 @@ pub(crate) async fn login(
     if let Err(e) = state.audit.log_authentication(
         Some(user.id),
         Some(user.name.clone()),
-        None, // TODO: extract IP from request
-        None, // TODO: extract User-Agent from request
+        request_info.ip_address.clone(),
+        request_info.user_agent.clone(),
         "login",
         false,
         Some("Invalid password".to_string()),
@@ -740,7 +773,8 @@ pub(crate) async fn change_password(
 pub(crate) async fn logout(
     jar: &CookieJar<'_>,
     authentication: Authenticated,
-    state: &State<AppState>
+    state: &State<AppState>,
+    request_info: RequestInfo
 ) -> Result<(), ApiError> {
     jar.remove_private(Cookie::build(("name", "auth_token")));
 
@@ -754,8 +788,8 @@ pub(crate) async fn logout(
     if let Err(e) = state.audit.log_authentication(
         Some(authentication.claims.id), // User logging out
         Some(user_name), // Actual user name or fallback
-        None, // TODO: extract IP from request
-        None, // TODO: extract User-Agent from request
+        request_info.ip_address,
+        request_info.user_agent,
         "logout",
         true,
         None,
@@ -865,7 +899,8 @@ pub(crate) async fn get_certificates(
 pub(crate) async fn create_user_certificate(
     state: &State<AppState>,
     payload: Json<CreateUserCertificateRequest>,
-    _authentication: AuthenticatedPrivileged
+    _authentication: AuthenticatedPrivileged,
+    request_info: RequestInfo
 ) -> Result<Json<Certificate>, ApiError> {
     debug!(cert_name=?payload.cert_name, "Creating certificate");
 
@@ -996,8 +1031,8 @@ pub(crate) async fn create_user_certificate(
     if let Err(e) = state.audit.log_certificate_operation(
         Some(_authentication._claims.id), // Admin ID doing the operation
         Some(admin_user_name), // Actual user name or fallback
-        None, // TODO: extract IP from request
-        None, // TODO: extract User-Agent from request
+        request_info.ip_address,
+        request_info.user_agent,
         cert.id,
         &cert.name,
         "create",
@@ -2032,7 +2067,8 @@ pub(crate) async fn fetch_settings(
 pub(crate) async fn update_settings(
     state: &State<AppState>,
     payload: Json<InnerSettings>,
-    authentication: AuthenticatedPrivileged
+    authentication: AuthenticatedPrivileged,
+    request_info: RequestInfo
 ) -> Result<(), ApiError> {
     let mut oidc = state.oidc.lock().await;
 
@@ -2072,8 +2108,8 @@ pub(crate) async fn update_settings(
     if let Err(e) = state.audit.log_settings_change(
         Some(authentication._claims.id), // Admin making the change
         None, // TODO: get actual admin user name
-        None, // TODO: extract IP from request
-        None, // TODO: extract User-Agent from request
+        request_info.ip_address,
+        request_info.user_agent,
         "update_settings", // Action
         true, // Success
         Some(serde_json::json!({

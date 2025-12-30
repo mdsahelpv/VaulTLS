@@ -795,9 +795,9 @@ const loadCAs = async () => {
     loading.value = true;
     error.value = null;
     cas.value = await fetchCAs();
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to load CAs:', err);
-    error.value = `Failed to load CAs: ${err.message}`;
+    error.value = `Failed to load CAs: ${err instanceof Error ? err.message : String(err)}`;
   } finally {
     loading.value = false;
   }
@@ -811,7 +811,7 @@ const viewCADetails = (ca: CA) => {
 const handleDownloadCA = async (ca: CA) => {
   try {
     await downloadCAById(ca.id);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to download CA:', err);
     alert('Failed to download CA certificate');
   }
@@ -820,7 +820,7 @@ const handleDownloadCA = async (ca: CA) => {
 const handleDownloadCAKeyPair = async (ca: CA) => {
   try {
     await downloadCAKeyPairById(ca.id);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to download CA key pair:', err);
     alert('Failed to download CA certificate and private key');
   }
@@ -861,9 +861,9 @@ const createSelfSignedCAWrapper = async () => {
     await loadCAs();
     showAddCAModal.value = false;
     resetForms();
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to create CA:', err);
-    alert(`Failed to create CA: ${err.message}`);
+    alert(`Failed to create CA: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     creatingCA.value = false;
   }
@@ -883,9 +883,9 @@ const importCA = async () => {
     await loadCAs();
     showAddCAModal.value = false;
     resetForms();
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to import CA:', err);
-    alert(`Failed to import CA: ${err.message}`);
+    alert(`Failed to import CA: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     creatingCA.value = false;
   }
@@ -900,9 +900,9 @@ const performDeleteCA = async () => {
     await loadCAs();
     showDeleteModal.value = false;
     deletingCA.value = null;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to delete CA:', err);
-    alert(`Failed to delete CA: ${err.message}`);
+    alert(`Failed to delete CA: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     deletingCAInProgress.value = false;
   }
@@ -944,7 +944,7 @@ const handleFileSelect = (event: Event) => {
 const downloadCACertificate = async (ca: CA) => {
   try {
     await downloadCAById(ca.id);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to download CA certificate:', err);
     alert('Failed to download CA certificate');
   }
@@ -1087,6 +1087,15 @@ onMounted(() => {
 <style scoped>
 .ca-tools-container {
   background-color: transparent;
+  width: 100%;
+}
+
+.ca-tools-container .table-responsive {
+  width: 100%;
+}
+
+.ca-tools-container .table {
+  width: 100%;
 }
 
 .certificate-pem {

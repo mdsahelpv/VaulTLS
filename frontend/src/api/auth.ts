@@ -98,7 +98,7 @@ export const current_user = async (): Promise<User> => {
     return await ApiClient.get<User>('/auth/me');
 };
 
-interface ValidationCheck {
+export interface ValidationCheck {
     check_name: string;
     description: string;
     passed: boolean;

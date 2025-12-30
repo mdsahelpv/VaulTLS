@@ -94,11 +94,9 @@ export const cleanupAuditLogs = async (): Promise<AuditCleanupResult> => {
 };
 
 export const getAuditSettings = async (): Promise<AuditSettings> => {
-  const response = await ApiClient.get<Record<string, any>>('/audit/settings');
-  return response as AuditSettings;
+  return ApiClient.get<AuditSettings>('/audit/settings');
 };
 
 export const updateAuditSettings = async (settings: Partial<AuditSettings>): Promise<AuditSettings> => {
-  const response = await ApiClient.put<Record<string, any>>('/audit/settings', settings);
-  return response as AuditSettings;
+  return ApiClient.put<AuditSettings>('/audit/settings', settings);
 };

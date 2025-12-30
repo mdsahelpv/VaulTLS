@@ -4,12 +4,12 @@
  * Provides setup and teardown utilities for Playwright tests
  */
 
-import { chromium, BrowserContext, Page } from '@playwright/test'
+import { chromium, Browser, BrowserContext, Page } from '@playwright/test'
 
 export interface TestEnvironment {
   adminPage: Page
   userPage: Page
-  browser: any
+  browser: Browser
 }
 
 let testEnvironment: TestEnvironment | null = null
@@ -161,7 +161,7 @@ export async function takeScreenshot(page: Page, name: string): Promise<void> {
 /**
  * Mock API responses for testing
  */
-export function mockApiResponse(page: Page, url: string, response: any): void {
+export function mockApiResponse(page: Page, url: string, response: unknown): void {
   page.route(url, route => {
     route.fulfill({
       status: 200,

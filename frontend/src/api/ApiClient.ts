@@ -43,7 +43,7 @@ class ApiClient {
 
     async download(url: string, params: Record<string, any> = {}): Promise<void> {
         try {
-            const response: AxiosResponse<BlobPart> = await this.client.get(url, {
+            const response: AxiosResponse<Blob> = await this.client.get(url, {
                 params,
                 responseType: 'blob',
             });
@@ -73,7 +73,7 @@ class ApiClient {
     }
 
 
-    async post<T>(url: string, data: Record<string, any> | FormData = {}, config: AxiosRequestConfig = {}): Promise<T> {
+    async post<T>(url: string, data: any = {}, config: AxiosRequestConfig = {}): Promise<T> {
         try {
             const response: AxiosResponse<T> = await this.client.post(url, data, config);
             return response.data;
@@ -83,7 +83,7 @@ class ApiClient {
         }
     }
 
-    async put<T>(url: string, data: Record<string, any> = {}): Promise<T> {
+    async put<T>(url: string, data: any = {}): Promise<T> {
         try {
             const response: AxiosResponse<T> = await this.client.put(url, data);
             return response.data;
