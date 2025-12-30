@@ -203,70 +203,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import ApiClient from '@/api/ApiClient';
+import { ref, onMounted, computed } from 'vue';
+import { useCAStore } from '@/stores/ca';
+import type { CADetails } from '@/types/Certificate';
 
-interface CADetails {
-  id: number;
-  name: string;
-  subject: string;
-  issuer: string;
-  created_on: number;
-  valid_until: number;
-  serial_number: string;
-  key_size: string;
-  signature_algorithm: string;
-  is_self_signed: boolean;
-  certificate_pem: string;
-}
+const caStore = useCAStore();
 
-const caDetails = ref<CADetails | null>(null);
-const loading = ref(true);
-const error = ref<string | null>(null);
+// Use computed properties to react to store changes
+const caDetails = computed(() => caStore.currentCADetails);
+const loading = computed(() => caStore.loading);
+const error = computed(() => caStore.error);
 const copying = ref(false);
 
 const loadCADetails = async () => {
   try {
-    loading.value = true;
-    error.value = null;
-
-    // Use raw fetch to bypass any ApiClient issues
-    const apiUrl = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/certificates/ca/details`;
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const caData = await response.json();
-    caDetails.value = caData;
+    await caStore.fetchCADetails();
   } catch (err: unknown) {
     console.error('Failed to load CA details:', err);
-    error.value = `Failed to load CA details: ${err instanceof Error ? err.message : String(err)}`;
-  } finally {
-    loading.value = false;
+    // Error is already handled by the store
   }
 };
 
 const downloadCA = async () => {
   try {
-    const response = await ApiClient.get('/certificates/ca/download', {
-      responseType: 'blob'
-    }) as { data: Blob };
-
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'ca_certificate.pem');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    await caStore.downloadCACertificate();
   } catch (err: unknown) {
     console.error('Failed to download CA certificate:', err);
     alert('Failed to download CA certificate');

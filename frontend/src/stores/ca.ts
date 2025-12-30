@@ -1,7 +1,7 @@
-// CA store - simplified for now since main functionality is in CATools component
+// CA store for managing Certificate Authority operations
 import {defineStore} from 'pinia';
 import type {CASummary, CADetails} from '@/types/Certificate';
-import {fetchCAs} from '@/api/certificates';
+import {fetchCAs, getCADetails, downloadCA, downloadCAKeyPair} from '@/api/certificates';
 
 export const useCAStore = defineStore('ca', {
   state: () => ({
@@ -16,19 +16,52 @@ export const useCAStore = defineStore('ca', {
       this.loading = true;
       this.error = null;
       try {
-        // Simplified for now - could be extended later if needed
-        this.caList = [];
+        this.caList = await fetchCAs();
       } catch (error) {
         this.error = 'Failed to fetch CA list';
         console.error('Error fetching CA list:', error);
+        throw error;
       } finally {
         this.loading = false;
       }
     },
 
     async fetchCADetails() {
-      // Simplified - could be implemented if needed
-      this.currentCADetails = null;
+      this.loading = true;
+      this.error = null;
+      try {
+        this.currentCADetails = await getCADetails();
+      } catch (error) {
+        this.error = 'Failed to fetch CA details';
+        console.error('Error fetching CA details:', error);
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async downloadCACertificate() {
+      try {
+        await downloadCA();
+      } catch (error) {
+        this.error = 'Failed to download CA certificate';
+        console.error('Error downloading CA certificate:', error);
+        throw error;
+      }
+    },
+
+    async downloadCAKeyPair() {
+      try {
+        await downloadCAKeyPair();
+      } catch (error) {
+        this.error = 'Failed to download CA key pair';
+        console.error('Error downloading CA key pair:', error);
+        throw error;
+      }
+    },
+
+    clearError() {
+      this.error = null;
     },
   },
 });

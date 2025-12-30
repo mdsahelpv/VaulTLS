@@ -1,5 +1,5 @@
 import ApiClient from './ApiClient';
-import type {Certificate, CertificateDetails, CrlMetadata, CrlFileInfo} from '@/types/Certificate';
+import type {Certificate, CertificateDetails, CADetails, CrlMetadata, CrlFileInfo} from '@/types/Certificate';
 import type {CertificateRequirements} from "@/types/CertificateRequirements.ts";
 import type {CAAndCertificate} from '@/types/CA';
 
@@ -220,6 +220,10 @@ export interface CrlDetails {
 
 export const getCrlDetails = async (): Promise<CrlDetails> => {
     return await ApiClient.get<CrlDetails>('/certificates/crl/details');
+};
+
+export const getCADetails = async (): Promise<CADetails> => {
+    return await ApiClient.get<CADetails>('/certificates/ca/details');
 };
 
 export interface CsrSignRequest {
