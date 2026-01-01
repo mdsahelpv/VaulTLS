@@ -1,9 +1,8 @@
 import { defineStore } from 'pinia';
 import {change_password, current_user, login, logout} from "@/api/auth.ts";
 import type {ChangePasswordReq} from "@/types/Login.ts";
-import {type User, UserRole} from "@/types/User.ts";
-import {argon2Verify} from 'hash-wasm';
-import {hashPassword} from "@/utils/hash.ts";
+import type {User} from "@/types/User.ts";
+import {UserRole} from "@/types/User.ts";
 
 export const useAuthStore = defineStore('auth', {
     state: () => ({
@@ -34,41 +33,7 @@ export const useAuthStore = defineStore('auth', {
             this.error = null;
 
             try {
-                // Hash password with argon2id using hash-wasm
-                const hash = await hashPassword(password);
-
-                await login({ email, password: hash }).catch(async err => {
-                    if (err.response.status === 409) {
-                        // Need to log in with plaintext password
-                        const server_hash = err.response.data.error;
-
-                        const split = server_hash.split('$');
-                        const server_salt = split[4];
-                        if (server_salt === "VmF1bFRMU1ZhdWxUTFNWYXVsVExTVmF1bFRMUw") {
-                            // Replay attack
-                            console.log('Server hash is same.');
-                            return false;
-                        }
-
-                        // Verify password against server hash
-                        const isValid = await argon2Verify({
-                            password,
-                            hash: server_hash,
-                        });
-
-                        if (isValid) {
-                            // Password matches server's old hash
-                            await login({ email, password }).catch(err => {
-                                this.error = 'Failed to login.';
-                                console.error(err);
-                                return false;
-                            });
-                            return true;
-                        } else {
-                            console.log('Invalid password.');
-                        }
-                    }
-                });
+                await login({ email, password });
 
                 this.current_user = await current_user();
                 this.setAuthentication(true);
@@ -84,11 +49,9 @@ export const useAuthStore = defineStore('auth', {
         async changePassword(oldPassword: string, newPassword: string) {
             try {
                 this.error = null;
-                const oldHash = await hashPassword(oldPassword);
-                const newHash = await hashPassword(newPassword);
                 const changePasswordReq: ChangePasswordReq = {
-                    old_password: oldHash,
-                    new_password: newHash,
+                    old_password: oldPassword,
+                    new_password: newPassword,
                 };
                 await change_password(changePasswordReq);
                 return true;

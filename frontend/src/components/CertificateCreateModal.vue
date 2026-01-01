@@ -312,7 +312,7 @@ const certReq = ref<CertificateRequirements>({
   renew_method: CertificateRenewMethod.None,
   ca_id: undefined,
   key_type: 'rsa',
-  key_size: '2048',
+  key_size: '4096',
   hash_algorithm: 'sha256',
   aia_url: '',
   cdp_url: '',
@@ -356,7 +356,7 @@ const resetForm = () => {
     renew_method: CertificateRenewMethod.None,
     ca_id: undefined,
     key_type: 'rsa',
-    key_size: '2048',
+    key_size: '4096',
     hash_algorithm: 'sha256',
     aia_url: '',
     cdp_url: '',
@@ -393,7 +393,7 @@ const generateCertificate = async () => {
 // Watch for key type changes to update key size options
 watch(() => certReq.value.key_type, (newKeyType) => {
   if (newKeyType === 'rsa' && certReq.value.key_size && ['256', '384'].includes(certReq.value.key_size)) {
-    certReq.value.key_size = '2048';
+    certReq.value.key_size = '4096';
   } else if (newKeyType === 'ecdsa' && certReq.value.key_size && ['2048', '3072', '4096'].includes(certReq.value.key_size)) {
     certReq.value.key_size = '256';
   }

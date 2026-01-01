@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia';
 import type {CreateUserRequest, User} from "@/types/User.ts";
 import {createUser, deleteUser, fetchUsers, updateUser} from "@/api/users.ts";
-import {hashPassword} from "@/utils/hash.ts";
 
 export const useUserStore = defineStore('user', {
     state: () => ({
@@ -32,9 +31,6 @@ export const useUserStore = defineStore('user', {
             this.loading = true;
             this.error = null;
             try {
-                if (createUserReq.password) {
-                    createUserReq.password = await hashPassword(createUserReq.password);
-                }
                 await createUser(createUserReq);
                 this.users = await fetchUsers();
             } catch (err) {

@@ -1,6 +1,6 @@
 <template>
   <div class="container d-flex justify-content-center align-items-center min-vh-100 py-4">
-    <div class="card p-4 shadow" style="max-width: 600px; width: 100%; max-height: 90vh; overflow-y: auto;">
+    <div class="card p-4 shadow" style="max-width: 750px; width: 100%; max-height: 90vh; overflow-y: auto;">
       <h1 class="text-center mb-4">SETUP</h1>
 
       <!-- Show notice if OIDC is enabled -->
@@ -458,7 +458,6 @@ import { ref, watch } from 'vue';
 import router from '../router/router';
 import { setup, validate_pfx, type ValidationCheck } from "@/api/auth.ts";
 import {useSetupStore} from "@/stores/setup.ts";
-import {hashPassword} from "@/utils/hash.ts";
 
 // Password visibility state
 const showPassword = ref(false);
@@ -495,7 +494,7 @@ const emailAddress = ref('pki@abc.io');
 
 // Additional CA configuration fields from openssl.cnf
 const keyType = ref('RSA');
-const keySize = ref('2048');
+const keySize = ref('4096');
 const hashAlgorithm = ref('sha256');
 
 // Watch for key type changes and reset key size to appropriate default
@@ -503,7 +502,7 @@ watch(keyType, (newKeyType: string) => {
   if (newKeyType === 'RSA') {
     // Set default RSA key size if previous value wasn't RSA or was empty
     if (keySize.value === '' || keySize.value === 'P-256' || keySize.value === 'P-521') {
-      keySize.value = '2048';
+      keySize.value = '4096';
     }
   } else if (newKeyType === 'ECDSA') {
     // Set default ECDSA curve if previous value wasn't ECDSA or was empty
@@ -632,8 +631,6 @@ const setupPassword = async () => {
       return;
     }
 
-    let hash = password.value ? await hashPassword(password.value) : null;
-
     // Validate required fields
     if (!username.value.trim()) {
       errorMessage.value = 'Username is required';
@@ -700,7 +697,7 @@ const setupPassword = async () => {
 }
 
 .card {
-  max-width: 600px;
+  max-width: 750px;
   width: 100%;
   padding: var(--spacing-xl) !important;
   border: 1px solid var(--color-border);

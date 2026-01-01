@@ -32,7 +32,7 @@
             id="CreateCertificateButton"
             v-if="authStore.isAdmin"
             class="btn btn-primary me-2"
-            @click="isGenerateModalVisible = true"
+            @click="openGenerateModal"
         >
           {{ isRootCA ? 'Create Subordinate CA' : 'Create New Certificate' }}
         </button>
@@ -145,10 +145,19 @@
                     <template v-else>
                       <span>•••••••</span>
                     </template>
+                    <button
+                        v-if="shownCerts.has(cert.id) && cert.pkcs12_password"
+                        :id="'CopyPasswordButton-' + cert.id"
+                        class="btn btn-outline-primary btn-sm ms-1"
+                        @click="copyPasswordToClipboard(cert)"
+                        title="Copy password to clipboard"
+                    >
+                      <i class="bi bi-clipboard me-1"></i>Copy
+                    </button>
                     <img
                         :id="'PasswordButton-' + cert.id"
                         :src="shownCerts.has(cert.id) ? '/images/eye-open.png' : '/images/eye-hidden.png'"
-                        class="ms-2"
+                        class="ms-1"
                         style="width: 20px; cursor: pointer;"
                         @click="togglePasswordShown(cert)"
                         :title="shownCerts.has(cert.id) ? 'Hide password' : 'Show password'"
@@ -997,6 +1006,11 @@ const fetchAvailableCAs = async () => {
   }
 };
 
+const openGenerateModal = async () => {
+  await fetchAvailableCAs();
+  isGenerateModalVisible.value = true;
+};
+
 
 const confirmDeletion = (cert: Certificate) => {
   // Check if certificate is revoked
@@ -1258,6 +1272,42 @@ const copyToClipboard = async (text: string) => {
     textArea.select();
     document.execCommand('copy');
     document.body.removeChild(textArea);
+  }
+};
+
+const copyPasswordToClipboard = async (cert: Certificate) => {
+  try {
+    // First ensure the password is loaded
+    if (!cert.pkcs12_password) {
+      await certificateStore.fetchCertificatePassword(cert.id);
+      // Get the updated certificate from the store
+      const updatedCert = certificates.value.get(cert.id);
+      if (updatedCert?.pkcs12_password) {
+        await navigator.clipboard.writeText(updatedCert.pkcs12_password);
+      }
+    } else {
+      await navigator.clipboard.writeText(cert.pkcs12_password);
+    }
+
+    // Show temporary feedback on the button
+    const btn = event?.target as HTMLElement;
+    if (btn) {
+      const originalContent = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check me-1"></i>Copied!';
+      setTimeout(() => btn.innerHTML = originalContent, 2000);
+    }
+  } catch (err) {
+    console.error('Failed to copy password to clipboard:', err);
+    // Fallback for older browsers
+    const password = cert.pkcs12_password || certificates.value.get(cert.id)?.pkcs12_password;
+    if (password) {
+      const textArea = document.createElement('textarea');
+      textArea.value = password;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
   }
 };
 

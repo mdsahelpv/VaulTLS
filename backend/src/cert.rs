@@ -568,7 +568,7 @@ impl CertificateBuilder {
             (Some(ca), None, _) | (Some(ca), _, None) => {
                 let ca_key = PKey::private_key_from_der(&ca.key)?;
                 if ca_key.rsa().is_ok() {
-                    generate_rsa_private_key()?
+                    generate_rsa_private_key_of_size(4096)?
                 } else if ca_key.ec_key().is_ok() {
                     generate_ecdsa_private_key(Nid::X9_62_PRIME256V1)?
                 } else {
