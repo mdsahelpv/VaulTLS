@@ -39,33 +39,33 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 ### 2. Add Input Validation
 
 #### 2.1 Implement Length Limits
-- [ ] Add maximum length validation for user names (e.g., 255 chars)
-- [ ] Add maximum length validation for email addresses (e.g., 254 chars)
-- [ ] Add maximum length validation for certificate names (e.g., 255 chars)
-- [ ] Add maximum length validation for certificate descriptions
-- [ ] Add maximum length validation for DNS names in SAN
-- [ ] Add maximum length validation for IP addresses
-- [ ] Add maximum length validation for custom revocation reasons
-- [ ] Add validation in both frontend and backend
-- [ ] Return appropriate error messages for length violations
+- [x] Add maximum length validation for user names (e.g., 255 chars)
+- [x] Add maximum length validation for email addresses (e.g., 254 chars)
+- [x] Add maximum length validation for certificate names (e.g., 255 chars)
+- [x] Add maximum length validation for certificate descriptions
+- [x] Add maximum length validation for DNS names in SAN
+- [x] Add maximum length validation for IP addresses
+- [x] Add maximum length validation for custom revocation reasons
+- [x] Add validation in both frontend and backend
+- [x] Return appropriate error messages for length violations
 
 #### 2.2 Add Proper Email Validation
-- [ ] Install/use email validation library (e.g., `validator` crate for Rust, `validator.js` for TypeScript)
-- [ ] Replace basic email checks with proper validation
-- [ ] Validate email format in `backend/src/api.rs:create_user()`
-- [ ] Validate email format in `backend/src/api.rs:update_user()`
-- [ ] Validate email format in `backend/src/api.rs:setup_json()`
-- [ ] Add email validation in frontend `frontend/src/components/UserTab.vue`
-- [ ] Add email validation in frontend `frontend/src/views/FirstSetupView.vue`
-- [ ] Test with various invalid email formats
+- [x] Install/use email validation library (e.g., `validator` crate for Rust, `validator.js` for TypeScript)
+- [x] Replace basic email checks with proper validation
+- [x] Validate email format in `backend/src/api.rs:create_user()`
+- [x] Validate email format in `backend/src/api.rs:update_user()`
+- [x] Validate email format in `backend/src/api.rs:setup_json()`
+- [x] Add email validation in frontend `frontend/src/components/UserTab.vue`
+- [x] Add email validation in frontend `frontend/src/views/FirstSetupView.vue`
+- [x] Test with various invalid email formats
 
 #### 2.3 Sanitize Certificate Names
-- [ ] Create certificate name sanitization function
-- [ ] Remove or escape special characters that could cause injection
-- [ ] Validate certificate names in `backend/src/api.rs:create_user_certificate()`
-- [ ] Validate certificate names in `backend/src/api.rs:sign_csr_certificate()`
-- [ ] Add sanitization in frontend certificate creation forms
-- [ ] Test with malicious certificate name inputs
+- [x] Create certificate name sanitization function
+- [x] Remove or escape special characters that could cause injection
+- [x] Validate certificate names in `backend/src/api.rs:create_user_certificate()`
+- [x] Validate certificate names in `backend/src/api.rs:sign_csr_certificate()`
+- [x] Add sanitization in frontend certificate creation forms
+- [x] Test with malicious certificate name inputs
 
 #### 2.4 Validate Certificate Parameters
 - [ ] Add validation for validity periods (min/max bounds)

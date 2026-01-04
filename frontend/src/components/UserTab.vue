@@ -75,23 +75,33 @@
             <form @submit.prevent="handleCreateUser">
               <div class="mb-3">
                 <label for="user_name" class="form-label">Username</label>
-                <input 
-                  type="text" 
-                  class="form-control" 
+                <input
+                  type="text"
+                  class="form-control"
+                  :class="{ 'is-invalid': validationErrors.user_name }"
                   id="user_name"
                   v-model="newUser.user_name"
+                  maxlength="255"
                   required
                 >
+                <div v-if="validationErrors.user_name" class="invalid-feedback">
+                  {{ validationErrors.user_name }}
+                </div>
               </div>
               <div class="mb-3">
                 <label for="user_email" class="form-label">E-Mail</label>
                 <input
-                    type="text"
+                    type="email"
                     class="form-control"
+                    :class="{ 'is-invalid': validationErrors.user_email }"
                     id="user_email"
                     v-model="newUser.user_email"
+                    maxlength="254"
                     required
                 >
+                <div v-if="validationErrors.user_email" class="invalid-feedback">
+                  {{ validationErrors.user_email }}
+                </div>
               </div>
               <div class="mb-3">
                 <label for="password" class="form-label">Password</label>
@@ -189,6 +199,7 @@ const userStore = useUserStore();
 const isCreateModalVisible = ref(false);
 const isDeleteModalVisible = ref(false);
 const userToDelete = ref<User | null>(null);
+const validationErrors = ref<{ user_name?: string; user_email?: string }>({});
 const newUser = ref<CreateUserRequest>({
   user_name: '',
   user_email: '',

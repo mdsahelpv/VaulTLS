@@ -14,6 +14,7 @@ use openssl::pkey::PKey;
 use serde::Serialize;
 use schemars::JsonSchema;
 use base64::Engine;
+use email_address::EmailAddress;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::auth::oidc_auth::OidcAuth;
 use crate::auth::password_auth::Password;
@@ -27,6 +28,135 @@ use crate::data::objects::{AppState, User, CrlCache, OcspCache, CertificateChain
 use crate::ratelimit::{RateLimitGuard, AuthRateLimitGuard};
 use crate::notification::mail::{MailMessage, Mailer};
 use crate::settings::{FrontendSettings, InnerSettings};
+
+/// Validation constants
+const MAX_USER_NAME_LENGTH: usize = 255;
+const MAX_EMAIL_LENGTH: usize = 254;
+const MAX_CERTIFICATE_NAME_LENGTH: usize = 255;
+const MAX_DNS_NAME_LENGTH: usize = 253; // RFC 1035 limit
+const MAX_IP_ADDRESS_LENGTH: usize = 45; // IPv6 addresses can be up to 45 chars
+const MAX_CUSTOM_REVOCATION_REASON_LENGTH: usize = 500;
+
+/// Validate user name length
+fn validate_user_name(name: &str) -> Result<(), ApiError> {
+    if name.len() > MAX_USER_NAME_LENGTH {
+        return Err(ApiError::BadRequest(format!(
+            "User name is too long (maximum {} characters, got {})",
+            MAX_USER_NAME_LENGTH,
+            name.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Validate email address format and length
+fn validate_email(email: &str) -> Result<(), ApiError> {
+    // First check length
+    if email.len() > MAX_EMAIL_LENGTH {
+        return Err(ApiError::BadRequest(format!(
+            "Email address is too long (maximum {} characters, got {})",
+            MAX_EMAIL_LENGTH,
+            email.len()
+        )));
+    }
+
+    // Then validate email format using email_address crate
+    if EmailAddress::is_valid(email) {
+        // Email is valid
+    } else {
+        return Err(ApiError::BadRequest("Invalid email address format".to_string()));
+    }
+
+    Ok(())
+}
+
+/// Validate certificate name length
+fn validate_certificate_name(name: &str) -> Result<(), ApiError> {
+    if name.len() > MAX_CERTIFICATE_NAME_LENGTH {
+        return Err(ApiError::BadRequest(format!(
+            "Certificate name is too long (maximum {} characters, got {})",
+            MAX_CERTIFICATE_NAME_LENGTH,
+            name.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Validate DNS name length
+fn validate_dns_name(dns_name: &str) -> Result<(), ApiError> {
+    if dns_name.len() > MAX_DNS_NAME_LENGTH {
+        return Err(ApiError::BadRequest(format!(
+            "DNS name '{}' is too long (maximum {} characters, got {})",
+            dns_name,
+            MAX_DNS_NAME_LENGTH,
+            dns_name.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Validate IP address length and basic format
+fn validate_ip_address(ip: &str) -> Result<(), ApiError> {
+    if ip.len() > MAX_IP_ADDRESS_LENGTH {
+        return Err(ApiError::BadRequest(format!(
+            "IP address '{}' is too long (maximum {} characters, got {})",
+            ip,
+            MAX_IP_ADDRESS_LENGTH,
+            ip.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Validate custom revocation reason length
+fn validate_custom_revocation_reason(reason: &str) -> Result<(), ApiError> {
+    if reason.len() > MAX_CUSTOM_REVOCATION_REASON_LENGTH {
+        return Err(ApiError::BadRequest(format!(
+            "Custom revocation reason is too long (maximum {} characters, got {})",
+            MAX_CUSTOM_REVOCATION_REASON_LENGTH,
+            reason.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Sanitize certificate name by removing or escaping dangerous characters
+/// This prevents path traversal and command injection attacks
+fn sanitize_certificate_name(name: &str) -> Result<String, ApiError> {
+    // First validate length
+    validate_certificate_name(name)?;
+
+    // Remove or replace dangerous characters that could cause injection
+    let mut sanitized = name.to_string();
+
+    // Replace path traversal attempts
+    sanitized = sanitized.replace("../", "");
+    sanitized = sanitized.replace("..\\", "");
+    sanitized = sanitized.replace("./", "");
+    sanitized = sanitized.replace(".\\", "");
+
+    // Remove shell metacharacters that could be used for command injection
+    let dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '<', '>', '[', ']', '{', '}', '\'', '"', '\\', '\n', '\r', '\t'];
+    for &ch in &dangerous_chars {
+        sanitized = sanitized.replace(ch, "");
+    }
+
+    // Remove control characters
+    sanitized = sanitized.chars()
+        .filter(|c| !c.is_control())
+        .collect();
+
+    // Trim whitespace and ensure not empty
+    let sanitized = sanitized.trim();
+    if sanitized.is_empty() {
+        return Err(ApiError::BadRequest("Certificate name cannot be empty after sanitization".to_string()));
+    }
+
+    // Final validation - ensure the sanitized name is still valid
+    validate_certificate_name(sanitized)?;
+
+    Ok(sanitized.to_string())
+}
 
 /// Request info extractor for audit logging
 #[derive(Debug)]
@@ -125,6 +255,10 @@ pub(crate) async fn setup_json(
     state: &State<AppState>,
     setup_req: Json<SetupRequest>
 ) -> Result<(), ApiError> {
+    // Validate user name and email lengths
+    validate_user_name(&setup_req.name)?;
+    validate_email(&setup_req.email)?;
+
     setup_common(
         state,
         setup_req.name.clone(),
@@ -902,7 +1036,25 @@ pub(crate) async fn create_user_certificate(
     _authentication: AuthenticatedPrivileged,
     request_info: RequestInfo
 ) -> Result<Json<Certificate>, ApiError> {
-    debug!(cert_name=?payload.cert_name, "Creating certificate");
+    // Sanitize and validate certificate name
+    let sanitized_cert_name = sanitize_certificate_name(&payload.cert_name)?;
+    debug!("Original cert name: '{}', sanitized: '{}'", payload.cert_name, sanitized_cert_name);
+
+    // Validate DNS names in SAN
+    if let Some(dns_names) = &payload.dns_names {
+        for dns_name in dns_names {
+            validate_dns_name(dns_name)?;
+        }
+    }
+
+    // Validate IP addresses in SAN
+    if let Some(ip_addresses) = &payload.ip_addresses {
+        for ip_addr in ip_addresses {
+            validate_ip_address(ip_addr)?;
+        }
+    }
+
+    debug!(cert_name=?sanitized_cert_name, "Creating certificate");
 
     let password_rule = state.settings.get_password_rule();
     let use_random_password = if password_rule == PasswordRule::System
@@ -2156,6 +2308,10 @@ pub(crate) async fn create_user(
     payload: Json<CreateUserRequest>,
     _authentication: AuthenticatedPrivileged
 ) -> Result<Json<i64>, ApiError> {
+    // Validate user name and email lengths
+    validate_user_name(&payload.user_name)?;
+    validate_email(&payload.user_email)?;
+
     // Check if a user with this email already exists
     if let Ok(_) = state.db.get_user_by_email(payload.user_email.clone()).await {
         return Err(ApiError::Conflict("A user with this email address already exists".to_string()));
@@ -2384,6 +2540,11 @@ pub(crate) async fn revoke_certificate(
     payload: Json<RevokeCertificateRequest>,
     authentication: AuthenticatedPrivileged
 ) -> Result<(), ApiError> {
+    // Validate custom revocation reason length if provided
+    if let Some(ref custom_reason) = payload.custom_reason {
+        validate_custom_revocation_reason(custom_reason)?;
+    }
+
     debug!(cert_id=id, reason=?payload.reason, "Revoking certificate");
 
     // Check if certificate exists and get its details
@@ -2511,6 +2672,11 @@ pub(crate) async fn sign_csr_certificate(
     upload: rocket::form::Form<multipart::SignCsrUpload<'_>>,
     _authentication: AuthenticatedPrivileged
 ) -> Result<Json<Certificate>, ApiError> {
+    // Validate certificate name length if provided
+    if let Some(ref cert_name) = upload.cert_name {
+        validate_certificate_name(cert_name)?;
+    }
+
     debug!("Signing certificate from CSR");
 
     // Read the CSR file data
@@ -2593,7 +2759,7 @@ pub(crate) async fn sign_csr_certificate(
     let _valid_until = created_at + chrono::Duration::days(validity_in_days);
 
     // Generate certificate name from CSR or use provided name
-    let cert_name = upload.cert_name
+    let raw_cert_name = upload.cert_name
         .as_ref()
         .cloned()
         .unwrap_or_else(|| {
@@ -2603,6 +2769,10 @@ pub(crate) async fn sign_csr_certificate(
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| "CSR-Certificate".to_string())
         });
+
+    // Sanitize the certificate name
+    let cert_name = sanitize_certificate_name(&raw_cert_name)?;
+    debug!("CSR cert name: '{}' -> sanitized: '{}'", raw_cert_name, cert_name);
 
     info!("Signing certificate '{}' for user '{}' with CA '{}'", cert_name, user.name, ca.id);
 

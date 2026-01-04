@@ -19,8 +19,13 @@
               v-model="certReq.cert_name"
               type="text"
               class="form-control"
+              :class="{ 'is-invalid': validationErrors.cert_name }"
               placeholder="Enter certificate name"
+              maxlength="255"
             />
+            <div v-if="validationErrors.cert_name" class="invalid-feedback">
+              {{ validationErrors.cert_name }}
+            </div>
           </div>
           <div class="mb-3">
             <label for="certType" class="form-label">Certificate Type</label>
@@ -332,6 +337,19 @@ const certReq = ref<CertificateRequirements>({
 
 const showPassword = ref(false);
 const advancedConfigExpanded = ref(false);
+const validationErrors = ref<{ cert_name?: string }>({});
+// Sanitize certificate name by removing dangerous characters
+const sanitizeCertificateName = (name: string): string => {
+  // Remove or replace dangerous characters that could cause injection
+  let sanitized = name.replace(/\.\.\//g, '') // Remove path traversal
+                      .replace(/\.\.\\/g, '')
+                      .replace(/^\.\//g, '')
+                      .replace(/^\.\\/g, '')
+                      .replace(/[;&|`$()<>{}[\]'"\n\r\t\\]/g, ''); // Remove shell metacharacters and control chars
+
+  // Trim whitespace
+  return sanitized.trim();
+};
 
 // Computed properties
 const canGenerateCertificate = computed(() => {
@@ -408,6 +426,15 @@ const getCurrentBaseUrl = () => {
   const origin = window.location.origin;
   return origin || 'http://localhost:8000';
 };
+
+// Watch for certificate name changes and sanitize in real-time
+watch(() => certReq.value.cert_name, (newName) => {
+  if (newName !== sanitizeCertificateName(newName)) {
+    certReq.value.cert_name = sanitizeCertificateName(newName);
+  }
+  // Clear any validation errors when user types
+  validationErrors.value.cert_name = undefined;
+});
 
 // Watch for key type changes to update key size options
 watch(() => certReq.value.key_type, (newKeyType) => {

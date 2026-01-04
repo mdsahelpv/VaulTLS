@@ -766,3 +766,158 @@ async fn generate_openssl_csr(key_path: &Path, csr_path: &Path, key_size: &str, 
     assert!(csr_output.status.success(), "Failed to generate CSR with subject: {}", subject);
     assert!(csr_path.exists(), "CSR file was not created");
 }
+
+#[cfg(test)]
+mod validation_tests {
+    use vaultls::api::{validate_email, validate_user_name, validate_certificate_name, sanitize_certificate_name};
+
+    #[test]
+    fn test_valid_emails() {
+        let valid_emails = vec![
+            "test@example.com",
+            "user.name+tag@example.com",
+            "test.email@subdomain.example.com",
+            "user@localhost",
+            "test@domain.co.uk",
+            "user_name@example-domain.com",
+            "test.email@123.456.789.0",
+        ];
+
+        for email in valid_emails {
+            assert!(validate_email(email).is_ok(), "Email '{}' should be valid", email);
+        }
+    }
+
+    #[test]
+    fn test_invalid_emails() {
+        let invalid_emails = vec![
+            "", // Empty string
+            "@example.com", // Missing local part
+            "test@", // Missing domain
+            "test..email@example.com", // Double dot
+            "test email@example.com", // Space
+            "test@.com", // Invalid domain
+            "test@example.", // Trailing dot
+            "test@example..com", // Double dot in domain
+            "test@example.com.", // Trailing dot in domain
+            "test@exam ple.com", // Space in domain
+            "test@exam\nple.com", // Newline in domain
+            "test@\nexample.com", // Newline before domain
+            "very.long.email.address.that.exceeds.maximum.length@example.com", // Too long
+        ];
+
+        for email in invalid_emails {
+            assert!(validate_email(email).is_err(), "Email '{}' should be invalid", email);
+        }
+    }
+
+    #[test]
+    fn test_email_length_limits() {
+        // Test maximum length (254 chars)
+        let max_length_email = "a".repeat(244) + "@example.com"; // 244 + 13 = 257 chars (should fail)
+        assert!(validate_email(&max_length_email).is_err(), "Email exceeding 254 chars should be invalid");
+
+        // Test exactly at limit (244 local + @ + domain = 254)
+        let at_limit_email = "a".repeat(244) + "@a.com"; // 244 + 6 = 250 chars (should pass)
+        assert!(validate_email(&at_limit_email).is_ok(), "Email at 254 char limit should be valid");
+    }
+
+    #[test]
+    fn test_user_name_validation() {
+        // Valid user names
+        assert!(validate_user_name("testuser").is_ok());
+        assert!(validate_user_name("Test_User123").is_ok());
+
+        // Invalid user names (too long)
+        let long_name = "a".repeat(256); // 256 chars
+        assert!(validate_user_name(&long_name).is_err(), "User name longer than 255 chars should be invalid");
+
+        // Exactly at limit
+        let at_limit = "a".repeat(255);
+        assert!(validate_user_name(&at_limit).is_ok(), "User name at 255 char limit should be valid");
+    }
+
+    #[test]
+    fn test_certificate_name_validation() {
+        // Valid certificate names
+        assert!(validate_certificate_name("test-cert").is_ok());
+        assert!(validate_certificate_name("My_Certificate_123").is_ok());
+
+        // Invalid certificate names (too long)
+        let long_name = "a".repeat(256); // 256 chars
+        assert!(validate_certificate_name(&long_name).is_err(), "Certificate name longer than 255 chars should be invalid");
+
+        // Exactly at limit
+        let at_limit = "a".repeat(255);
+        assert!(validate_certificate_name(&at_limit).is_ok(), "Certificate name at 255 char limit should be valid");
+    }
+
+    #[test]
+    fn test_certificate_name_sanitization() {
+        // Test path traversal removal
+        assert_eq!(sanitize_certificate_name("../etc/passwd").unwrap(), "etcpasswd");
+        assert_eq!(sanitize_certificate_name("../../../root").unwrap(), "root");
+        assert_eq!(sanitize_certificate_name("./config").unwrap(), "config");
+        assert_eq!(sanitize_certificate_name(".\\windows\\system32").unwrap(), "windowssystem32");
+
+        // Test shell metacharacter removal
+        assert_eq!(sanitize_certificate_name("cert;name").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert&name").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert|name").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert`name").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert$name").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert(name)").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert<name>").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert{name}").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert[name]").unwrap(), "certname");
+
+        // Test quote and backslash removal
+        assert_eq!(sanitize_certificate_name("cert'name").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert\"name").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert\\name").unwrap(), "certname");
+
+        // Test control character removal
+        assert_eq!(sanitize_certificate_name("cert\nname").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert\rname").unwrap(), "certname");
+        assert_eq!(sanitize_certificate_name("cert\tname").unwrap(), "certname");
+
+        // Test whitespace trimming
+        assert_eq!(sanitize_certificate_name("  cert  ").unwrap(), "cert");
+        assert_eq!(sanitize_certificate_name("\t\ncert\t\n").unwrap(), "cert");
+
+        // Test combination of attacks
+        assert_eq!(sanitize_certificate_name("../etc/passwd; rm -rf /").unwrap(), "etcpasswd rm -rf ");
+        assert_eq!(sanitize_certificate_name("../../../root && cat /etc/shadow").unwrap(), "root  cat etsshadow");
+
+        // Test valid names remain unchanged
+        assert_eq!(sanitize_certificate_name("my-certificate").unwrap(), "my-certificate");
+        assert_eq!(sanitize_certificate_name("cert123.example.com").unwrap(), "cert123.example.com");
+    }
+
+    #[test]
+    fn test_certificate_name_sanitization_edge_cases() {
+        // Test empty result after sanitization
+        assert!(sanitize_certificate_name("../../../").is_err(), "Pure path traversal should result in error");
+        assert!(sanitize_certificate_name(";;;&&&|||").is_err(), "Pure metacharacters should result in error");
+        assert!(sanitize_certificate_name("   ").is_err(), "Only whitespace should result in error");
+
+        // Test mixed valid and invalid characters
+        assert_eq!(sanitize_certificate_name("my-cert/../../../name").unwrap(), "my-certname");
+        assert_eq!(sanitize_certificate_name("cert;valid;name").unwrap(), "certvalidname");
+
+        // Test very long input with dangerous chars gets truncated
+        let long_dangerous = "../".repeat(100) + "short";
+        let result = sanitize_certificate_name(&long_dangerous);
+        assert!(result.is_ok());
+        assert!(result.unwrap().len() <= 255, "Sanitized result should still respect length limits");
+    }
+
+    #[test]
+    fn test_certificate_name_sanitization_preserves_valid_chars() {
+        // Test that valid characters are preserved
+        assert_eq!(sanitize_certificate_name("My_Certificate-123.example.com").unwrap(), "My_Certificate-123.example.com");
+        assert_eq!(sanitize_certificate_name("test@subdomain").unwrap(), "testsubdomain");
+        assert_eq!(sanitize_certificate_name("cert.with.dots").unwrap(), "cert.with.dots");
+        assert_eq!(sanitize_certificate_name("cert/with/slashes").unwrap(), "certwithslashes");
+    }
+}

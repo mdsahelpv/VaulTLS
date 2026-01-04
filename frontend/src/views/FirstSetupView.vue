@@ -55,9 +55,10 @@
           <label for="email" class="form-label">E-Mail</label>
           <input
               id="email"
-              type="text"
+              type="email"
               v-model="email"
               class="form-control"
+              maxlength="254"
               required
           />
         </div>
