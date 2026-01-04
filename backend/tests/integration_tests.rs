@@ -920,4 +920,142 @@ mod validation_tests {
         assert_eq!(sanitize_certificate_name("cert.with.dots").unwrap(), "cert.with.dots");
         assert_eq!(sanitize_certificate_name("cert/with/slashes").unwrap(), "certwithslashes");
     }
+
+    #[test]
+    fn test_certificate_validity_validation() {
+        // Valid validity periods
+        assert!(validate_certificate_validity_years(1).is_ok());
+        assert!(validate_certificate_validity_years(5).is_ok());
+        assert!(validate_certificate_validity_years(10).is_ok());
+
+        // Invalid validity periods
+        assert!(validate_certificate_validity_years(0).is_err());
+        assert!(validate_certificate_validity_years(11).is_err());
+        assert!(validate_certificate_validity_years(-1).is_err());
+    }
+
+    #[test]
+    fn test_certificate_validity_days_validation() {
+        // Valid validity periods
+        assert!(validate_certificate_validity_days(1).is_ok());
+        assert!(validate_certificate_validity_days(365).is_ok());
+        assert!(validate_certificate_validity_days(3650).is_ok());
+
+        // Invalid validity periods
+        assert!(validate_certificate_validity_days(0).is_err());
+        assert!(validate_certificate_validity_days(3651).is_err());
+        assert!(validate_certificate_validity_days(-1).is_err());
+    }
+
+    #[test]
+    fn test_key_type_and_size_validation() {
+        // Valid RSA combinations
+        assert!(validate_key_type_and_size(Some("rsa"), Some("2048")).is_ok());
+        assert!(validate_key_type_and_size(Some("rsa"), Some("3072")).is_ok());
+        assert!(validate_key_type_and_size(Some("rsa"), Some("4096")).is_ok());
+
+        // Valid ECDSA combinations
+        assert!(validate_key_type_and_size(Some("ecdsa"), Some("256")).is_ok());
+        assert!(validate_key_type_and_size(Some("ecdsa"), Some("384")).is_ok());
+
+        // Invalid combinations
+        assert!(validate_key_type_and_size(Some("rsa"), Some("256")).is_err());
+        assert!(validate_key_type_and_size(Some("rsa"), Some("1024")).is_err());
+        assert!(validate_key_type_and_size(Some("ecdsa"), Some("2048")).is_err());
+        assert!(validate_key_type_and_size(Some("invalid"), Some("2048")).is_err());
+        assert!(validate_key_type_and_size(Some("rsa"), Some("invalid")).is_err());
+    }
+
+    #[test]
+    fn test_hash_algorithm_validation() {
+        // Valid hash algorithms
+        assert!(validate_hash_algorithm(Some("sha256")).is_ok());
+        assert!(validate_hash_algorithm(Some("sha384")).is_ok());
+        assert!(validate_hash_algorithm(Some("sha512")).is_ok());
+
+        // Invalid hash algorithms
+        assert!(validate_hash_algorithm(Some("md5")).is_err());
+        assert!(validate_hash_algorithm(Some("sha1")).is_err());
+        assert!(validate_hash_algorithm(Some("invalid")).is_err());
+    }
+
+    #[test]
+    fn test_certificate_type_validation() {
+        use vaultls::data::enums::CertificateType;
+
+        // Valid certificate types
+        assert!(validate_certificate_type(Some(CertificateType::Client)).is_ok());
+        assert!(validate_certificate_type(Some(CertificateType::Server)).is_ok());
+        assert!(validate_certificate_type(Some(CertificateType::SubordinateCA)).is_ok());
+
+        // Invalid certificate type (None)
+        assert!(validate_certificate_type(None).is_err());
+    }
+
+    #[test]
+    fn test_san_entries_validation() {
+        // Valid SAN entries
+        assert!(validate_san_entries(&["example.com".to_string()], &[]).is_ok());
+        assert!(validate_san_entries(&[], &["192.168.1.1".to_string()]).is_ok());
+        assert!(validate_san_entries(&["example.com".to_string()], &["192.168.1.1".to_string()]).is_ok());
+
+        // Valid DNS names with hyphens and dots
+        assert!(validate_san_entries(&["sub.example.com".to_string()], &[]).is_ok());
+        assert!(validate_san_entries(&["test-domain.example.com".to_string()], &[]).is_ok());
+
+        // Valid IP addresses (IPv4 and IPv6)
+        assert!(validate_san_entries(&[], &["192.168.1.1".to_string()]).is_ok());
+        assert!(validate_san_entries(&[], &["2001:db8::1".to_string()]).is_ok());
+
+        // Invalid DNS names
+        assert!(validate_san_entries(&["example..com".to_string()], &[]).is_err());
+        assert!(validate_san_entries(&[".example.com".to_string()], &[]).is_err());
+        assert!(validate_san_entries(&["example.com.".to_string()], &[]).is_err());
+        assert!(validate_san_entries(&["example@com".to_string()], &[]).is_err());
+        assert!(validate_san_entries(&["example com".to_string()], &[]).is_err());
+
+        // Invalid IP addresses
+        assert!(validate_san_entries(&[], &["192.168.1.256".to_string()]).is_err());
+        assert!(validate_san_entries(&[], &["192.168.1".to_string()]).is_err());
+        assert!(validate_san_entries(&[], &["invalid.ip".to_string()]).is_err());
+
+        // Too many SAN entries
+        let too_many_dns = (0..101).map(|i| format!("example{}.com", i)).collect::<Vec<_>>();
+        assert!(validate_san_entries(&too_many_dns, &[]).is_err());
+
+        // Empty entries are skipped (considered valid)
+        assert!(validate_san_entries(&["".to_string(), "example.com".to_string()], &[]).is_ok());
+    }
+
+    #[test]
+    fn test_ip_address_validation() {
+        // Valid IPv4 addresses
+        assert!(is_valid_ip_address("192.168.1.1"));
+        assert!(is_valid_ip_address("10.0.0.1"));
+        assert!(is_valid_ip_address("172.16.0.1"));
+        assert!(is_valid_ip_address("0.0.0.0"));
+        assert!(is_valid_ip_address("255.255.255.255"));
+
+        // Invalid IPv4 addresses
+        assert!(!is_valid_ip_address("192.168.1.256"));
+        assert!(!is_valid_ip_address("192.168.1"));
+        assert!(!is_valid_ip_address("192.168.1.1.1"));
+        assert!(!is_valid_ip_address("192.168.1.-1"));
+        assert!(!is_valid_ip_address("192.168.1.1a"));
+
+        // Valid IPv6 addresses
+        assert!(is_valid_ip_address("2001:db8::1"));
+        assert!(is_valid_ip_address("::1"));
+        assert!(is_valid_ip_address("::"));
+        assert!(is_valid_ip_address("2001:db8:85a3:8d3:1319:8a2e:370:7344"));
+
+        // Invalid IPv6 addresses
+        assert!(!is_valid_ip_address("2001:db8::1::2")); // Double colon
+        assert!(!is_valid_ip_address("gggg::1")); // Invalid hex
+        assert!(!is_valid_ip_address("2001:db8::")); // Trailing colon
+
+        // Not IP addresses at all
+        assert!(!is_valid_ip_address("example.com"));
+        assert!(!is_valid_ip_address("not.an.ip"));
+    }
 }

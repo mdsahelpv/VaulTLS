@@ -68,14 +68,14 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 - [x] Test with malicious certificate name inputs
 
 #### 2.4 Validate Certificate Parameters
-- [ ] Add validation for validity periods (min/max bounds)
-- [ ] Add validation for key sizes (acceptable values only)
-- [ ] Add validation for hash algorithms (whitelist only)
-- [ ] Add validation for certificate types
-- [ ] Validate SAN entries (DNS names and IP addresses)
-- [ ] Add validation in `backend/src/api.rs:create_user_certificate()`
-- [ ] Add validation in `backend/src/api.rs:sign_csr_certificate()`
-- [ ] Return descriptive error messages for invalid parameters
+- [x] Add validation for validity periods (min/max bounds)
+- [x] Add validation for key sizes (acceptable values only)
+- [x] Add validation for hash algorithms (whitelist only)
+- [x] Add validation for certificate types
+- [x] Validate SAN entries (DNS names and IP addresses)
+- [x] Add validation in `backend/src/api.rs:create_user_certificate()`
+- [x] Add validation in `backend/src/api.rs:sign_csr_certificate()`
+- [x] Return descriptive error messages for invalid parameters
 
 ---
 

@@ -120,6 +120,210 @@ fn validate_custom_revocation_reason(reason: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Validate certificate validity period (in years)
+fn validate_certificate_validity_years(years: u64) -> Result<(), ApiError> {
+    const MIN_VALIDITY_YEARS: u64 = 1;
+    const MAX_VALIDITY_YEARS: u64 = 10;
+
+    if years < MIN_VALIDITY_YEARS {
+        return Err(ApiError::BadRequest(format!(
+            "Certificate validity must be at least {} year(s), got {}",
+            MIN_VALIDITY_YEARS, years
+        )));
+    }
+
+    if years > MAX_VALIDITY_YEARS {
+        return Err(ApiError::BadRequest(format!(
+            "Certificate validity cannot exceed {} years, got {}",
+            MAX_VALIDITY_YEARS, years
+        )));
+    }
+
+    Ok(())
+}
+
+/// Validate certificate validity period (in days)
+fn validate_certificate_validity_days(days: i64) -> Result<(), ApiError> {
+    const MIN_VALIDITY_DAYS: i64 = 1;
+    const MAX_VALIDITY_DAYS: i64 = 3650; // 10 years
+
+    if days < MIN_VALIDITY_DAYS {
+        return Err(ApiError::BadRequest(format!(
+            "Certificate validity must be at least {} day(s), got {}",
+            MIN_VALIDITY_DAYS, days
+        )));
+    }
+
+    if days > MAX_VALIDITY_DAYS {
+        return Err(ApiError::BadRequest(format!(
+            "Certificate validity cannot exceed {} days (10 years), got {}",
+            MAX_VALIDITY_DAYS, days
+        )));
+    }
+
+    Ok(())
+}
+
+/// Validate key type and size combination
+fn validate_key_type_and_size(key_type: Option<&str>, key_size: Option<&str>) -> Result<(), ApiError> {
+    let key_type = key_type.unwrap_or("rsa");
+    let key_size = key_size.unwrap_or("4096");
+
+    match key_type.to_lowercase().as_str() {
+        "rsa" => {
+            match key_size {
+                "2048" | "3072" | "4096" => Ok(()),
+                _ => Err(ApiError::BadRequest(format!(
+                    "Invalid RSA key size '{}'. Supported sizes: 2048, 3072, 4096",
+                    key_size
+                ))),
+            }
+        },
+        "ecdsa" => {
+            match key_size {
+                "256" | "384" => Ok(()),
+                _ => Err(ApiError::BadRequest(format!(
+                    "Invalid ECDSA key size '{}'. Supported sizes: 256, 384",
+                    key_size
+                ))),
+            }
+        },
+        _ => Err(ApiError::BadRequest(format!(
+            "Invalid key type '{}'. Supported types: rsa, ecdsa",
+            key_type
+        ))),
+    }
+}
+
+/// Validate hash algorithm
+fn validate_hash_algorithm(hash_alg: Option<&str>) -> Result<(), ApiError> {
+    let hash_alg = hash_alg.unwrap_or("sha256");
+
+    match hash_alg.to_lowercase().as_str() {
+        "sha256" | "sha384" | "sha512" => Ok(()),
+        _ => Err(ApiError::BadRequest(format!(
+            "Invalid hash algorithm '{}'. Supported algorithms: sha256, sha384, sha512",
+            hash_alg
+        ))),
+    }
+}
+
+/// Validate certificate type
+fn validate_certificate_type(cert_type: Option<CertificateType>) -> Result<(), ApiError> {
+    match cert_type {
+        Some(CertificateType::Client) | Some(CertificateType::Server) | Some(CertificateType::SubordinateCA) => Ok(()),
+        None => Err(ApiError::BadRequest("Certificate type is required".to_string())),
+    }
+}
+
+/// Validate Subject Alternative Names (SAN) entries
+fn validate_san_entries(dns_names: &[String], ip_addresses: &[String]) -> Result<(), ApiError> {
+    // Check total number of SAN entries (reasonable limit)
+    let total_san_entries = dns_names.len() + ip_addresses.len();
+    const MAX_SAN_ENTRIES: usize = 100;
+
+    if total_san_entries > MAX_SAN_ENTRIES {
+        return Err(ApiError::BadRequest(format!(
+            "Too many Subject Alternative Name entries (maximum {}, got {})",
+            MAX_SAN_ENTRIES, total_san_entries
+        )));
+    }
+
+    // Validate DNS names
+    for dns_name in dns_names {
+        if dns_name.trim().is_empty() {
+            continue; // Skip empty entries
+        }
+
+        validate_dns_name(dns_name)?;
+
+        // Basic DNS name format validation (RFC 1035)
+        if dns_name.contains("..") || dns_name.starts_with('.') || dns_name.ends_with('.') {
+            return Err(ApiError::BadRequest(format!(
+                "Invalid DNS name format: '{}'. DNS names cannot start/end with '.' or contain '..'",
+                dns_name
+            )));
+        }
+
+        // Check for valid characters (letters, numbers, hyphens, dots)
+        if !dns_name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '.') {
+            return Err(ApiError::BadRequest(format!(
+                "Invalid DNS name '{}'. Only alphanumeric characters, hyphens, and dots are allowed",
+                dns_name
+            )));
+        }
+    }
+
+    // Validate IP addresses
+    for ip_addr in ip_addresses {
+        if ip_addr.trim().is_empty() {
+            continue; // Skip empty entries
+        }
+
+        validate_ip_address(ip_addr)?;
+
+        // Basic IP address validation
+        if !is_valid_ip_address(ip_addr) {
+            return Err(ApiError::BadRequest(format!(
+                "Invalid IP address format: '{}'",
+                ip_addr
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Basic IP address validation (IPv4 and IPv6)
+fn is_valid_ip_address(ip: &str) -> bool {
+    // IPv4 validation
+    if ip.contains('.') {
+        let parts: Vec<&str> = ip.split('.').collect();
+        if parts.len() != 4 {
+            return false;
+        }
+        for part in parts {
+            if part.is_empty() || part.len() > 3 {
+                return false;
+            }
+            if let Ok(num) = part.parse::<u8>() {
+                // Valid 0-255 range
+                continue;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // IPv6 validation (basic check)
+    if ip.contains(':') {
+        // Remove zone identifier if present
+        let ip_without_zone = ip.split('%').next().unwrap_or(ip);
+
+        // Count colons
+        let colon_count = ip_without_zone.chars().filter(|&c| c == ':').count();
+
+        // IPv6 should have between 2 and 7 colons (or 8 groups with double colon)
+        if colon_count < 2 || colon_count > 7 {
+            return false;
+        }
+
+        // Basic format check (hex digits, colons, double colon)
+        let valid_chars = ip_without_zone.chars().all(|c|
+            c.is_ascii_hexdigit() || c == ':' || c == '%'
+        );
+
+        if !valid_chars {
+            return false;
+        }
+
+        return true;
+    }
+
+    false
+}
+
 /// Sanitize certificate name by removing or escaping dangerous characters
 /// This prevents path traversal and command injection attacks
 fn sanitize_certificate_name(name: &str) -> Result<String, ApiError> {
@@ -1055,6 +1259,23 @@ pub(crate) async fn create_user_certificate(
     }
 
     debug!(cert_name=?sanitized_cert_name, "Creating certificate");
+
+    // Validate certificate parameters
+    validate_certificate_validity_years(payload.validity_in_years.unwrap_or(1))?;
+    validate_key_type_and_size(payload.key_type.as_deref(), payload.key_size.as_deref())?;
+    validate_hash_algorithm(payload.hash_algorithm.as_deref())?;
+    validate_certificate_type(payload.cert_type)?;
+
+    // Validate SAN entries if provided
+    if let Some(dns_names) = &payload.dns_names {
+        if let Some(ip_addresses) = &payload.ip_addresses {
+            validate_san_entries(dns_names, ip_addresses)?;
+        } else {
+            validate_san_entries(dns_names, &Vec::new())?;
+        }
+    } else if let Some(ip_addresses) = &payload.ip_addresses {
+        validate_san_entries(&Vec::new(), ip_addresses)?;
+    }
 
     let password_rule = state.settings.get_password_rule();
     let use_random_password = if password_rule == PasswordRule::System
@@ -2773,6 +2994,11 @@ pub(crate) async fn sign_csr_certificate(
     // Sanitize the certificate name
     let cert_name = sanitize_certificate_name(&raw_cert_name)?;
     debug!("CSR cert name: '{}' -> sanitized: '{}'", raw_cert_name, cert_name);
+
+    // Validate certificate parameters
+    if let Some(validity_days) = upload.validity_in_days {
+        validate_certificate_validity_days(validity_days)?;
+    }
 
     info!("Signing certificate '{}' for user '{}' with CA '{}'", cert_name, user.name, ca.id);
 
