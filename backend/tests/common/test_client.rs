@@ -114,6 +114,7 @@ impl VaulTLSClient {
             key_size: None,
             hash_algorithm: None,
             aia_url: None,
+            ocsp_url: None,
             cdp_url: None,
         };
 
@@ -145,6 +146,7 @@ impl VaulTLSClient {
             key_size: None,
             hash_algorithm: None,
             aia_url: None,
+            ocsp_url: None,
             cdp_url: None,
         };
 
@@ -307,6 +309,7 @@ impl VaulTLSClient {
             key_size: None,
             hash_algorithm: None,
             aia_url: None,
+            ocsp_url: None,
             cdp_url: None,
         };
 

@@ -28,7 +28,7 @@ pub enum AuditEventCategory {
 }
 
 /// Represents a user in the system
-#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone)]
 pub struct User {
     pub id: i64,
     pub name: String,
@@ -37,6 +37,19 @@ pub struct User {
     pub password_hash: Option<String>,
     pub oidc_id: Option<String>,
     pub role: crate::data::enums::UserRole,
+}
+
+impl std::fmt::Debug for User {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("User")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("email", &self.email)
+            .field("password_hash", &"[REDACTED]") // Never log password hashes
+            .field("oidc_id", &self.oidc_id)
+            .field("role", &self.role)
+            .finish()
+    }
 }
 
 /// Represents an X.509 certificate in the system

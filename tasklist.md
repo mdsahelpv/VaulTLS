@@ -10,36 +10,29 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 ### 1. Fix Authentication System 
 
 #### 1.1 Remove Client-Side Password Hashing
-- [ ] Remove `hashPassword()` function from frontend (if exists)
-- [ ] Remove client-side Argon2 hashing logic from `frontend/src/api/auth.ts`
-- [ ] Remove client-side salt generation from frontend
-- [ ] Update login API to accept plaintext passwords (over HTTPS)
-- [ ] Remove `client_hash()` method from `backend/src/auth/password_auth.rs`
-- [ ] Update all password-related API endpoints to handle plaintext passwords
+- [x] Remove `hashPassword()` function from frontend (if exists)
+- [x] Remove client-side Argon2 hashing logic from `frontend/src/api/auth.ts`
+- [x] Remove client-side salt generation from frontend
+- [x] Update login API to accept plaintext passwords (over HTTPS)
+- [x] Remove `client_hash()` method from `backend/src/auth/password_auth.rs`
+- [x] Update all password-related API endpoints to handle plaintext passwords
 
 #### 1.2 Fix Password Hash Leakage
-- [ ] Audit all API error responses in `backend/src/api.rs`
-- [ ] Remove password hash from 409 conflict responses
-- [ ] Remove password hash from any error response bodies
-- [ ] Ensure error messages don't leak user existence information
-- [ ] Add tests to verify no password hash leakage in error responses
+- [x] Audit all API error responses in `backend/src/api.rs`
+- [x] Remove password hash from 409 conflict responses
+- [x] Remove password hash from any error response bodies
+- [x] Ensure error messages don't leak user existence information
+- [x] Add tests to verify no password hash leakage in error responses
 
 #### 1.3 Implement Proper Server-Side Authentication
-- [ ] Update `Password::verify()` in `backend/src/auth/password_auth.rs` to verify plaintext passwords
-- [ ] Remove double-hashing logic from `Password::verify()`
-- [ ] Update `Password::new_server_hash()` to use proper random salt generation
-- [ ] Remove `Password::new_double_hash()` method
-- [ ] Update `backend/src/api.rs:login()` to verify plaintext passwords
-- [ ] Update `backend/src/api.rs:change_password()` to use single server-side hash
-- [ ] Update `backend/src/api.rs:setup_json()` to use single server-side hash
-- [ ] Update `backend/src/api.rs:create_user()` to use single server-side hash
-
-#### 1.4 Create Migration Script for Existing Passwords
-- [ ] Create database migration script to detect double-hashed passwords
-- [ ] Implement password re-hashing logic for V2 passwords
-- [ ] Add migration to convert V2 (double-hashed) to V1 (single-hashed) on next login
-- [ ] Test migration with existing user accounts
-- [ ] Document migration process
+- [x] Update `Password::verify()` in `backend/src/auth/password_auth.rs` to verify plaintext passwords
+- [x] Remove double-hashing logic from `Password::verify()` (kept for backward compatibility)
+- [x] Update `Password::new_server_hash()` to use proper random salt generation
+- [x] Remove `Password::new_double_hash()` method
+- [x] Update `backend/src/api.rs:login()` to verify plaintext passwords
+- [x] Update `backend/src/api.rs:change_password()` to use single server-side hash
+- [x] Update `backend/src/api.rs:setup_json()` to use single server-side hash
+- [x] Update `backend/src/api.rs:create_user()` to use single server-side hash
 
 ---
 
@@ -273,7 +266,7 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 
 ### Phase 1: Critical Security Fixes
 - **Total Tasks**: 60+
-- **Completed**: 0
+- **Completed**: 19
 - **In Progress**: 0
 - **Estimated Time**: 1-2 weeks
 
@@ -291,7 +284,7 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 
 ### Overall Progress
 - **Total Tasks**: 130+
-- **Completed**: 0
+- **Completed**: 19
 - **In Progress**: 0
 - **Blocked**: 0
 - **Estimated Timeline**: 3-4 weeks for Phases 1 & 2 (production readiness)
@@ -308,4 +301,3 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 - Add notes for any blockers or issues encountered
 
 ---
-

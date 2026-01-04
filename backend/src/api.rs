@@ -2156,6 +2156,11 @@ pub(crate) async fn create_user(
     payload: Json<CreateUserRequest>,
     _authentication: AuthenticatedPrivileged
 ) -> Result<Json<i64>, ApiError> {
+    // Check if a user with this email already exists
+    if let Ok(_) = state.db.get_user_by_email(payload.user_email.clone()).await {
+        return Err(ApiError::Conflict("A user with this email address already exists".to_string()));
+    }
+
     let trim_password = payload.password.as_deref().unwrap_or("").trim();
 
     let password = match trim_password {

@@ -444,6 +444,7 @@ async fn test_ocsp_multiple_certificates_scenarios() -> Result<()> {
             key_size: None,
             hash_algorithm: None,
             aia_url: None,
+            ocsp_url: None,
             cdp_url: None,
         };
 
