@@ -497,7 +497,7 @@ async fn setup_common(
     if let Some(password) = password {
         debug!("Setting password authentication enabled");
         state.settings.set_password_enabled(true)?;
-        password_hash = Some(Password::new_double_hash(password)?.to_string());
+        password_hash = Some(Password::new_server_hash(password)?.to_string());
     }
 
     // Validate CA certificate first before creating user
@@ -755,7 +755,7 @@ pub(crate) async fn change_password(
         }
     }
 
-    let password_hash = Password::new_double_hash(&change_pass_req.new_password)?;
+    let password_hash = Password::new_server_hash(&change_pass_req.new_password)?;
     state.db.set_user_password(user_id, password_hash).await?;
 
     // Invalidate current session after password change for security
@@ -965,11 +965,14 @@ pub(crate) async fn create_user_certificate(
         cert_builder = cert_builder.set_hash_algorithm(hash_alg)?;
     }
 
-    // Set AIA and CDP URLs from request parameters if provided
+    // Set AIA, OCSP and CDP URLs from request parameters if provided
     // This applies to all certificate types (Client, Server, SubordinateCA)
     let mut cert_builder = cert_builder;
     if let Some(aia_url) = &payload.aia_url {
         cert_builder = cert_builder.set_authority_info_access(aia_url)?;
+    }
+    if let Some(ocsp_url) = &payload.ocsp_url {
+        cert_builder = cert_builder.set_ocsp_url(ocsp_url)?;
     }
     if let Some(cdp_url) = &payload.cdp_url {
         cert_builder = cert_builder.set_crl_distribution_points(cdp_url)?;
@@ -977,7 +980,7 @@ pub(crate) async fn create_user_certificate(
 
     // For client/server certificates, prioritize request-provided URLs over settings
     let final_crl_url = payload.cdp_url.as_deref().or(crl_url);
-    let final_ocsp_url = payload.aia_url.as_deref().or(ocsp_url);
+    let final_ocsp_url = payload.ocsp_url.as_deref().or(payload.aia_url.as_deref()).or(ocsp_url);
 
     let mut cert = match payload.cert_type.unwrap_or_default() {
         CertificateType::Client => {
@@ -2161,7 +2164,7 @@ pub(crate) async fn create_user(
     };
 
     let password_hash: Option<String> = match password {
-        Some(p) => Some(Password::new_double_hash(p)?.to_string()),
+        Some(p) => Some(Password::new_server_hash(p)?.to_string()),
         None => None,
     };
 

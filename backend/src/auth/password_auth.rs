@@ -49,37 +49,34 @@ impl FromSql for Password {
 
 impl Password {
     /// Verify password hash with corresponding password
-    pub(crate) fn verify(&self, other: &str) -> bool {
-        let mut password_to_verify = Some(other.to_string());
-        let password_hash = match self {
-            Password::V1(inner) => inner.password_hash(),
-            Password::V2(inner) => {
-                if !other.starts_with("$argon2id") {
-                    // Plaintext password needs to be double hashed
-                    password_to_verify = Self::client_hash(other).ok()
-                }
-                inner.password_hash()
+    pub(crate) fn verify(&self, password: &str) -> bool {
+        match self {
+            Password::V1(inner) => {
+                // V1: Direct server-side hash verification
+                ARGON2.verify_password(password.as_bytes(), &inner.password_hash()).is_ok()
             },
-        };
-        if let Some(password_to_verify) = password_to_verify {
-            ARGON2.verify_password(password_to_verify.as_bytes(), &password_hash).is_ok()
-        } else {
-            false
+            Password::V2(inner) => {
+                // V2: Double-hashed password (client_hash + server_hash)
+                // For backward compatibility, apply client-side hashing to the plaintext password
+                let salt_str = "VaulTLSVaulTLSVaulTLSVaulTLS";
+                if let Ok(salt) = SaltString::encode_b64(salt_str.as_bytes()) {
+                    if let Ok(client_hash_result) = ARGON2.hash_password(password.as_bytes(), &salt) {
+                        let client_hash_string = client_hash_result.serialize();
+                        // Then verify the client_hash result against the stored V2 hash
+                        ARGON2.verify_password(client_hash_string.as_bytes(), &inner.password_hash()).is_ok()
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
         }
     }
 
-    /// Hashes a password using Argon2 client-side
-    fn client_hash(password: &str) -> Result<String, ApiError> {
-        let salt_str = "VaulTLSVaulTLSVaulTLSVaulTLS";
-        let salt = SaltString::encode_b64(salt_str.as_bytes())?;
 
-        let password_hash_string = ARGON2.hash_password(password.as_bytes(), &salt)
-            .map_err(|_| ApiError::Other("Failed to hash password".to_string()))?
-            .serialize();
-        Ok(password_hash_string.to_string())
-    }
     
-    /// Hashes a password using Argon2 server-side
+    /// Hashes a password using Argon2 server-side with random salt
     pub(crate) fn new_server_hash(password: &str) -> Result<Password, ApiError> {
         let salt = SaltString::generate(&mut OsRng);
 
@@ -87,17 +84,9 @@ impl Password {
             .map_err(|_| ApiError::Other("Failed to hash password".to_string()))?
             .serialize();
 
-        if password.starts_with("$argon2id") {
-            Ok(Password::V2(password_hash_string))
-        } else {
-            Ok(Password::V1(password_hash_string))
-        }
+        // Always create V1 (single server-side hash) for new passwords
+        Ok(Password::V1(password_hash_string))
     }
     
 
-    /// Hashes a password using Argon2 performing the steps of both the frontend and backend
-    pub(crate) fn new_double_hash(password: &str) -> Result<Password, ApiError> {
-        let first_hash = Self::client_hash(password)?;
-        Self::new_server_hash(&first_hash)
-    }
 }

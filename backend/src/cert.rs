@@ -186,6 +186,8 @@ pub struct CertificateBuilder {
     // AIA and CDP extensions for CA certificates
     authority_info_access: Option<String>,
     crl_distribution_points: Option<String>,
+    // OCSP responder URL
+    ocsp_url: Option<String>,
     // SAN extensions tracking
     dns_names: Vec<String>,
     ip_addresses: Vec<String>,
@@ -544,6 +546,7 @@ impl CertificateBuilder {
                 .map(|s| s.to_string()),
             certificate_policies_oid: None, certificate_policies_cps_url: None,
             authority_info_access: None, crl_distribution_points: None,
+            ocsp_url: None,
             dns_names: Vec::new(),
             ip_addresses: Vec::new(),
             path_length: None,
@@ -630,6 +633,7 @@ impl CertificateBuilder {
         certificate_policies_cps_url: None,
         authority_info_access: None,
         crl_distribution_points: None,
+        ocsp_url: None,
         dns_names: Vec::new(),
         ip_addresses: Vec::new(),
         path_length: None,
@@ -1160,6 +1164,11 @@ authorityKeyIdentifier = keyid:always
         Ok(self)
     }
 
+    pub fn set_ocsp_url(mut self, ocsp_url: &str) -> Result<Self, anyhow::Error> {
+        self.ocsp_url = Some(ocsp_url.to_string());
+        Ok(self)
+    }
+
     /// Build the full subject DN using stored DN fields
     fn build_subject_name(&self) -> Result<X509Name, anyhow::Error> {
         let mut name_builder = X509NameBuilder::new()?;
@@ -1586,8 +1595,13 @@ keyUsage = nonRepudiation, digitalSignature, keyEncipherment
                 config_content.push_str(&format!("crlDistributionPoints = URI:{crl_url}\n"));
             }
 
+            // Add Authority Information Access (CA Issuers) extension if requested
+            if let Some(aia_url) = ocsp_url {
+                config_content.push_str(&format!("authorityInfoAccess = caIssuers;URI:{aia_url}\n"));
+            }
+
             // Add Authority Information Access (OCSP) extension if requested
-            if let Some(ocsp_url) = ocsp_url {
+            if let Some(ocsp_url) = &self.ocsp_url {
                 config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{ocsp_url}\n"));
             }
 

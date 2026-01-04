@@ -99,6 +99,7 @@ pub struct CreateUserCertificateRequest {
     pub key_size: Option<String>,
     pub hash_algorithm: Option<String>,
     pub aia_url: Option<String>,
+    pub ocsp_url: Option<String>,
     pub cdp_url: Option<String>
 }
 

@@ -115,29 +115,40 @@
 
             <!-- Certificate URLs -->
             <div class="mb-3">
-              <h6 class="mb-2">Certificate URLs (Optional)</h6>
+              <h6 class="mb-2">Certificate URLs</h6>
               <div class="row">
-                <div class="col-md-6">
+                <div class="col-md-4">
                   <label for="aiaUrl" class="form-label">Authority Information Access (AIA)</label>
                   <input
                     id="aiaUrl"
                     v-model="certReq.aia_url"
                     type="url"
                     class="form-control"
-                    placeholder="http://ocsp.example.com/aia"
+                    :placeholder="`${getCurrentBaseUrl()}/api/certificates/ca/download`"
                   />
-                  <div class="form-text">URL for certificate authority information</div>
+                  <div class="form-text text-muted">URL where CA certificates can be downloaded</div>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
+                  <label for="ocspUrl" class="form-label">OCSP Responder URL</label>
+                  <input
+                    id="ocspUrl"
+                    v-model="certReq.ocsp_url"
+                    type="url"
+                    class="form-control"
+                    :placeholder="`${getCurrentBaseUrl()}/api/certificates/ocsp`"
+                  />
+                  <div class="form-text text-muted">URL for real-time certificate status checking</div>
+                </div>
+                <div class="col-md-4">
                   <label for="cdpUrl" class="form-label">CRL Distribution Point (CDP)</label>
                   <input
                     id="cdpUrl"
                     v-model="certReq.cdp_url"
                     type="url"
                     class="form-control"
-                    placeholder="http://crl.example.com/crl"
+                    :placeholder="`${getCurrentBaseUrl()}/api/certificates/crl`"
                   />
-                  <div class="form-text">URL for certificate revocation list</div>
+                  <div class="form-text text-muted">URL where Certificate Revocation List can be downloaded</div>
                 </div>
               </div>
             </div>
@@ -315,6 +326,7 @@ const certReq = ref<CertificateRequirements>({
   key_size: '4096',
   hash_algorithm: 'sha256',
   aia_url: '',
+  ocsp_url: '',
   cdp_url: '',
 });
 
@@ -359,6 +371,7 @@ const resetForm = () => {
     key_size: '4096',
     hash_algorithm: 'sha256',
     aia_url: '',
+    ocsp_url: '',
     cdp_url: '',
   };
   showPassword.value = false;
@@ -388,6 +401,12 @@ const generateCertificate = async () => {
     console.error('Failed to generate certificate:', error);
     // TODO: Show error message to user
   }
+};
+
+// Function to get current base URL
+const getCurrentBaseUrl = () => {
+  const origin = window.location.origin;
+  return origin || 'http://localhost:8000';
 };
 
 // Watch for key type changes to update key size options

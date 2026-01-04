@@ -13,10 +13,6 @@ export default defineConfig({
     vueJsx(),
     vueDevTools(),
   ],
-  test: {
-    globals: true,
-    environment: 'jsdom',
-  },
   resolve: {
     alias: {
       '@' : path.resolve(__dirname, './src'),
