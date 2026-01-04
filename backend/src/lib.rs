@@ -30,6 +30,7 @@ mod api;
 mod notification;
 mod audit;
 pub mod ratelimit;
+mod services;
 
 type ApiError = data::error::ApiError;
 
@@ -140,18 +141,40 @@ pub async fn create_rocket() -> Rocket<Build> {
     info!("Audit service initialized");
 
     let db_arc = Arc::new(db);
+    let settings_arc = Arc::new(settings);
+
+    // Initialize services
+    let certificate_service = Arc::new(crate::services::CertificateService::new(
+        db_arc.clone(),
+        settings_arc.clone(),
+        mailer.clone(),
+    ));
+
+    let ca_service = Arc::new(crate::services::CAService::new(
+        db_arc.clone(),
+        settings_arc.clone(),
+    ));
+
+    let user_service = Arc::new(crate::services::UserService::new(
+        db_arc.clone(),
+        settings_arc.clone(),
+    ));
+
     let app_state = AppState {
         db: db_arc.clone(),
-        settings,
+        settings: (*settings_arc).clone(),
         oidc: Arc::new(Mutex::new(oidc)),
         mailer: mailer.clone(),
         audit: audit_service,
         crl_cache: Arc::new(Mutex::new(None)),
         ocsp_cache: Arc::new(Mutex::new(None)),
+        certificate_service,
+        ca_service,
+        user_service,
     };
 
     tokio::spawn(async move {
-        watch_expiry((*db_arc).clone(), mailer.clone()).await;
+        watch_expiry((*db_arc).clone(), mailer).await;
     });
 
     let cors = CorsOptions::default()
@@ -283,14 +306,37 @@ pub async fn create_test_rocket() -> Rocket<Build> {
     let audit_db = Arc::new(db.clone());
     let audit_service = crate::audit::create_audit_service(audit_db).await.expect("Failed to create audit service");
 
+    let db_arc = Arc::new(db);
+    let settings_arc = Arc::new(settings);
+
+    // Initialize services for test
+    let certificate_service = Arc::new(crate::services::CertificateService::new(
+        db_arc.clone(),
+        settings_arc.clone(),
+        Arc::new(Mutex::new(mailer)),
+    ));
+
+    let ca_service = Arc::new(crate::services::CAService::new(
+        db_arc.clone(),
+        settings_arc.clone(),
+    ));
+
+    let user_service = Arc::new(crate::services::UserService::new(
+        db_arc.clone(),
+        settings_arc.clone(),
+    ));
+
     let app_state = AppState {
-        db: Arc::new(db),
-        settings,
+        db: db_arc,
+        settings: (*settings_arc).clone(),
         oidc: Arc::new(Mutex::new(oidc)),
-        mailer: Arc::new(Mutex::new(mailer)),
+        mailer: Arc::new(Mutex::new(None)), // Not using mailer in tests
         audit: audit_service,
         crl_cache: Arc::new(Mutex::new(None)),
         ocsp_cache: Arc::new(Mutex::new(None)),
+        certificate_service,
+        ca_service,
+        user_service,
     };
 
 

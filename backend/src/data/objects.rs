@@ -103,6 +103,9 @@ pub struct AppState {
     pub audit: Arc<AuditService>,
     pub crl_cache: Arc<Mutex<Option<CrlCache>>>,
     pub ocsp_cache: Arc<Mutex<Option<OcspCache>>>,
+    pub certificate_service: Arc<crate::services::CertificateService>,
+    pub ca_service: Arc<crate::services::CAService>,
+    pub user_service: Arc<crate::services::UserService>,
 }
 
 /// Cache for Certificate Revocation List data
