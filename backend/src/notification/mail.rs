@@ -32,8 +32,10 @@ macro_rules! build_email_message {
 
 macro_rules! email_template {
     ($message:expr, $content:expr) => {{
-        let datetime_created_on = DateTime::from_timestamp($message.certificate.created_on / 1000, 0).unwrap();
-        let datetime_valid_until = DateTime::from_timestamp($message.certificate.valid_until / 1000, 0).unwrap();
+        let datetime_created_on = DateTime::from_timestamp($message.certificate.created_on / 1000, 0)
+            .ok_or_else(|| anyhow::anyhow!("Invalid certificate creation timestamp: {}", $message.certificate.created_on))?;
+        let datetime_valid_until = DateTime::from_timestamp($message.certificate.valid_until / 1000, 0)
+            .ok_or_else(|| anyhow::anyhow!("Invalid certificate expiry timestamp: {}", $message.certificate.valid_until))?;
         let created_on = datetime_created_on.format("%Y-%m-%d %H:%M:%S").to_string();
         let valid_until = datetime_valid_until.format("%Y-%m-%d %H:%M:%S").to_string();
 
@@ -123,7 +125,10 @@ impl Mailer {
         };
 
         if server.username.is_some() && server.password.is_some() {
-            let cred = Credentials::new(server.username.clone().unwrap(), server.password.clone().unwrap());
+            let cred = Credentials::new(
+                server.username.clone().expect("Username should be present"),
+                server.password.clone().expect("Password should be present")
+            );
             mail_builder = mail_builder.credentials(cred);
         }
 

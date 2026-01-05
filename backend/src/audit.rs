@@ -79,7 +79,7 @@ impl AuditService {
             id: 0, // Will be set by database
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("Failed to calculate timestamp: {e}"))?
                 .as_millis() as i64,
             event_type,
             event_category,

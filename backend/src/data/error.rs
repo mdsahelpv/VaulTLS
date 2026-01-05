@@ -133,4 +133,46 @@ impl From<zip::result::ZipError> for ApiError {
     }
 }
 
+impl From<base64::DecodeError> for ApiError {
+    fn from(error: base64::DecodeError) -> Self {
+        ApiError::BadRequest(format!("Invalid base64 encoding: {error}"))
+    }
+}
+
+impl From<hex::FromHexError> for ApiError {
+    fn from(error: hex::FromHexError) -> Self {
+        ApiError::BadRequest(format!("Invalid hexadecimal encoding: {error}"))
+    }
+}
+
+impl From<std::string::FromUtf8Error> for ApiError {
+    fn from(error: std::string::FromUtf8Error) -> Self {
+        ApiError::Other(format!("UTF-8 encoding error: {error}"))
+    }
+}
+
+impl From<chrono::ParseError> for ApiError {
+    fn from(error: chrono::ParseError) -> Self {
+        ApiError::Other(format!("Date/time parsing error: {error}"))
+    }
+}
+
+impl From<serde_json::Error> for ApiError {
+    fn from(error: serde_json::Error) -> Self {
+        ApiError::BadRequest(format!("JSON parsing error: {error}"))
+    }
+}
+
+impl From<String> for ApiError {
+    fn from(error: String) -> Self {
+        ApiError::Other(error)
+    }
+}
+
+impl From<&str> for ApiError {
+    fn from(error: &str) -> Self {
+        ApiError::Other(error.to_string())
+    }
+}
+
 impl Error for ApiError {}

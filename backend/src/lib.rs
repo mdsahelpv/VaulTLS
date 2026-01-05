@@ -41,22 +41,22 @@ pub async fn create_rocket() -> Rocket<Build> {
     filter = if let Ok(env_var) = env::var("VAULTLS_LOG_LEVEL") {
         match env_var.as_str() {
             "trace" => {
-                filter.add_directive("vaultls=trace".parse().unwrap())
-                      .add_directive("rocket=trace".parse().unwrap())
+                filter.add_directive("vaultls=trace".parse().expect("Invalid log directive: vaultls=trace"))
+                      .add_directive("rocket=trace".parse().expect("Invalid log directive: rocket=trace"))
             },
             "debug" => {
-                filter.add_directive("vaultls=debug".parse().unwrap())
-                      .add_directive("rocket=debug".parse().unwrap())
+                filter.add_directive("vaultls=debug".parse().expect("Invalid log directive: vaultls=debug"))
+                      .add_directive("rocket=debug".parse().expect("Invalid log directive: rocket=debug"))
             },
             "info" => {
-                filter.add_directive("vaultls=info".parse().unwrap())
-                      .add_directive("rocket=info".parse().unwrap())
+                filter.add_directive("vaultls=info".parse().expect("Invalid log directive: vaultls=info"))
+                      .add_directive("rocket=info".parse().expect("Invalid log directive: rocket=info"))
             },
-            "warn" => filter.add_directive("vaultls=warn".parse().unwrap()),
-            "error" => filter.add_directive("vaultls=error".parse().unwrap()),
-            _ => filter.add_directive("vaultls=info".parse().unwrap())
+            "warn" => filter.add_directive("vaultls=warn".parse().expect("Invalid log directive: vaultls=warn")),
+            "error" => filter.add_directive("vaultls=error".parse().expect("Invalid log directive: vaultls=error")),
+            _ => filter.add_directive("vaultls=info".parse().expect("Invalid log directive: vaultls=info"))
         }
-    } else { filter.add_directive("vaultls=info".parse().unwrap()) };
+    } else { filter.add_directive("vaultls=info".parse().expect("Invalid log directive: vaultls=info")) };
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -80,14 +80,14 @@ pub async fn create_rocket() -> Rocket<Build> {
     let db = VaulTLSDB::new(encrypted, false).expect("Failed opening SQLite database");
     db.fix_password().await.expect("Failed fixing passwords");
     if !encrypted && env::var("VAULTLS_DB_SECRET").is_ok() {
-        settings.set_db_encrypted().unwrap()
+        settings.set_db_encrypted().expect("Failed to set database encryption")
     }
     if !db_initialized {
         info!("New database. Set initial database file permissions to 0600");
         // Adjust permissions
-        let mut perms = fs::metadata(db_path).unwrap().permissions();
+        let mut perms = fs::metadata(db_path).expect("Failed to get database file metadata").permissions();
         perms.set_mode(0o600);
-        fs::set_permissions(db_path, perms).unwrap();
+        fs::set_permissions(db_path, perms).expect("Failed to set database file permissions");
     }
     info!("Database initialized");
 
@@ -95,9 +95,9 @@ pub async fn create_rocket() -> Rocket<Build> {
     let temp_work_path = Path::new(TEMP_WORK_DIR);
     if !temp_work_path.exists() {
         fs::create_dir_all(temp_work_path).expect("Failed to create temporary work directory");
-        let mut perms = fs::metadata(temp_work_path).unwrap().permissions();
+        let mut perms = fs::metadata(temp_work_path).expect("Failed to get temporary work directory metadata").permissions();
         perms.set_mode(0o700); // Owner read/write/execute only
-        fs::set_permissions(temp_work_path, perms).unwrap();
+        fs::set_permissions(temp_work_path, perms).expect("Failed to set temporary work directory permissions");
         info!("Created secure temporary work directory at {} with 0700 permissions", TEMP_WORK_DIR);
     }
 
@@ -171,6 +171,9 @@ pub async fn create_rocket() -> Rocket<Build> {
         audit: audit_service,
         crl_cache: Arc::new(Mutex::new(None)),
         ocsp_cache: Arc::new(Mutex::new(None)),
+        crl_generation_lock: Arc::new(Mutex::new(())),
+        certificate_locks: Arc::new(dashmap::DashMap::new()),
+        ca_locks: Arc::new(dashmap::DashMap::new()),
         certificate_service,
         ca_service,
         user_service,
@@ -289,7 +292,7 @@ pub async fn create_rocket() -> Rocket<Build> {
         //         ..Default::default()
         //     }),
         // )
-        .attach(cors.to_cors().unwrap())
+        .attach(cors.to_cors().expect("Failed to configure CORS"))
 }
 
 pub async fn create_test_rocket() -> Rocket<Build> {
@@ -340,6 +343,9 @@ pub async fn create_test_rocket() -> Rocket<Build> {
         audit: audit_service,
         crl_cache: Arc::new(Mutex::new(None)),
         ocsp_cache: Arc::new(Mutex::new(None)),
+        crl_generation_lock: Arc::new(Mutex::new(())),
+        certificate_locks: Arc::new(dashmap::DashMap::new()),
+        ca_locks: Arc::new(dashmap::DashMap::new()),
         certificate_service,
         ca_service,
         user_service,

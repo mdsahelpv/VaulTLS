@@ -35,7 +35,7 @@ pub struct RateLimitConfig;
 impl<'r> RocketGovernable<'r> for RateLimitConfig {
     fn quota(_method: Method, _route_name: &str) -> Quota {
         // 120 requests per minute per IP
-        Quota::per_minute(std::num::NonZeroU32::new(120).unwrap())
+        Quota::per_minute(std::num::NonZeroU32::new(120).expect("Rate limit quota must be non-zero"))
     }
 }
 
@@ -70,6 +70,6 @@ pub struct AuthRateLimitConfig;
 impl<'r> RocketGovernable<'r> for AuthRateLimitConfig {
     fn quota(_method: Method, _route_name: &str) -> Quota {
         // 5 requests per minute per IP for login
-        Quota::per_minute(std::num::NonZeroU32::new(5).unwrap())
+        Quota::per_minute(std::num::NonZeroU32::new(5).expect("Auth rate limit quota must be non-zero"))
     }
 }

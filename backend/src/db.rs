@@ -33,6 +33,20 @@ macro_rules! db_do {
     };
 }
 
+macro_rules! db_do_mut {
+    ($pool:expr, $operation:expr) => {
+        {
+            let pool = $pool.clone();
+            tokio::task::spawn_blocking(move || {
+                let mut conn = pool.get().map_err(|e| {
+                    anyhow!("DB pool error: {}", e)
+                })?;
+                $operation(&mut conn)
+            }).await?
+        }
+    };
+}
+
 
 #[derive(Debug, Clone)]
 pub(crate) struct VaulTLSDB {
@@ -463,26 +477,39 @@ impl VaulTLSDB {
     }
 
     /// Add a new user to the database
+    /// Uses database transaction to ensure atomicity
+    /// Add a new user to the database
+    /// Uses database transaction to ensure atomicity
     pub(crate) async fn insert_user(&self, mut user: User) -> Result<User> {
-        db_do!(self.pool, |conn: &Connection| {
-            conn.execute(
+        db_do_mut!(self.pool, |conn: &mut Connection| {
+            let tx = conn.transaction()?;
+
+            tx.execute(
                 "INSERT INTO users (name, email, password_hash, oidc_id, role) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![user.name, user.email, user.password_hash.clone().map(|hash| hash.to_string()), user.oidc_id, user.role as u8],
             )?;
 
-            user.id = conn.last_insert_rowid();
+            user.id = tx.last_insert_rowid();
+
+            tx.commit()?;
 
             Ok(user)
         })
     }
 
     /// Delete a user from the database
+    /// Uses database transaction to ensure atomicity
     pub(crate) async fn delete_user(&self, id: i64) -> Result<()> {
-        db_do!(self.pool, |conn: &Connection| {
-            Ok(conn.execute(
+        db_do_mut!(self.pool, |conn: &mut Connection| {
+            let tx = conn.transaction()?;
+
+            tx.execute(
                 "DELETE FROM users WHERE id=?1",
                 params![id]
-            ).map(|_| ())?)
+            )?;
+
+            tx.commit()?;
+            Ok(())
         })
     }
 
@@ -510,7 +537,7 @@ impl VaulTLSDB {
                         email: row.get(2)?,
                         password_hash: row.get(3).ok(),
                         oidc_id: row.get(4).ok(),
-                        role: UserRole::try_from(role_number).unwrap(),
+                        role: UserRole::try_from(role_number).map_err(|_| rusqlite::Error::QueryReturnedNoRows)?,
                     })
                 }
             )?)
@@ -650,26 +677,31 @@ impl VaulTLSDB {
     }
 
     /// Revoke a certificate by adding it to the revocation table and updating the is_revoked flag
+    /// Uses database transaction to ensure atomicity
     pub(crate) async fn revoke_certificate(&self, certificate_id: i64, revocation_reason: CertificateRevocationReason, revoked_by_user_id: Option<i64>, custom_reason: Option<String>) -> Result<i64> {
-        db_do!(self.pool, |conn: &Connection| {
+        db_do_mut!(self.pool, |conn: &mut Connection| {
+            let tx = conn.transaction()?;
+
             let revocation_date = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
                 .as_millis() as i64;
 
             // First, update the is_revoked flag in user_certificates
-            conn.execute(
+            tx.execute(
                 "UPDATE user_certificates SET is_revoked = 1 WHERE id = ?1",
                 params![certificate_id],
             )?;
 
             // Then add the revocation record for audit purposes
-            conn.execute(
+            tx.execute(
                 "INSERT INTO certificate_revocation (certificate_id, revocation_date, revocation_reason, revoked_by_user_id, custom_reason) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![certificate_id, revocation_date, revocation_reason as u8, revoked_by_user_id, custom_reason],
             )?;
 
-            let revocation_id = conn.last_insert_rowid();
+            let revocation_id = tx.last_insert_rowid();
+
+            tx.commit()?;
 
             info!("Certificate {} revoked by user {:?} with reason {:?}, custom: {:?}", certificate_id, revoked_by_user_id, revocation_reason, custom_reason);
 
@@ -739,19 +771,24 @@ impl VaulTLSDB {
     }
 
     /// Unrevoke a certificate (remove from revocation table and update is_revoked flag)
+    /// Uses database transaction to ensure atomicity
     pub(crate) async fn unrevoke_certificate(&self, certificate_id: i64) -> Result<()> {
-        db_do!(self.pool, |conn: &Connection| {
+        db_do_mut!(self.pool, |conn: &mut Connection| {
+            let tx = conn.transaction()?;
+
             // First, update the is_revoked flag in user_certificates
-            conn.execute(
+            tx.execute(
                 "UPDATE user_certificates SET is_revoked = 0 WHERE id = ?1",
                 params![certificate_id],
             )?;
 
             // Then remove the revocation record
-            conn.execute(
+            tx.execute(
                 "DELETE FROM certificate_revocation WHERE certificate_id = ?1",
                 params![certificate_id],
             )?;
+
+            tx.commit()?;
             Ok(())
         })
     }
@@ -938,7 +975,7 @@ impl VaulTLSDB {
             // Events in last 24 hours
             let yesterday = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
                 .as_millis() as i64 - (24 * 60 * 60 * 1000);
             let events_today: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM audit_logs WHERE timestamp >= ?",
@@ -956,7 +993,7 @@ impl VaulTLSDB {
             // Top actions (last 30 days)
             let thirty_days_ago = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
                 .as_millis() as i64 - (30 * 24 * 60 * 60 * 1000);
 
             let mut top_actions_stmt = conn.prepare(
@@ -1037,7 +1074,7 @@ impl VaulTLSDB {
         db_do!(self.pool, |conn: &Connection| {
             let cutoff_date = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
                 .as_millis() as i64 - ((retention_days as i64) * 24 * 60 * 60 * 1000);
 
             // Get count before deletion
@@ -1056,12 +1093,12 @@ impl VaulTLSDB {
             // Update cleanup timestamp in settings if settings table exists
             let _ = conn.execute(
                 "UPDATE audit_settings SET last_cleanup = ? WHERE id = 1",
-                params![std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64],
+                params![std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| anyhow!("System time calculation failed: {e}"))?.as_millis() as i64],
             );
 
             let execution_time = std::time::SystemTime::now()
                 .duration_since(start_time)
-                .unwrap()
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
                 .as_millis() as i64;
 
             Ok(AuditCleanupResult {

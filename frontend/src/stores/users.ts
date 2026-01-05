@@ -15,11 +15,16 @@ export const useUserStore = defineStore('user', {
             if (this.users.length == 0 || force) {
                 this.loading = true;
                 this.error = null;
+                const previousUsers = [...this.users]; // Store previous state for rollback
+
                 try {
                     this.users = await fetchUsers();
                 } catch (err) {
+                    // Rollback: restore previous state
+                    this.users = previousUsers;
                     this.error = 'Failed to fetch users.';
                     console.error(err);
+                    throw err;
                 } finally {
                     this.loading = false;
                 }
@@ -30,12 +35,17 @@ export const useUserStore = defineStore('user', {
         async createUser(createUserReq: CreateUserRequest): Promise<void> {
             this.loading = true;
             this.error = null;
+            const previousUsers = [...this.users]; // Store previous state for rollback
+
             try {
                 await createUser(createUserReq);
                 this.users = await fetchUsers();
             } catch (err) {
+                // Rollback: restore previous state
+                this.users = previousUsers;
                 this.error = 'Failed to create user.';
                 console.error(err);
+                throw err;
             } finally {
                 this.loading = false;
             }
@@ -45,13 +55,20 @@ export const useUserStore = defineStore('user', {
         async updateUser(user: User): Promise<boolean> {
             this.loading = true;
             this.error = null;
+            const previousUsers = [...this.users]; // Store previous state for rollback
+
             try {
                 await updateUser(user);
+                // Refresh users list to get updated state
+                this.users = await fetchUsers();
                 this.loading = false;
                 return true;
             } catch (err) {
+                // Rollback: restore previous state
+                this.users = previousUsers;
                 this.loading = false;
                 this.error = 'Failed to update user.';
+                console.error(err);
                 return false;
             }
         },
@@ -60,12 +77,17 @@ export const useUserStore = defineStore('user', {
         async deleteUser(id: number): Promise<void> {
             this.loading = true;
             this.error = null;
+            const previousUsers = [...this.users]; // Store previous state for rollback
+
             try {
                 await deleteUser(id); // This handles API deletion and fetch internally
                 this.users = await fetchUsers(); // Refresh the local state
             } catch (err) {
-                this.error = 'Failed to delete the certificate.';
+                // Rollback: restore previous state
+                this.users = previousUsers;
+                this.error = 'Failed to delete the user.';
                 console.error(err);
+                throw err;
             } finally {
                 this.loading = false;
             }

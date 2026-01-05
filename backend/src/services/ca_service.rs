@@ -110,8 +110,8 @@ impl CAService {
 
             // Get key information
             let public_key = cert.public_key()?;
-            let key_size = if public_key.rsa().is_ok() {
-                format!("RSA {}", public_key.rsa().unwrap().size() * 8)
+            let key_size = if let Ok(rsa) = public_key.rsa() {
+                format!("RSA {}", rsa.size() * 8)
             } else if public_key.ec_key().is_ok() {
                 "ECDSA P-256".to_string()
             } else {
@@ -262,8 +262,8 @@ impl CAService {
         let serial = cert.serial_number();
 
         let public_key = cert.public_key()?;
-        let key_size = if public_key.rsa().is_ok() {
-            format!("RSA {}", public_key.rsa().unwrap().size() * 8)
+        let key_size = if let Ok(rsa) = public_key.rsa() {
+            format!("RSA {}", rsa.size() * 8)
         } else if public_key.ec_key().is_ok() {
             "ECDSA P-256".to_string()
         } else {
@@ -513,10 +513,11 @@ impl CAService {
         let is_self_signed = {
             let subject = cert.subject_name();
             let issuer = cert.issuer_name();
-            let subject_der = subject.to_der();
-            let issuer_der = issuer.to_der();
-            subject_der.is_ok() && issuer_der.is_ok() &&
-               subject_der.as_ref().unwrap() == issuer_der.as_ref().unwrap()
+            if let (Ok(subject_der), Ok(issuer_der)) = (subject.to_der(), issuer.to_der()) {
+                subject_der == issuer_der
+            } else {
+                false
+            }
         };
 
         if is_ca() {

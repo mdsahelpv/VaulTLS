@@ -95,10 +95,14 @@ export const useCertificateStore = defineStore('certificate', {
         async createCertificate(certReq: CertificateRequirements): Promise<void> {
             this.loading = true;
             this.error = null;
+            const previousCertificates = new Map(this.certificates); // Store previous state for rollback
+
             try {
                 await createCertificate(certReq);
                 await this.fetchCertificates(); // Refresh the list
             } catch (err: unknown) {
+                // Rollback: restore previous state
+                this.certificates = previousCertificates;
                 this.error = 'Failed to create certificate';
                 console.error('Error creating certificate:', err);
                 throw err;
@@ -113,11 +117,15 @@ export const useCertificateStore = defineStore('certificate', {
         async deleteCertificate(id: number): Promise<void> {
             this.loading = true;
             this.error = null;
+            const previousCertificates = new Map(this.certificates); // Store previous state for rollback
+
             try {
                 await deleteCertificate(id);
-                this.certificates.delete(id); // Optimistically remove from local state
-                await this.fetchCertificates(); // Refresh to ensure consistency
+                // Refresh to get updated state from server (no optimistic updates)
+                await this.fetchCertificates();
             } catch (err: unknown) {
+                // Rollback: restore previous state
+                this.certificates = previousCertificates;
                 this.error = 'Failed to delete certificate';
                 console.error('Error deleting certificate:', err);
                 throw err;
@@ -132,10 +140,14 @@ export const useCertificateStore = defineStore('certificate', {
         async revokeCertificate(id: number, reason: number, notifyUser: boolean, customReason?: string): Promise<void> {
             this.loading = true;
             this.error = null;
+            const previousCertificates = new Map(this.certificates); // Store previous state for rollback
+
             try {
                 await revokeCertificateApi(id, reason, notifyUser, customReason);
                 await this.fetchCertificates(); // Refresh to get updated revocation status
             } catch (err: unknown) {
+                // Rollback: restore previous state
+                this.certificates = previousCertificates;
                 this.error = 'Failed to revoke certificate';
                 console.error('Error revoking certificate:', err);
                 throw err;

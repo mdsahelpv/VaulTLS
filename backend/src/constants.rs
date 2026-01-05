@@ -23,6 +23,6 @@ pub static ARGON2: Lazy<Argon2<'static>> = Lazy::new(|| {
 #[cfg(test)]
 pub static ARGON2: Lazy<Argon2<'static>> = Lazy::new(|| {
     // Test setup (weaker params for speed)
-    let params = Params::new(1024, 1, 1, Some(50)).unwrap();
+    let params = Params::new(1024, 1, 1, Some(50)).expect("Failed to create Argon2 parameters");
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
 });

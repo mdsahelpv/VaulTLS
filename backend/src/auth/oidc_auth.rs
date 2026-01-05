@@ -66,7 +66,8 @@ impl OidcAuth {
     /// Verify the callback code, which the client received from OIDC provider
     pub(crate) async fn verify_auth_code(&mut self, code: String, state: String) -> anyhow::Result<User> {
         if ! self.oidc_state.contains_key(&state) { return Err(anyhow!("State does not exist")) }
-        let (stored_pkce, stored_nonce) = self.oidc_state.remove(&state).unwrap();
+        let (stored_pkce, stored_nonce) = self.oidc_state.remove(&state)
+            .ok_or_else(|| anyhow!("Invalid or expired OIDC state"))?;
 
         let auth_code = AuthorizationCode::new(code.clone());
 

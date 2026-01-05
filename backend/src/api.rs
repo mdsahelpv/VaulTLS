@@ -9,6 +9,9 @@ use rocket::http::{Cookie, CookieJar, SameSite};
 use rocket::FromForm;
 use tokio::io::AsyncReadExt;
 use tracing::{trace, debug, info, warn, error};
+use std::sync::Arc;
+use std::future::Future;
+use std::io::Write;
 use openssl::x509::X509;
 use openssl::pkey::PKey;
 use serde::Serialize;
@@ -63,11 +66,10 @@ fn validate_email(email: &str) -> Result<(), ApiError> {
     // Then validate email format using email_address crate
     if EmailAddress::is_valid(email) {
         // Email is valid
+        Ok(())
     } else {
-        return Err(ApiError::BadRequest("Invalid email address format".to_string()));
+        Err(ApiError::BadRequest("Invalid email address format".to_string()))
     }
-
-    Ok(())
 }
 
 /// Validate certificate name length
@@ -95,53 +97,6 @@ fn validate_dns_name(dns_name: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Validate IP address length and basic format
-fn validate_ip_address(ip: &str) -> Result<(), ApiError> {
-    if ip.len() > MAX_IP_ADDRESS_LENGTH {
-        return Err(ApiError::BadRequest(format!(
-            "IP address '{}' is too long (maximum {} characters, got {})",
-            ip,
-            MAX_IP_ADDRESS_LENGTH,
-            ip.len()
-        )));
-    }
-    Ok(())
-}
-
-/// Validate custom revocation reason length
-fn validate_custom_revocation_reason(reason: &str) -> Result<(), ApiError> {
-    if reason.len() > MAX_CUSTOM_REVOCATION_REASON_LENGTH {
-        return Err(ApiError::BadRequest(format!(
-            "Custom revocation reason is too long (maximum {} characters, got {})",
-            MAX_CUSTOM_REVOCATION_REASON_LENGTH,
-            reason.len()
-        )));
-    }
-    Ok(())
-}
-
-/// Validate certificate validity period (in years)
-fn validate_certificate_validity_years(years: u64) -> Result<(), ApiError> {
-    const MIN_VALIDITY_YEARS: u64 = 1;
-    const MAX_VALIDITY_YEARS: u64 = 10;
-
-    if years < MIN_VALIDITY_YEARS {
-        return Err(ApiError::BadRequest(format!(
-            "Certificate validity must be at least {} year(s), got {}",
-            MIN_VALIDITY_YEARS, years
-        )));
-    }
-
-    if years > MAX_VALIDITY_YEARS {
-        return Err(ApiError::BadRequest(format!(
-            "Certificate validity cannot exceed {} years, got {}",
-            MAX_VALIDITY_YEARS, years
-        )));
-    }
-
-    Ok(())
-}
-
 /// Validate certificate validity period (in days)
 fn validate_certificate_validity_days(days: i64) -> Result<(), ApiError> {
     const MIN_VALIDITY_DAYS: i64 = 1;
@@ -161,6 +116,35 @@ fn validate_certificate_validity_days(days: i64) -> Result<(), ApiError> {
         )));
     }
 
+    Ok(())
+}
+
+/// Validate certificate validity period (in years) - wrapper for days validation
+fn validate_certificate_validity_years(years: i64) -> Result<(), ApiError> {
+    let days = years * 365;
+    validate_certificate_validity_days(days)
+}
+
+/// Validate IP address format
+fn validate_ip_address(ip_addr: &str) -> Result<(), ApiError> {
+    if !is_valid_ip_address(ip_addr) {
+        return Err(ApiError::BadRequest(format!(
+            "Invalid IP address format: '{}'",
+            ip_addr
+        )));
+    }
+    Ok(())
+}
+
+/// Validate custom revocation reason length
+fn validate_custom_revocation_reason(reason: &str) -> Result<(), ApiError> {
+    if reason.len() > MAX_CUSTOM_REVOCATION_REASON_LENGTH {
+        return Err(ApiError::BadRequest(format!(
+            "Custom revocation reason is too long (maximum {} characters, got {})",
+            MAX_CUSTOM_REVOCATION_REASON_LENGTH,
+            reason.len()
+        )));
+    }
     Ok(())
 }
 
@@ -214,6 +198,46 @@ fn validate_certificate_type(cert_type: Option<CertificateType>) -> Result<(), A
         Some(CertificateType::Client) | Some(CertificateType::Server) | Some(CertificateType::SubordinateCA) => Ok(()),
         None => Err(ApiError::BadRequest("Certificate type is required".to_string())),
     }
+}
+
+/// Execute an operation with per-certificate locking to prevent concurrent revocation operations
+async fn with_certificate_lock<F, Fut, T>(
+    locks: &Arc<dashmap::DashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
+    cert_id: i64,
+    operation: F
+) -> Result<T, ApiError>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<T, ApiError>>,
+{
+    // Get or create lock for this certificate
+    let cert_lock = locks.entry(cert_id)
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+
+    // Acquire lock and perform operation
+    let _guard = cert_lock.lock().await;
+    operation().await
+}
+
+/// Execute an operation with per-CA locking to prevent concurrent CA operations
+async fn with_ca_lock<F, Fut, T>(
+    locks: &Arc<dashmap::DashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
+    ca_id: i64,
+    operation: F
+) -> Result<T, ApiError>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<T, ApiError>>,
+{
+    // Get or create lock for this CA
+    let ca_lock = locks.entry(ca_id)
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+
+    // Acquire lock and perform operation
+    let _guard = ca_lock.lock().await;
+    operation().await
 }
 
 /// Validate Subject Alternative Names (SAN) entries
@@ -536,7 +560,7 @@ pub(crate) async fn validate_pfx(
         }));
     }
 
-    let mut reader = tokio::io::BufReader::new(file_result.unwrap());
+    let mut reader = tokio::io::BufReader::new(file_result.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {e}")))?);
     let read_result = reader.read_to_end(&mut buffer).await;
     validations.push(ValidationCheck {
         check_name: "File Reading".to_string(),
@@ -620,8 +644,8 @@ pub(crate) async fn validate_pfx(
             // Get validity dates as milliseconds since epoch
             // For existing certificates, we'll use current timestamp as approximation
             use std::time::{SystemTime, UNIX_EPOCH};
-            let valid_from = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
-            let valid_until = (SystemTime::now() + std::time::Duration::from_secs(365 * 24 * 60 * 60)).duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+            let valid_from = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| ApiError::Other(format!("System time calculation failed: {e}")))?.as_millis() as i64;
+            let valid_until = (SystemTime::now() + std::time::Duration::from_secs(365 * 24 * 60 * 60)).duration_since(UNIX_EPOCH).map_err(|e| ApiError::Other(format!("System time calculation failed: {e}")))?.as_millis() as i64;
 
             // Get key algorithm and size
             let public_key = cert.public_key().map_err(|e| {
@@ -629,7 +653,7 @@ pub(crate) async fn validate_pfx(
             })?;
 
             let (key_algorithm, key_size) = if public_key.rsa().is_ok() {
-                ("RSA".to_string(), format!("{} bits", public_key.rsa().unwrap().size() * 8))
+                ("RSA".to_string(), format!("{} bits", public_key.rsa().map_err(|_| ApiError::Other("RSA key expected".to_string()))?.size() * 8))
             } else if public_key.ec_key().is_ok() {
                 ("ECDSA".to_string(), "P-256".to_string()) // Default to P-256 for now
             } else {
@@ -1135,11 +1159,11 @@ pub(crate) async fn logout(
             "logout_successful": true,
             "session_ended": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("Failed to calculate timestamp: {e}"))?
                 .as_millis(),
             "logout_timestamp": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("Failed to calculate timestamp: {e}"))?
                 .as_millis()
         }).to_string()),
     ).await {
@@ -1261,7 +1285,7 @@ pub(crate) async fn create_user_certificate(
     debug!(cert_name=?sanitized_cert_name, "Creating certificate");
 
     // Validate certificate parameters
-    validate_certificate_validity_years(payload.validity_in_years.unwrap_or(1))?;
+    validate_certificate_validity_years(payload.validity_in_years.unwrap_or(1) as i64)?;
     validate_key_type_and_size(payload.key_type.as_deref(), payload.key_size.as_deref())?;
     validate_hash_algorithm(payload.hash_algorithm.as_deref())?;
     validate_certificate_type(payload.cert_type)?;
@@ -1503,7 +1527,13 @@ pub(crate) async fn create_self_signed_ca(
         .and_then(|e| e.data().as_utf8().ok())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "Unknown".to_string());
-    let ca = state.db.insert_ca(ca).await?;
+
+    // Use CA-specific locking to prevent concurrent CA operations
+    let ca = with_ca_lock(&state.ca_locks, ca_id, || async {
+        let ca = state.db.insert_ca(ca).await?;
+        Ok(ca)
+    }).await?;
+
     info!(ca=?ca, "Self-signed CA created");
 
     // Audit log CA creation
@@ -1514,7 +1544,7 @@ pub(crate) async fn create_self_signed_ca(
 
     if let Err(e) = state.audit.log_ca_operation(
         Some(authentication._claims.id), // Admin doing the operation
-        Some(admin_user_name), // Actual admin user name
+        Some(admin_user_name), // Actual user name or fallback
         None, // TODO: extract IP from request
         None, // TODO: extract User-Agent from request
         ca,
@@ -1598,7 +1628,12 @@ pub(crate) async fn import_ca_from_file(
         .and_then(|e| e.data().as_utf8().ok())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "Unknown".to_string());
-    let ca = state.db.insert_ca(ca).await?;
+
+    // Use CA-specific locking to prevent concurrent CA operations
+    let ca = with_ca_lock(&state.ca_locks, ca_id, || async {
+        let ca = state.db.insert_ca(ca).await?;
+        Ok(ca)
+    }).await?;
 
     info!(ca=?ca, "CA imported from PKCS#12 file");
 
@@ -1695,7 +1730,7 @@ pub(crate) async fn download_ca_key_pair_by_id(
             "exported_by": authentication._claims.id,
             "export_timestamp": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("Failed to calculate export timestamp: {e}"))?
                 .as_millis()
         }).to_string()),
         None,
@@ -1747,7 +1782,7 @@ pub(crate) async fn download_ca_key_pair(
             "exported_by": authentication._claims.id,
             "export_timestamp": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("Failed to calculate export timestamp: {e}"))?
                 .as_millis()
         }).to_string()),
         None,
@@ -1779,7 +1814,7 @@ pub(crate) async fn get_ca_list(
         // Get key information
         let public_key = cert.public_key()?;
         let key_size = if public_key.rsa().is_ok() {
-            format!("RSA {}", public_key.rsa().unwrap().size() * 8)
+            format!("RSA {}", public_key.rsa().map_err(|_| ApiError::Other("RSA key expected".to_string()))?.size() * 8)
         } else if public_key.ec_key().is_ok() {
             "ECDSA P-256".to_string()
         } else {
@@ -1972,47 +2007,50 @@ pub(crate) async fn delete_ca(
     id: i64,
     authentication: AuthenticatedPrivileged
 ) -> Result<(), ApiError> {
-    // Get CA details before deletion for audit logging
-    let ca_to_delete = state.db.get_ca(id).await.map_err(|_| ApiError::NotFound(Some("CA not found".to_string())))?;
+    // Use CA-specific locking to prevent concurrent CA operations
+    with_ca_lock(&state.ca_locks, id, || async {
+        // Get CA details before deletion for audit logging
+        let ca_to_delete = state.db.get_ca(id).await.map_err(|_| ApiError::NotFound(Some("CA not found".to_string())))?;
 
-    // Check if this CA is being used by any certificates
-    // Note: This is a simplified check; in production you might want more comprehensive validation
+        // Check if this CA is being used by any certificates
+        // Note: This is a simplified check; in production you might want more comprehensive validation
 
-    // TODO: Add logic to check if CA is referenced by any user certificates
-    // For now, we'll allow deletion but this could break existing certificates
+        // TODO: Add logic to check if CA is referenced by any user certificates
+        // For now, we'll allow deletion but this could break existing certificates
 
-    state.db.delete_ca(id).await?;
-    info!(ca_id=id, "CA deleted");
+        state.db.delete_ca(id).await?;
+        info!(ca_id=id, "CA deleted");
 
-    // Extract CA name from certificate subject for audit logging
-    let ca_cert = X509::from_der(&ca_to_delete.cert)?;
-    let subject_name = ca_cert.subject_name();
-    let ca_name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
-        .and_then(|e| e.data().as_utf8().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "Unknown".to_string());
+        // Extract CA name from certificate subject for audit logging
+        let ca_cert = X509::from_der(&ca_to_delete.cert)?;
+        let subject_name = ca_cert.subject_name();
+        let ca_name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+            .and_then(|e| e.data().as_utf8().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
 
-    // Audit log CA deletion
-    if let Err(e) = state.audit.log_ca_operation(
-        Some(authentication._claims.id), // Admin doing the deletion
-        None, // TODO: get actual admin user name
-        None, // TODO: extract IP from request
-        None, // TODO: extract User-Agent from request
-        id,
-        &ca_name,
-        "delete",
-        true,
-        Some(serde_json::json!({
-            "creation_source": ca_to_delete.creation_source,
-            "created_on": ca_to_delete.created_on,
-            "valid_until": ca_to_delete.valid_until
-        }).to_string()),
-        None,
-    ).await {
-        warn!("Failed to log CA deletion audit event: {}", e);
-    }
+        // Audit log CA deletion
+        if let Err(e) = state.audit.log_ca_operation(
+            Some(authentication._claims.id), // Admin doing the deletion
+            None, // TODO: get actual admin user name
+            None, // TODO: extract IP from request
+            None, // TODO: extract User-Agent from request
+            id,
+            &ca_name,
+            "delete",
+            true,
+            Some(serde_json::json!({
+                "creation_source": ca_to_delete.creation_source,
+                "created_on": ca_to_delete.created_on,
+                "valid_until": ca_to_delete.valid_until
+            }).to_string()),
+            None,
+        ).await {
+            warn!("Failed to log CA deletion audit event: {}", e);
+        }
 
-    Ok(())
+        Ok(())
+    }).await
 }
 
 #[derive(Serialize, JsonSchema, Debug)]
@@ -2182,7 +2220,7 @@ pub(crate) async fn get_ca_details(
     // Get key information
     let public_key = cert.public_key()?;
     let key_size = if public_key.rsa().is_ok() {
-        format!("RSA {}", public_key.rsa().unwrap().size() * 8)
+            format!("RSA {}", public_key.rsa().map_err(|_| ApiError::Other("RSA key expected".to_string()))?.size() * 8)
     } else if public_key.ec_key().is_ok() {
         "ECDSA P-256".to_string()
     } else {
@@ -2494,7 +2532,7 @@ pub(crate) async fn update_settings(
             "modified_by": authentication._claims.id,
             "change_timestamp": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("Failed to calculate CRL timestamp: {e}"))?
                 .as_millis()
         })),
         Some(serde_json::json!({
@@ -2659,7 +2697,7 @@ pub(crate) async fn update_user(
                 "changed_by": authentication.claims.id,
                 "change_timestamp": std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .map_err(|e| format!("Failed to calculate settings timestamp: {e}"))?
                     .as_millis()
             }).to_string()
         } else {
@@ -2668,7 +2706,7 @@ pub(crate) async fn update_user(
                 "updated_by": authentication.claims.id,
                 "update_timestamp": std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .map_err(|e| format!("Failed to calculate user update timestamp: {e}"))?
                     .as_millis()
             }).to_string()
         }),
@@ -2761,76 +2799,79 @@ pub(crate) async fn revoke_certificate(
     payload: Json<RevokeCertificateRequest>,
     authentication: AuthenticatedPrivileged
 ) -> Result<(), ApiError> {
-    // Validate custom revocation reason length if provided
-    if let Some(ref custom_reason) = payload.custom_reason {
-        validate_custom_revocation_reason(custom_reason)?;
-    }
+    // Use certificate-specific locking to prevent concurrent revocation operations
+    with_certificate_lock(&state.certificate_locks, id, || async {
+        // Validate custom revocation reason length if provided
+        if let Some(ref custom_reason) = payload.custom_reason {
+            validate_custom_revocation_reason(custom_reason)?;
+        }
 
-    debug!(cert_id=id, reason=?payload.reason, "Revoking certificate");
+        debug!(cert_id=id, reason=?payload.reason, "Revoking certificate");
 
-    // Check if certificate exists and get its details
-    let cert = state.db.get_user_cert_by_id(id).await
-        .map_err(|_| ApiError::NotFound(Some("Certificate not found".to_string())))?;
+        // Check if certificate exists and get its details
+        let cert = state.db.get_user_cert_by_id(id).await
+            .map_err(|_| ApiError::NotFound(Some("Certificate not found".to_string())))?;
 
-    // Check if certificate is already revoked
-    if state.db.is_certificate_revoked(id).await? {
-        return Err(ApiError::BadRequest("Certificate is already revoked".to_string()));
-    }
+        // Check if certificate is already revoked
+        if state.db.is_certificate_revoked(id).await? {
+            return Err(ApiError::BadRequest("Certificate is already revoked".to_string()));
+        }
 
-    // All revocation reasons are now standard RFC 5280 reasons
-    // No need to store custom reasons as all reasons are predefined
-    let custom_reason_to_store = None;
+        // All revocation reasons are now standard RFC 5280 reasons
+        // No need to store custom reasons as all reasons are predefined
+        let custom_reason_to_store = None;
 
-    // Revoke the certificate
-    state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id), custom_reason_to_store).await?;
+        // Revoke the certificate
+        state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id), custom_reason_to_store).await?;
 
-    // Clear CRL cache since revocation list has changed
-    let mut cache = state.crl_cache.lock().await;
-    *cache = None;
-    debug!("CRL cache cleared due to certificate revocation");
+        // Clear CRL cache since revocation list has changed
+        let mut cache = state.crl_cache.lock().await;
+        *cache = None;
+        debug!("CRL cache cleared due to certificate revocation");
 
-    info!(cert_id=id, cert_name=?cert.name, admin_id=?authentication._claims.id, "Certificate revoked successfully");
+        info!(cert_id=id, cert_name=?cert.name, admin_id=?authentication._claims.id, "Certificate revoked successfully");
 
-    // Get user name for audit logging
-    let admin_user_name = state.db.get_user(authentication._claims.id).await.ok().map(|u| u.name);
+        // Get user name for audit logging
+        let admin_user_name = state.db.get_user(authentication._claims.id).await.ok().map(|u| u.name);
 
-    // Audit log certificate revocation
-    if let Err(e) = state.audit.log_certificate_operation(
-        Some(authentication._claims.id), // Admin ID doing the revocation
-        admin_user_name, // Now includes actual user name instead of None
-        None, // TODO: extract IP from request
-        None, // TODO: extract User-Agent from request
-        id,
-        &cert.name,
-        "revoke",
-        true,
-        Some(serde_json::json!({
-            "old_status": "active",
-            "revocation_reason": format!("{:?}", payload.reason),
-            "notify_user": payload.notify_user
-        })),
-        Some(serde_json::json!({
-            "new_status": "revoked",
-            "revoked_by": authentication._claims.id,
-            "revocation_date": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-        })),
-        None,
-        None,
-    ).await {
-        warn!("Failed to log certificate revocation audit event: {}", e);
-    }
+        // Audit log certificate revocation
+        if let Err(e) = state.audit.log_certificate_operation(
+            Some(authentication._claims.id), // Admin ID doing the revocation
+            admin_user_name, // Now includes actual user name instead of None
+            None, // TODO: extract IP from request
+            None, // TODO: extract User-Agent from request
+            id,
+            &cert.name,
+            "revoke",
+            true,
+            Some(serde_json::json!({
+                "old_status": "active",
+                "revocation_reason": format!("{:?}", payload.reason),
+                "notify_user": payload.notify_user
+            })),
+            Some(serde_json::json!({
+                "new_status": "revoked",
+                "revoked_by": authentication._claims.id,
+                "revocation_date": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|e| format!("Failed to calculate user deletion timestamp: {e}"))?
+                    .as_millis()
+            })),
+            None,
+            None,
+        ).await {
+            warn!("Failed to log certificate revocation audit event: {}", e);
+        }
 
-    // Optionally notify the user
-    if payload.notify_user.unwrap_or(false) {
-        let user = state.db.get_user(cert.user_id).await?;
-        // TODO: Implement revocation notification
-        debug!(cert_id=id, user_email=?user.email, "Revocation notification requested but not yet implemented");
-    }
+        // Optionally notify the user
+        if payload.notify_user.unwrap_or(false) {
+            let user = state.db.get_user(cert.user_id).await?;
+            // TODO: Implement revocation notification
+            debug!(cert_id=id, user_email=?user.email, "Revocation notification requested but not yet implemented");
+        }
 
-    Ok(())
+        Ok(())
+    }).await
 }
 
 #[openapi(tag = "Certificates")]
@@ -3144,28 +3185,31 @@ pub(crate) async fn unrevoke_certificate(
     id: i64,
     _authentication: AuthenticatedPrivileged
 ) -> Result<(), ApiError> {
-    debug!(cert_id=id, "Unrevoking certificate");
+    // Use certificate-specific locking to prevent concurrent revocation operations
+    with_certificate_lock(&state.certificate_locks, id, || async {
+        debug!(cert_id=id, "Unrevoking certificate");
 
-    // Check if certificate exists
-    let _cert = state.db.get_user_cert_by_id(id).await
-        .map_err(|_| ApiError::NotFound(Some("Certificate not found".to_string())))?;
+        // Check if certificate exists
+        let _cert = state.db.get_user_cert_by_id(id).await
+            .map_err(|_| ApiError::NotFound(Some("Certificate not found".to_string())))?;
 
-    // Check if certificate is actually revoked
-    if !state.db.is_certificate_revoked(id).await? {
-        return Err(ApiError::BadRequest("Certificate is not revoked".to_string()));
-    }
+        // Check if certificate is actually revoked
+        if !state.db.is_certificate_revoked(id).await? {
+            return Err(ApiError::BadRequest("Certificate is not revoked".to_string()));
+        }
 
-    // Unrevoke the certificate
-    state.db.unrevoke_certificate(id).await?;
+        // Unrevoke the certificate
+        state.db.unrevoke_certificate(id).await?;
 
-    // Clear CRL cache since revocation list has changed
-    let mut cache = state.crl_cache.lock().await;
-    *cache = None;
-    debug!("CRL cache cleared due to certificate unrevocation");
+        // Clear CRL cache since revocation list has changed
+        let mut cache = state.crl_cache.lock().await;
+        *cache = None;
+        debug!("CRL cache cleared due to certificate unrevocation");
 
-    info!(cert_id=id, "Certificate unrevoked successfully");
+        info!(cert_id=id, "Certificate unrevoked successfully");
 
-    Ok(())
+        Ok(())
+    }).await
 }
 
 #[openapi(tag = "Certificates")]
@@ -3211,9 +3255,9 @@ pub(crate) async fn download_crl_logic(
 
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .map_err(|e| format!("Failed to calculate CRL details timestamp: {e}"))?
         .as_millis() as i64;
-    
+
     // Determine CA first to check cache correctly
     let ca = if let Some(id) = ca_id {
         state.db.get_ca(id).await
@@ -3222,17 +3266,34 @@ pub(crate) async fn download_crl_logic(
         state.db.get_current_ca().await?
     };
 
-    // Check if we have a valid cached CRL for this CA
-    let mut cache = state.crl_cache.lock().await;
-    if let Some(cached_crl) = &*cache {
-        // Check if cache matches the requested CA and is still valid (within 5 minutes)
-        if cached_crl.ca_id == ca.id && current_time < cached_crl.valid_until {
-            debug!("Returning cached CRL for CA {} (valid until {})", ca.id, cached_crl.valid_until);
-            return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
-        } else if cached_crl.ca_id == ca.id {
-             debug!("Cached CRL for CA {} expired, regenerating", ca.id);
-        } else {
-             debug!("Cached CRL is for CA {}, requested CA {}, regenerating", cached_crl.ca_id, ca.id);
+    // First check: Try to get cached CRL without acquiring generation lock
+    {
+        let cache = state.crl_cache.lock().await;
+        if let Some(cached_crl) = &*cache {
+            // Check if cache matches the requested CA and is still valid
+            if cached_crl.ca_id == ca.id && current_time < cached_crl.valid_until {
+                debug!("Returning cached CRL for CA {} (valid until {})", ca.id, cached_crl.valid_until);
+                return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
+            } else if cached_crl.ca_id == ca.id {
+                 debug!("Cached CRL for CA {} expired, will regenerate", ca.id);
+            } else {
+                 debug!("Cached CRL is for CA {}, requested CA {}, will regenerate", cached_crl.ca_id, ca.id);
+            }
+        }
+    }
+
+    // Cache is invalid or doesn't exist - acquire generation lock to prevent concurrent generation
+    let _generation_guard = state.crl_generation_lock.lock().await;
+    debug!("Acquired CRL generation lock for CA {}", ca.id);
+
+    // Double-check: Cache might have been populated by another thread while we waited for the lock
+    {
+        let cache = state.crl_cache.lock().await;
+        if let Some(cached_crl) = &*cache {
+            if cached_crl.ca_id == ca.id && current_time < cached_crl.valid_until {
+                debug!("CRL was generated by another thread, returning cached CRL for CA {}", ca.id);
+                return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
+            }
         }
     }
 
@@ -3327,12 +3388,15 @@ pub(crate) async fn download_crl_logic(
 
     // Cache the CRL for the configured interval
     let valid_until = current_time + cache_timeout_ms;
-    *cache = Some(CrlCache {
-        data: crl_pem.clone(),
-        last_updated: current_time,
-        valid_until,
-        ca_id: ca.id,
-    });
+    {
+        let mut cache = state.crl_cache.lock().await;
+        *cache = Some(CrlCache {
+            data: crl_pem.clone(),
+            last_updated: current_time,
+            valid_until,
+            ca_id: ca.id,
+        });
+    }
 
     debug!("Generated, saved to file system, and cached new CRL (valid until {}, cache timeout: {} hours)",
            valid_until, crl_settings.refresh_interval_hours);
@@ -3416,7 +3480,7 @@ pub(crate) async fn get_crl_details_endpoint(
     // Create basic CRL details response
     let current_time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .map_err(|e| format!("Failed to calculate OCSP timestamp: {e}"))?
         .as_millis() as i64;
 
     // Next update is typically 1 hour from now (this is a simplified assumption)
@@ -3458,7 +3522,7 @@ pub(crate) async fn get_crl_details_endpoint(
 fn current_time() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("System time is before UNIX epoch")
         .as_millis() as i64
 }
 
@@ -3629,7 +3693,7 @@ pub(crate) async fn delete_crl_backup(
                     "deleted_by": authentication._claims.id,
                     "deletion_timestamp": std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .expect("System time is before UNIX epoch")
                         .as_millis()
                 }).to_string()),
                 None,
@@ -3638,370 +3702,8 @@ pub(crate) async fn delete_crl_backup(
             }
 
             Ok(())
-        }
-        Err(e) => {
-            error!("Failed to delete CRL backup file {}: {}", filename, e);
-            Err(ApiError::Other(format!("Failed to delete CRL backup file: {}", e)))
-        }
-    }
-}
-
-#[get("/ocsp?<request>")]
-/// OCSP responder endpoint for real-time certificate status checking.
-/// Accepts base64-encoded OCSP requests via GET and returns DER-encoded OCSP responses.
-/// Requires authentication.
-///
-/// Usage with OpenSSL:
-/// ```bash
-/// openssl ocsp -issuer ca.pem -cert cert.pem \
-///              -url http://localhost:8000/api/ocsp \
-///              -header "Authorization: Bearer <token>"
-/// ```
-///
-/// Response status codes:
-/// - Successful: Certificate status returned
-/// - MalformedRequest: Invalid OCSP request format
-/// - InternalError: Server error processing request
-/// - TryLater: Temporary server unavailability
-/// - SigRequired: Request must be signed
-/// - Unauthorized: Authentication required
-///
-/// Certificate status values:
-/// - Good: Certificate is valid and not revoked
-/// - Revoked: Certificate has been revoked
-/// - Unknown: Certificate status cannot be determined
-pub(crate) async fn ocsp_responder_get(
-    state: &State<AppState>,
-    request: &str,
-    _authentication: Authenticated,
-    _rate_limit: RateLimitGuard
-) -> Result<Vec<u8>, ApiError> {
-    debug!("OCSP GET request received (base64 length: {})", request.len());
-    println!("DEBUG: OCSP GET received request string: '{}'", request);
-
-    // Decode base64 request
-    let request_data = base64::engine::general_purpose::STANDARD
-        .decode(request)
-        .map_err(|e| ApiError::BadRequest(format!("Invalid base64 encoding in OCSP request: {}", e)))?;
-
-    debug!("Decoded OCSP request ({} bytes)", request_data.len());
-
-    // Process the request
-    process_ocsp_request(state, &request_data).await
-}
-
-#[post("/ocsp", data = "<request_data>")]
-/// OCSP responder endpoint for real-time certificate status checking.
-/// Accepts DER-encoded OCSP requests and returns DER-encoded OCSP responses.
-/// Requires authentication.
-pub(crate) async fn ocsp_responder_post(
-    state: &State<AppState>,
-    request_data: Vec<u8>,
-    _authentication: Authenticated,
-    _rate_limit: RateLimitGuard
-) -> Result<Vec<u8>, ApiError> {
-    debug!("OCSP POST request received ({} bytes)", request_data.len());
-
-    // Process the request
-    process_ocsp_request(state, &request_data).await
-}
-
-        /// Extract AIA (Authority Information Access) and CDP (CRL Distribution Point) URLs from certificate extensions
-        fn extract_aia_and_cdp_urls(cert: &X509) -> Result<(Option<String>, Option<String>), ApiError> {
-            let mut aia_url: Option<String> = None;
-            let mut cdp_url: Option<String> = None;
-
-            // Convert certificate to PEM and then use openssl command-line to extract extensions
-            // This is a workaround since the Rust OpenSSL bindings don't expose extension parsing easily
-            let pem = cert.to_pem()
-                .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {e}")))?;
-
-            let pem_str = String::from_utf8(pem)
-                .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {e}")))?;
-
-            // Write certificate to a temporary file
-            let temp_cert_path = std::env::temp_dir().join(format!("cert_ext_{}.pem", std::process::id()));
-            std::fs::write(&temp_cert_path, &pem_str)
-                .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {e}")))?;
-
-            // Use openssl command to extract extensions
-            let output = std::process::Command::new("openssl")
-                .args([
-                    "x509",
-                    "-in", &temp_cert_path.to_string_lossy(),
-                    "-text",
-                    "-noout"
-                ])
-                .output()
-                .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {e}")))?;
-
-            // Clean up temp file
-            let _ = std::fs::remove_file(&temp_cert_path);
-
-            if !output.status.success() {
-                debug!("OpenSSL command failed to extract extensions, returning None for URLs");
-                return Ok((None, None)); // Return None instead of error for missing extensions
-            }
-
-            let text_output = String::from_utf8(output.stdout)
-                .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {e}")))?;
-
-            debug!("Extracted certificate text: {} characters", text_output.len());
-
-            // Parse the text output to find AIA and CDP URLs
-            for line in text_output.lines() {
-                let line_trimmed = line.trim();
-                debug!("Checking line: '{}'", line_trimmed);
-
-                // Extract any URI line containing http
-                if let Some(http_start) = line_trimmed.find("URI:") {
-                    if let Some(url_start_pos) = line_trimmed[http_start..].find("http") {
-                        let actual_url_start = http_start + url_start_pos;
-                        let url = &line_trimmed[actual_url_start..];
-
-                        debug!("Found URI line, checking if it's AIA or CDP. Line: '{}', URL: '{}'", line_trimmed, url);
-
-                        // Check what type of URL this is
-                        if url.contains("ca.cert") || line_trimmed.contains("CA Issuers") || line_trimmed.contains("caIssuers") || line_trimmed.contains("Authority Information Access") {
-                            // This is an AIA (Authority Information Access) URL
-                            if aia_url.is_none() { // Only set if not already set
-                                debug!("Found AIA URL: {}", url);
-                                aia_url = Some(url.to_string());
-                            }
-                        } else if url.contains("ca.crl") || url.contains("crl") || line_trimmed.contains("CRL Distribution Points") || line_trimmed.contains("Full Name") {
-                            // This is a CDP (CRL Distribution Points) URL
-                            // Some certificates use "Full Name" instead of "CRL Distribution Points"
-                            if cdp_url.is_none() { // Only set if not already set
-                                debug!("Found CDP URL: {} (from line: '{}')", url, line_trimmed);
-                                cdp_url = Some(url.to_string());
-                            }
-                        }
-                        // If we found a URI but don't recognize the type, log it
-                        else {
-                            debug!("Found URI but couldn't classify: '{}' in line: '{}'", url, line_trimmed);
-                        }
-                    }
-                    // If URI: found but no http after it, log it
-                    else {
-                        debug!("Found 'URI:' but no 'http' after it in line: '{}'", line_trimmed);
-                    }
-                }
-
-                // Also check for lines that directly contain http without "URI:" prefix
-                if !line_trimmed.contains("URI:") && line_trimmed.contains("http") {
-                    if let Some(http_start) = line_trimmed.find("http") {
-                        let url = &line_trimmed[http_start..];
-
-                        debug!("Found line with http but no URI prefix: '{}', URL: '{}'", line_trimmed, url);
-
-                        if url.contains("ca.cert") {
-                            if aia_url.is_none() {
-                                debug!("Found AIA URL (alternative): {}", url);
-                                aia_url = Some(url.to_string());
-                            }
-                        } else if url.contains("ca.crl") || url.contains("crl") || cdp_url.is_none() {
-                            // More lenient check for CDP URLs in case they don't have ca.crl
-                            if cdp_url.is_none() {
-                                debug!("Found CDP URL (alternative): {} (from line: '{}')", url, line_trimmed);
-                                cdp_url = Some(url.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-
-            debug!("Extracted URLs - AIA: {:?}, CDP: {:?}", aia_url, cdp_url);
-            Ok((aia_url, cdp_url))
-        }
-
-
-/// Determine the certificate type based on position in chain and certificate properties
-fn determine_certificate_type(cert: &X509, index: usize, total_certs: usize) -> String {
-    // Check if this certificate has CA:TRUE basic constraint
-    let is_ca = || -> bool {
-        // Use openssl command-line to check basic constraints
-        let pem_result = cert.to_pem();
-        if let Ok(pem_data) = pem_result {
-            if let Ok(pem_str) = String::from_utf8(pem_data) {
-                let temp_cert_path = std::env::temp_dir().join(format!("cert_ca_check_{}.pem", std::process::id()));
-                if std::fs::write(&temp_cert_path, &pem_str).is_ok() {
-                    let openssl_result = std::process::Command::new("openssl")
-                        .args([
-                            "x509",
-                            "-in", &temp_cert_path.to_string_lossy(),
-                            "-text",
-                            "-noout"
-                        ])
-                        .output();
-
-                    let _ = std::fs::remove_file(&temp_cert_path);
-
-                    if let Ok(output) = openssl_result {
-                        if output.status.success() {
-                            if let Ok(text_output) = String::from_utf8(output.stdout) {
-                                // Check for CA:TRUE in basic constraints
-                                if text_output.contains("CA:TRUE") {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        false
-    };
-
-    // Check if this is a self-signed certificate (root CA)
-    let is_self_signed = {
-        let subject = cert.subject_name();
-        let issuer = cert.issuer_name();
-
-        // Compare subject and issuer by converting to DER and comparing bytes
-        let subject_der = subject.to_der();
-        let issuer_der = issuer.to_der();
-
-        subject_der.is_ok() && issuer_der.is_ok() &&
-           subject_der.as_ref().unwrap() == issuer_der.as_ref().unwrap()
-    };
-
-    // Determine certificate type based on CA status and chain position
-    if is_ca() {
-        if is_self_signed && index == total_certs - 1 {
-            return "root_ca".to_string();
-        } else if is_ca() {
-            return "intermediate_ca".to_string();
-        }
-    }
-
-    // Check if this is a leaf certificate (at the beginning of the chain)
-    if index == 0 {
-        return "end_entity".to_string();
-    }
-
-    // For certificates that are not end entity (index > 0), check if they're CAs
-    // Use openssl command-line to check basic constraints (workaround for Rust OpenSSL bindings limitation)
-    let pem_result = cert.to_pem();
-    if let Ok(pem_data) = pem_result {
-        if let Ok(pem_str) = String::from_utf8(pem_data) {
-            let temp_cert_path = std::env::temp_dir().join(format!("cert_check_{}.pem", std::process::id()));
-            if std::fs::write(&temp_cert_path, &pem_str).is_ok() {
-                let openssl_result = std::process::Command::new("openssl")
-                    .args([
-                        "x509",
-                        "-in", &temp_cert_path.to_string_lossy(),
-                        "-text",
-                        "-noout"
-                    ])
-                    .output();
-
-                let _ = std::fs::remove_file(&temp_cert_path);
-
-                if let Ok(output) = openssl_result {
-                    if output.status.success() {
-                        if let Ok(text_output) = String::from_utf8(output.stdout) {
-                            // Check for CA:TRUE in basic constraints
-                            if text_output.contains("CA:TRUE") {
-                                // If this is the last certificate in the chain, check if it's self-signed
-                                if index == total_certs - 1 {
-                                    let subject = cert.subject_name();
-                                    let issuer = cert.issuer_name();
-
-                                    // Compare subject and issuer by converting to DER and comparing bytes
-                                    let subject_der = subject.to_der();
-                                    let issuer_der = issuer.to_der();
-
-                                    if subject_der.is_ok() && issuer_der.is_ok() &&
-                                       subject_der.as_ref().unwrap() == issuer_der.as_ref().unwrap() {
-                                        return "root_ca".to_string();
-                                    }
-                                }
-                                // Otherwise, it's an intermediate CA
-                                return "intermediate_ca".to_string();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // If we can't determine type, default to intermediate (shouldn't happen in normal PKI scenarios)
-    "intermediate_ca".to_string()
-}
-
-/// Helper function to extract basic constraints from certificate using openssl command
-fn get_basic_constraints(cert: &X509) -> Result<Option<(bool, Option<i32>)>, ApiError> {
-    // Use openssl command-line to extract basic constraints
-    let pem = cert.to_pem()
-        .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {e}")))?;
-
-    let pem_str = String::from_utf8(pem)
-        .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {e}")))?;
-
-    // Write certificate to a temporary file
-    use std::process;
-    let temp_cert_path = std::env::temp_dir().join(format!("cert_bc_{}.pem", process::id()));
-    std::fs::write(&temp_cert_path, &pem_str)
-        .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {e}")))?;
-
-    // Use openssl command to extract text
-    let output = std::process::Command::new("openssl")
-        .args([
-            "x509",
-            "-in", &temp_cert_path.to_string_lossy(),
-            "-text",
-            "-noout"
-        ])
-        .output()
-        .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {e}")))?;
-
-    // Clean up temp file
-    let _ = std::fs::remove_file(&temp_cert_path);
-
-    if !output.status.success() {
-        return Ok(None); // No basic constraints available
-    }
-
-    let text_output = String::from_utf8(output.stdout)
-        .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {e}")))?;
-
-    // Parse basic constraints
-    let mut has_bc_section = false;
-    let mut is_ca = false;
-    let mut path_length: Option<i32> = None;
-
-    for line in text_output.lines() {
-        let line_trimmed = line.trim();
-
-        if line_trimmed.contains("X509v3 Basic Constraints:") {
-            has_bc_section = true;
-            continue;
-        }
-
-        if has_bc_section {
-            if line_trimmed.contains("CA:TRUE") {
-                is_ca = true;
-                // Check for path length
-                if let Some(pl_start) = line_trimmed.find("pathlen:") {
-                    let pl_str = &line_trimmed[pl_start + 8..].trim();
-                    if let Ok(pl) = pl_str.parse::<i32>() {
-                        path_length = Some(pl);
-                    }
-                }
-            } else if line_trimmed.contains("CA:FALSE") {
-                is_ca = false;
-            } else if line_trimmed.starts_with("X509v3") && !line_trimmed.contains("Basic Constraints") {
-                // End of basic constraints section
-                break;
-            }
-        }
-    }
-
-    if has_bc_section {
-        Ok(Some((is_ca, path_length)))
-    } else {
-        Ok(None)
+        },
+        Err(e) => Err(ApiError::Other(format!("Failed to delete file: {}", e))),
     }
 }
 
@@ -4057,9 +3759,9 @@ async fn process_ocsp_request(
     // Create cache key from certificate ID
     let cert_id_hash = format!("{:x}", md5::compute(&ocsp_request.certificate_id.serial_number));
 
-    let current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
+let current_time = SystemTime::now()
+.duration_since(UNIX_EPOCH)
+        .expect("System time is before UNIX epoch")
         .as_millis() as i64;
 
     // Check cache first
@@ -4356,4 +4058,192 @@ pub async fn update_audit_settings(
     warn!("Audit settings update not yet implemented - service needs mutable borrowing");
 
     Ok(settings)
+}
+
+/// Extract basic constraints from a certificate using openssl command
+fn get_basic_constraints(cert: &X509) -> Result<Option<(bool, Option<i32>)>, ApiError> {
+    use std::process::Command;
+
+    let output = Command::new("openssl")
+        .args(&["x509", "-in", "/dev/stdin", "-text", "-noout"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| ApiError::Other(format!("Failed to spawn openssl: {e}")))?;
+
+    output.stdin.as_ref().unwrap().write_all(&cert.to_der().map_err(|e| ApiError::Other(format!("Failed to serialize certificate: {e}")))?).map_err(|e| ApiError::Other(format!("Failed to write certificate to openssl: {e}")))?;
+    let output = output.wait_with_output().map_err(|e| ApiError::Other(format!("Failed to run openssl: {e}")))?;
+
+    if !output.status.success() {
+        return Err(ApiError::Other(format!("openssl failed: {}", String::from_utf8_lossy(&output.stderr))));
+    }
+
+    let text_output = String::from_utf8(output.stdout)
+        .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {e}")))?;
+
+    // Parse basic constraints
+    let mut has_bc_section = false;
+    let mut is_ca = false;
+    let mut path_length: Option<i32> = None;
+
+    for line in text_output.lines() {
+        let line_trimmed = line.trim();
+
+        if line_trimmed.contains("X509v3 Basic Constraints:") {
+            has_bc_section = true;
+            continue;
+        }
+
+        if has_bc_section {
+            if line_trimmed.contains("CA:TRUE") {
+                is_ca = true;
+                // Check for path length
+                if let Some(pl_start) = line_trimmed.find("pathlen:") {
+                    let pl_str = &line_trimmed[pl_start + 8..].trim();
+                    if let Ok(pl) = pl_str.parse::<i32>() {
+                        path_length = Some(pl);
+                    }
+                }
+            } else if line_trimmed.contains("CA:FALSE") {
+                is_ca = false;
+            } else if line_trimmed.starts_with("X509v3") && !line_trimmed.contains("Basic Constraints") {
+                // End of basic constraints section
+                break;
+            }
+        }
+    }
+
+    if has_bc_section {
+        Ok(Some((is_ca, path_length)))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Extract AIA and CDP URLs from certificate extensions
+fn extract_aia_and_cdp_urls(cert: &X509) -> Result<(Option<String>, Option<String>), ApiError> {
+    let mut aia_url = None;
+    let mut cdp_url = None;
+
+    // Use openssl command to extract extensions since the API is complex
+    use std::process::Command;
+
+    let cert_pem = cert.to_pem().map_err(|e| ApiError::Other(format!("Failed to convert cert to PEM: {e}")))?;
+    let output = Command::new("openssl")
+        .args(&["x509", "-in", "/dev/stdin", "-text", "-noout"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| ApiError::Other(format!("Failed to spawn openssl: {e}")))?;
+
+    output.stdin.as_ref().unwrap().write_all(&cert_pem).map_err(|e| ApiError::Other(format!("Failed to write cert: {e}")))?;
+    let output = output.wait_with_output().map_err(|e| ApiError::Other(format!("Failed to run openssl: {e}")))?;
+
+    if !output.status.success() {
+        return Ok((None, None)); // Return None if openssl fails, don't error
+    }
+
+    let text_output = String::from_utf8(output.stdout).map_err(|e| ApiError::Other(format!("Failed to parse output: {e}")))?;
+
+    for line in text_output.lines() {
+        let line_trimmed = line.trim();
+
+        // Extract any URI line containing http
+        if let Some(http_start) = line_trimmed.find("URI:") {
+            if let Some(url_start_pos) = line_trimmed[http_start..].find("http") {
+                let actual_url_start = http_start + url_start_pos;
+                let url = &line_trimmed[actual_url_start..];
+
+                // Check what type of URL this is by examining the context in the line
+                if line_trimmed.contains("Authority Information Access") ||
+                   line_trimmed.contains("authorityInfoAccess") ||
+                   url.contains("ca.cert") {
+                    // This is an AIA (Authority Information Access) URL
+                    if aia_url.is_none() && url.starts_with("http") {
+                        aia_url = Some(url.trim_end_matches(':').trim().to_string());
+                    }
+                } else if line_trimmed.contains("CRL Distribution Points") ||
+                   line_trimmed.contains("crlDistributionPoints") ||
+                   url.contains(".crl") || url.contains("/crl/") {
+                    // This is a CDP (CRL Distribution Points) URL
+                    if cdp_url.is_none() && url.starts_with("http") {
+                        cdp_url = Some(url.trim_end_matches(':').trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((aia_url, cdp_url))
+}
+
+/// Determine certificate type based on basic constraints and key usage
+fn determine_certificate_type(cert: &X509, _index: usize, _chain_length: usize) -> String {
+    // Try to get basic constraints
+    if let Ok(Some((is_ca, _path_length))) = get_basic_constraints(cert) {
+        if is_ca {
+            "CA".to_string()
+        } else {
+            "End Entity".to_string()
+        }
+    } else {
+        "Unknown".to_string()
+    }
+}
+
+/// Clean up temporary files created during operations
+pub fn cleanup_temp_files() {
+    use std::fs;
+    use std::path::Path;
+
+    let temp_dir = Path::new("/tmp");
+    if temp_dir.exists() {
+        if let Ok(entries) = fs::read_dir(temp_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                    // Clean up files that match our temporary file patterns
+                    if filename.starts_with("vaultls_temp_") || filename.starts_with("csr_temp_") {
+                        if let Err(e) = fs::remove_file(&path) {
+                            warn!("Failed to clean up temporary file {}: {}", path.display(), e);
+                        } else {
+                            debug!("Cleaned up temporary file: {}", path.display());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// OCSP responder GET endpoint - handles OCSP requests via GET
+#[openapi(tag = "Certificates")]
+#[get("/ocsp/<encoded_request>")]
+pub(crate) async fn ocsp_responder_get(
+    state: &State<AppState>,
+    encoded_request: &str,
+    _rate_limit: RateLimitGuard
+) -> Result<Vec<u8>, ApiError> {
+    debug!("OCSP GET request received");
+
+    // Decode the base64url encoded OCSP request
+    let request_data = base64::engine::general_purpose::URL_SAFE.decode(encoded_request)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid base64url encoding in OCSP request: {e}")))?;
+
+    process_ocsp_request(state, &request_data).await
+}
+
+/// OCSP responder POST endpoint - handles OCSP requests via POST
+#[openapi(tag = "Certificates")]
+#[post("/ocsp", data = "<request_data>")]
+pub(crate) async fn ocsp_responder_post(
+    state: &State<AppState>,
+    request_data: Vec<u8>,
+    _rate_limit: RateLimitGuard
+) -> Result<Vec<u8>, ApiError> {
+    debug!("OCSP POST request received ({} bytes)", request_data.len());
+
+    process_ocsp_request(state, &request_data).await
 }

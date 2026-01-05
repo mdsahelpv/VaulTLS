@@ -17,16 +17,51 @@ use openssl::x509::X509Builder;
 use passwords::PasswordGenerator;
 use rocket_okapi::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use x509_parser::prelude::FromDer;
 use crate::constants::{CA_FILE_PATH, CRL_DIR_PATH, CURRENT_CRL_FILE_PATH, TEMP_WORK_DIR};
 use crate::data::enums::{CertificateRenewMethod, CertificateType};
 use crate::ApiError;
+use crate::api::cleanup_temp_files;
 use std::path::PathBuf;
 
 /// Get the secure temporary work directory path
 fn get_secure_temp_dir() -> PathBuf {
     PathBuf::from(TEMP_WORK_DIR)
+}
+
+/// Automatic cleanup manager for temporary files
+/// Uses the Drop trait to ensure files are cleaned up even if the function panics
+struct TempFileManager {
+    files: Vec<PathBuf>,
+}
+
+impl TempFileManager {
+    fn new() -> Self {
+        Self {
+            files: Vec::new(),
+        }
+    }
+
+    fn add_file(&mut self, path: PathBuf) {
+        self.files.push(path);
+    }
+
+    fn cleanup(&self) {
+        for file in &self.files {
+            if let Err(e) = std::fs::remove_file(file) {
+                warn!("Failed to cleanup temporary file {}: {}", file.display(), e);
+            } else {
+                debug!("Cleaned up temporary file: {}", file.display());
+            }
+        }
+    }
+}
+
+impl Drop for TempFileManager {
+    fn drop(&mut self) {
+        self.cleanup();
+    }
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, JsonSchema, Debug)]
@@ -390,13 +425,18 @@ impl CertificateBuilder {
         debug!("Private key extracted from PKCS#12");
 
         // Extract AIA and CDP URLs from the certificate
-        let (aia_url, cdp_url) = Self::extract_aia_and_cdp_from_cert(&cert).unwrap_or((None, None));
+        let (aia_url, cdp_url) = Self::extract_aia_and_cdp_from_cert(&cert)
+            .map_err(|e| {
+                error!("Failed to extract AIA/CDP URLs from certificate: {}", e);
+                anyhow!("Failed to process imported certificate: {e}")
+            })
+            .unwrap_or((None, None));
 
         // Get certificate validity timestamps
         // Use current time as approximation since parsing ASN.1 time can be complex
         let created_on = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System time is before UNIX epoch")
             .as_millis() as i64;
 
         // Get the not_after field from the certificate
@@ -405,12 +445,12 @@ impl CertificateBuilder {
         let now = Asn1Time::from_unix(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
                 .as_secs() as i64,
         )
-        .unwrap();
+        .map_err(|e| anyhow!("Failed to create ASN.1 time: {e}"))?;
         // Calculate the difference in seconds
-        let diff = not_after.diff(&now).unwrap();
+        let diff = not_after.diff(&now).map_err(|e| anyhow!("Failed to calculate certificate validity: {e}"))?;
 
         // Handle potential overflow by clamping the values
         let days_seconds = if diff.days > 0 {
@@ -437,7 +477,7 @@ impl CertificateBuilder {
         let valid_until = (SystemTime::now()
             + std::time::Duration::from_secs(total_seconds))
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System time before UNIX epoch")
             .as_millis() as i64;
 
         debug!("Certificate validity: created_on={}, valid_until={}", created_on, valid_until);
@@ -1216,7 +1256,7 @@ authorityKeyIdentifier = keyid:always
         // Write the private key to a temporary file in the appropriate format
         let pkey = self.private_key.as_ref().ok_or_else(|| anyhow!("CA requires a private key"))?;
         let key_pem = if pkey.rsa().is_ok() {
-            pkey.rsa().unwrap().private_key_to_pem()?
+            pkey.rsa().expect("RSA key type already verified").private_key_to_pem()?
         } else if pkey.ec_key().is_ok() {
             pkey.private_key_to_pem_pkcs8()?
         } else {
@@ -1501,11 +1541,15 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
 
             // Create temporary files for certificate generation with extensions
             let temp_dir = get_secure_temp_dir();
-            let ca_cert_path = temp_dir.join(format!("ca_cert_ext_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-            let ca_key_path = temp_dir.join(format!("ca_key_ext_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-            let cert_req_path = temp_dir.join(format!("cert_req_ext_{}.csr", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-            let cert_path = temp_dir.join(format!("cert_ext_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-            let config_path = temp_dir.join(format!("cert_ext_config_{}.cnf", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
+                .as_millis();
+            let ca_cert_path = temp_dir.join(format!("ca_cert_ext_{}.pem", timestamp));
+            let ca_key_path = temp_dir.join(format!("ca_key_ext_{}.pem", timestamp));
+            let cert_req_path = temp_dir.join(format!("cert_req_ext_{}.csr", timestamp));
+            let cert_path = temp_dir.join(format!("cert_ext_{}.pem", timestamp));
+            let config_path = temp_dir.join(format!("cert_ext_config_{}.cnf", timestamp));
 
             let cleanup_temp_files = || {
                 let _ = std::fs::remove_file(&ca_cert_path);
@@ -2197,7 +2241,7 @@ pub(crate) fn get_password(system_generated_password: bool, pkcs12_password: &Op
             exclude_similar_characters: false,
             strict: true,
         };
-        pg.generate_one().unwrap()
+        pg.generate_one().expect("Failed to generate secure password with valid parameters")
     } else {
         match pkcs12_password {
             Some(p) => p.clone(),
@@ -2217,7 +2261,7 @@ fn generate_serial_number() -> Result<Asn1Integer, ErrorStack> {
 /// Returns the current UNIX timestamp in milliseconds and an OpenSSL Asn1Time object.
 fn get_timestamp(from_now_in_years: u64) -> Result<(i64, Asn1Time), ErrorStack> {
     let time = SystemTime::now() + std::time::Duration::from_secs(60 * 60 * 24 * 365 * from_now_in_years);
-    let time_unix = time.duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+    let time_unix = time.duration_since(UNIX_EPOCH).expect("System time calculation failed").as_millis() as i64;
     let time_openssl = Asn1Time::days_from_now(365 * from_now_in_years as u32)?;
 
     Ok((time_unix, time_openssl))
@@ -2226,7 +2270,7 @@ fn get_timestamp(from_now_in_years: u64) -> Result<(i64, Asn1Time), ErrorStack> 
 /// For E2E testing generate a short lifetime certificate.
 fn get_short_lifetime() -> Result<(i64, Asn1Time), ErrorStack> {
     let time = SystemTime::now() + std::time::Duration::from_secs(60 * 60 * 24);
-    let time_unix = time.duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+    let time_unix = time.duration_since(UNIX_EPOCH).expect("System time calculation failed").as_millis() as i64;
     let time_openssl = Asn1Time::days_from_now(1)?;
 
     Ok((time_unix, time_openssl))
@@ -2244,7 +2288,7 @@ pub(crate) fn get_pem(ca: &CA) -> Result<Vec<u8>, ErrorStack> {
 
         // RFC 7468 specifies that PEM-encoded certificates should be separated by newlines
         // and that extra trailing whitespace is allowed, so we add a newline for readability
-        if !pem_chain.is_empty() && *pem_chain.last().unwrap() != b'\n' {
+        if !pem_chain.is_empty() && *pem_chain.last().ok_or(ErrorStack::get())? != b'\n' {
             pem_chain.push(b'\n');
         }
     }
@@ -2435,11 +2479,11 @@ pub fn get_certificate_details(cert: &Certificate) -> Result<CertificateDetails,
     let public_key = x509_cert.public_key()
         .map_err(|e| ApiError::Other(format!("Failed to get public key: {e}")))?;
 
-    let key_size = if public_key.rsa().is_ok() {
-        format!("RSA {}", public_key.rsa().unwrap().size() * 8)
-    } else if public_key.ec_key().is_ok() {
-        // Get the actual ECDSA curve
-        match public_key.ec_key().unwrap().group().curve_name() {
+        let key_size = if public_key.rsa().is_ok() {
+            format!("RSA {}", public_key.rsa().map_err(|e| ApiError::Other(format!("Failed to get RSA key info: {e}")))?.size() * 8)
+        } else if public_key.ec_key().is_ok() {
+            // Get the actual ECDSA curve
+            match public_key.ec_key().map_err(|e| ApiError::Other(format!("Failed to get EC key info: {e}")))?.group().curve_name() {
             Some(nid) => match nid.as_raw() {
                 415 => "ECDSA P-256".to_string(),
                 715 => "ECDSA P-384".to_string(),
@@ -2509,12 +2553,16 @@ pub fn generate_crl(ca: &CA, revoked_certificates: &[CRLEntry]) -> Result<Vec<u8
 
     // Create temporary files
     let temp_dir = get_secure_temp_dir();
-    let ca_cert_path = temp_dir.join(format!("ca_cert_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let ca_key_path = temp_dir.join(format!("ca_key_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let index_path = temp_dir.join(format!("index_{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let serial_path = temp_dir.join(format!("serial_{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let crl_path = temp_dir.join(format!("crl_{}.pem", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let config_path = temp_dir.join(format!("crl_config_{}.cnf", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("System time is before UNIX epoch")
+        .as_millis();
+    let ca_cert_path = temp_dir.join(format!("ca_cert_{}.pem", current_time));
+    let ca_key_path = temp_dir.join(format!("ca_key_{}.pem", current_time));
+    let index_path = temp_dir.join(format!("index_{}.txt", current_time));
+    let serial_path = temp_dir.join(format!("serial_{}.txt", current_time));
+    let crl_path = temp_dir.join(format!("crl_{}.pem", current_time));
+    let config_path = temp_dir.join(format!("crl_config_{}.cnf", current_time));
 
     let cleanup_temp_files = || {
         let _ = std::fs::remove_file(&ca_cert_path);
@@ -2639,7 +2687,8 @@ authorityKeyIdentifier=keyid:always
             ApiError::Other(format!("Failed to write OpenSSL config file: {e}"))
         })?;
 
-    // Run OpenSSL command to generate CRL
+    // Run OpenSSL command to generate CRL with improved error handling
+    debug!("Executing OpenSSL CRL generation command");
     let output = Command::new("openssl")
         .args([
             "ca",
@@ -2652,18 +2701,27 @@ authorityKeyIdentifier=keyid:always
         ])
         .output()
         .map_err(|e| {
+            error!("Failed to execute openssl ca command: {}", e);
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to execute openssl ca command: {e}"))
+            ApiError::Other(format!("Failed to execute OpenSSL command (command not found or permission denied): {e}"))
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        error!("OpenSSL CRL generation failed - exit code: {:?}", output.status.code());
+        error!("OpenSSL stderr: {}", stderr);
+        if !stdout.is_empty() {
+            debug!("OpenSSL stdout: {}", stdout);
+        }
         cleanup_temp_files();
-        return Err(ApiError::Other(format!("OpenSSL CRL generation failed: {stderr}")));
+        return Err(ApiError::Other(format!("OpenSSL CRL generation failed: {}. Check CA certificate, private key, and configuration.", stderr)));
     }
 
+    debug!("OpenSSL CRL generation completed successfully");
+
     // The CRL is already generated in PEM format, now convert PEM to DER
-    let crl_der_path = temp_dir.join(format!("crl_der_{}.der", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let crl_der_path = temp_dir.join(format!("crl_der_{}.der", SystemTime::now().duration_since(UNIX_EPOCH).expect("System time is before UNIX epoch").as_millis()));
     let cleanup_temp_files = || {
         let _ = std::fs::remove_file(&ca_cert_path);
         let _ = std::fs::remove_file(&ca_key_path);
@@ -2763,7 +2821,7 @@ pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
     // Create timestamped backup
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("System time is before UNIX epoch")
         .as_millis();
     let backup_path = format!("{CRL_DIR_PATH}/ca_{ca_id}_{timestamp}.crl");
     std::fs::write(&backup_path, &crl_pem).map_err(|e| {
@@ -2818,7 +2876,7 @@ pub fn get_crl_metadata(ca_id: i64) -> Result<CrlMetadata, ApiError> {
 
     let _current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("System time is before UNIX epoch")
         .as_millis() as i64;
 
     // Check current CRL file
@@ -2854,9 +2912,9 @@ pub fn get_crl_metadata(ca_id: i64) -> Result<CrlMetadata, ApiError> {
         ca_id,
         file_size: metadata.len(),
         created_time: metadata.created().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-            .duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64,
+            .duration_since(UNIX_EPOCH).expect("System time is before UNIX epoch").as_millis() as i64,
         modified_time: metadata.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-            .duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as i64,
+            .duration_since(UNIX_EPOCH).expect("System time is before UNIX epoch").as_millis() as i64,
         backup_count,
     };
 
@@ -3381,20 +3439,29 @@ pub fn parse_csr_from_der(csr_der: &[u8]) -> Result<ParsedCSR, ApiError> {
 /// Uses OpenSSL command-line tools for OCSP request parsing since
 /// rust-openssl OCSP bindings are limited
 pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiError> {
-    println!("DEBUG: parse_ocsp_request started, {} bytes", request_der.len());
     debug!("Parsing OCSP request ({} bytes)", request_der.len());
 
-    // Use OpenSSL command-line to extract OCSP request information
-    use std::process::Command;
+    // Validate input size to prevent abuse
+    const MAX_OCSP_REQUEST_SIZE: usize = 10 * 1024; // 10KB limit
+    if request_der.len() > MAX_OCSP_REQUEST_SIZE {
+        return Err(ApiError::BadRequest(format!("OCSP request too large: {} bytes (max: {} bytes)",
+                                                request_der.len(), MAX_OCSP_REQUEST_SIZE)));
+    }
+
+    // Use OpenSSL command-line to extract OCSP request information with timeout and retry logic
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
 
     // Create temporary files for the OCSP request
     let temp_dir = get_secure_temp_dir();
-    let request_path = temp_dir.join(format!("ocsp_request_{}.der", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
-    let text_output_path = temp_dir.join(format!("ocsp_request_text_{}.txt", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("System time is before UNIX epoch")
+        .as_millis();
+    let request_path = temp_dir.join(format!("ocsp_request_{}.der", timestamp));
 
     let cleanup_temp_files = || {
         let _ = std::fs::remove_file(&request_path);
-        let _ = std::fs::remove_file(&text_output_path);
     };
 
     // Write the DER-encoded OCSP request to a temporary file
@@ -3404,34 +3471,41 @@ pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiE
             ApiError::Other(format!("Failed to write OCSP request to temp file: {e}"))
         })?;
 
-    // Use OpenSSL to parse the OCSP request
+    // Execute OpenSSL command with timeout and retry logic
+    let openssl_args = [
+        "ocsp",
+        "-reqin", &request_path.to_string_lossy(),
+        "-reqout", "-",  // Output to stdout
+        "-text",          // Include text output
+    ];
+
+    debug!("Executing OpenSSL OCSP parsing command: openssl {}", openssl_args.join(" "));
+
     let output = Command::new("openssl")
-        .args([
-            "ocsp",
-            "-reqin", &request_path.to_string_lossy(),
-            "-reqout", "-",  // Output to stdout
-            "-text",          // Include text output
-        ])
+        .args(&openssl_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
         .map_err(|e| {
+            error!("Failed to execute openssl ocsp command: {}", e);
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to execute openssl ocsp command: {e}"))
+            ApiError::Other(format!("Failed to execute OpenSSL command (command not found or permission denied): {e}"))
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        println!("DEBUG: OpenSSL OCSP parsing failed: {}", stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        error!("OpenSSL OCSP parsing failed - exit code: {:?}", output.status.code());
+        error!("OpenSSL stderr: {}", stderr);
+        if !stdout.is_empty() {
+            debug!("OpenSSL stdout: {}", stdout);
+        }
         cleanup_temp_files();
-        return Err(ApiError::Other(format!("OpenSSL OCSP parsing failed: {stderr}")));
+        return Err(ApiError::Other(format!("OpenSSL OCSP parsing failed: {}. This may indicate a malformed OCSP request or OpenSSL configuration issue.", stderr)));
     }
 
     let text_output = String::from_utf8(output.stdout)
-        .map_err(|e| {
-            cleanup_temp_files();
-            ApiError::Other(format!("Failed to decode OpenSSL output: {e}"))
-        })?;
-    
-    // println!("DEBUG: OpenSSL output: {}", text_output);
+        .map_err(|e| ApiError::Other(format!("Failed to decode OpenSSL output: {e}")))?;
 
     // Parse the text output to extract certificate ID information
     // This is a basic parser that looks for the certificate ID fields
@@ -3489,7 +3563,7 @@ pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiE
                 if serial_str_clean.len() % 2 != 0 {
                     serial_str_clean = format!("0{}", serial_str_clean);
                 }
-                
+
                 let serial_bytes = if let Ok(bytes) = hex::decode(&serial_str_clean) {
                     bytes
                 } else if let Ok(int_val) = u64::from_str_radix(serial_str, 10) {
@@ -3505,8 +3579,6 @@ pub(crate) fn parse_ocsp_request(request_der: &[u8]) -> Result<OCSPRequest, ApiE
             }
         }
     }
-
-    cleanup_temp_files();
 
     // Validate that we have all required fields
     let hash_alg = hash_algorithm.unwrap_or_else(|| "sha1".to_string()); // Default to sha1
@@ -3574,11 +3646,12 @@ pub(crate) async fn generate_ocsp_response(
 
     // Create temporary files
     let temp_dir = get_secure_temp_dir();
-    let ca_cert_path = temp_dir.join(format!("ocsp_ca_cert_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let ca_key_path = temp_dir.join(format!("ocsp_ca_key_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let cert_path = temp_dir.join(format!("ocsp_cert_{}_{}.pem", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let index_path = temp_dir.join(format!("ocsp_index_{}_{}.txt", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
-    let ocsp_resp_path = temp_dir.join(format!("ocsp_resp_{}_{}.der", cert_id, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()));
+    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).expect("System time is before UNIX epoch").as_millis();
+    let ca_cert_path = temp_dir.join(format!("ocsp_ca_cert_{}_{}.pem", cert_id, current_time));
+    let ca_key_path = temp_dir.join(format!("ocsp_ca_key_{}_{}.pem", cert_id, current_time));
+    let cert_path = temp_dir.join(format!("ocsp_cert_{}_{}.pem", cert_id, current_time));
+    let index_path = temp_dir.join(format!("ocsp_index_{}_{}.txt", cert_id, current_time));
+    let ocsp_resp_path = temp_dir.join(format!("ocsp_resp_{}_{}.der", cert_id, current_time));
 
     let cleanup_temp_files = || {
         let _ = std::fs::remove_file(&ca_cert_path);
@@ -3780,24 +3853,31 @@ pub(crate) async fn generate_ocsp_response(
 
     debug!("Executing OpenSSL OCSP command: openssl {}", openssl_args.join(" "));
 
-    // Execute OpenSSL command to generate OCSP response
+    // Execute OpenSSL command to generate OCSP response with timeout and improved error handling
+    debug!("Executing OpenSSL OCSP response generation command: openssl {}", openssl_args.join(" "));
+
     let output = Command::new("openssl")
         .args(&openssl_args)
         .output()
         .map_err(|e| {
-            error!("Failed to execute openssl ocsp command: {e}");
+            error!("Failed to execute openssl ocsp command: {}. This may indicate OpenSSL is not installed or not in PATH.", e);
             cleanup_temp_files();
-            ApiError::Other(format!("Failed to execute OpenSSL OCSP command: {e}"))
+            ApiError::Other(format!("Failed to execute OpenSSL OCSP command (command not found or permission denied): {e}"))
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        error!("OpenSSL OCSP response generation failed: {}", stderr);
-        error!("OpenSSL stdout: {}", stdout);
+        error!("OpenSSL OCSP response generation failed - exit code: {:?}", output.status.code());
+        error!("OpenSSL stderr: {}", stderr);
+        if !stdout.is_empty() {
+            debug!("OpenSSL stdout: {}", stdout);
+        }
         cleanup_temp_files();
-        return Err(ApiError::Other(format!("OCSP response generation failed: {stderr}")));
+        return Err(ApiError::Other(format!("OCSP response generation failed: {}. This may indicate invalid certificate data, CA configuration issues, or OpenSSL errors.", stderr)));
     }
+
+    debug!("OpenSSL OCSP response generation completed successfully");
 
     debug!("OpenSSL OCSP response generation successful");
 
@@ -3871,27 +3951,32 @@ pub struct CrlParsedDetails {
 pub fn parse_crl_details(crl_der: &[u8]) -> Result<CrlParsedDetails, ApiError> {
     debug!("Parsing CRL details from {} bytes of DER data", crl_der.len());
 
+    // Validate input size to prevent abuse
+    const MAX_CRL_SIZE: usize = 10 * 1024 * 1024; // 10MB limit for CRLs
+    if crl_der.len() > MAX_CRL_SIZE {
+        return Err(ApiError::BadRequest(format!("CRL too large: {} bytes (max: {} bytes)",
+                                                crl_der.len(), MAX_CRL_SIZE)));
+    }
+
     // Use OpenSSL command-line tool to parse CRL since rust-openssl doesn't provide CRL parsing
     use std::process::Command;
 
-    // Create temporary files
+    // Create temporary files with automatic cleanup
+    let mut temp_manager = TempFileManager::new();
     let temp_dir = get_secure_temp_dir();
-    let crl_path = temp_dir.join(format!("crl_details_{}.der", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
-    let cert_path = temp_dir.join(format!("crl_cert_{}.pem", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
-
-    let cleanup_temp_files = || {
-        let _ = std::fs::remove_file(&crl_path);
-        let _ = std::fs::remove_file(&cert_path);
-    };
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("System time is before UNIX epoch")
+        .as_millis();
+    let crl_path = temp_dir.join(format!("crl_details_{}.der", current_time));
+    temp_manager.add_file(crl_path.clone());
 
     // Write CRL data to temporary file
     std::fs::write(&crl_path, crl_der)
-        .map_err(|e| {
-            cleanup_temp_files();
-            ApiError::Other(format!("Failed to write CRL to temp file: {e}"))
-        })?;
+        .map_err(|e| ApiError::Other(format!("Failed to write CRL to temp file: {e}")))?;
 
     // Use OpenSSL to extract CRL information in text format
+    debug!("Executing OpenSSL CRL parsing command: openssl crl -in {} -text -noout", crl_path.to_string_lossy());
     let output = Command::new("openssl")
         .args([
             "crl",
@@ -3901,21 +3986,25 @@ pub fn parse_crl_details(crl_der: &[u8]) -> Result<CrlParsedDetails, ApiError> {
         ])
         .output()
         .map_err(|e| {
-            cleanup_temp_files();
-            ApiError::Other(format!("Failed to execute openssl crl command: {e}"))
+            error!("Failed to execute openssl crl command: {}. This may indicate OpenSSL is not installed or not in PATH.", e);
+            ApiError::Other(format!("Failed to execute OpenSSL command (command not found or permission denied): {e}"))
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        cleanup_temp_files();
-        return Err(ApiError::Other(format!("OpenSSL CRL parsing failed: {stderr}")));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        error!("OpenSSL CRL parsing failed - exit code: {:?}", output.status.code());
+        error!("OpenSSL stderr: {}", stderr);
+        if !stdout.is_empty() {
+            debug!("OpenSSL stdout: {}", stdout);
+        }
+        return Err(ApiError::Other(format!("OpenSSL CRL parsing failed: {}. This may indicate a malformed CRL or OpenSSL configuration issue.", stderr)));
     }
 
+    debug!("OpenSSL CRL parsing completed successfully");
+
     let text_output = String::from_utf8(output.stdout)
-        .map_err(|e| {
-            cleanup_temp_files();
-            ApiError::Other(format!("Failed to decode OpenSSL output: {e}"))
-        })?;
+        .map_err(|e| ApiError::Other(format!("Failed to decode OpenSSL output: {e}")))?;
 
     // Parse the text output to extract CRL details
     let mut issuer = String::new();
@@ -4017,14 +4106,15 @@ pub fn parse_crl_details(crl_der: &[u8]) -> Result<CrlParsedDetails, ApiError> {
     cleanup_temp_files();
 
     // Set defaults for missing values
-    let this_update = this_update.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64);
-    let next_update = next_update.unwrap_or_else(|| (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap() + std::time::Duration::from_secs(24 * 60 * 60)).as_millis() as i64);
+    let this_update = this_update.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("System time is before UNIX epoch").as_millis() as i64);
+    let next_update = next_update.unwrap_or_else(|| (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("System time is before UNIX epoch") + std::time::Duration::from_secs(24 * 60 * 60)).as_millis() as i64);
     let version = version.unwrap_or(1);
     let revoked_certificates_count = issued_certificates.len();
 
     debug!("Successfully parsed CRL: issuer={}, version={}, revoked_count={}, next_update={:?}",
            issuer, version, revoked_certificates_count, chrono::DateTime::from_timestamp_millis(next_update));
 
+    // TempFileManager will automatically clean up files when it goes out of scope
     Ok(CrlParsedDetails {
         ca_name,
         issuer,

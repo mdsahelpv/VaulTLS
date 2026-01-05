@@ -103,6 +103,9 @@ pub struct AppState {
     pub audit: Arc<AuditService>,
     pub crl_cache: Arc<Mutex<Option<CrlCache>>>,
     pub ocsp_cache: Arc<Mutex<Option<OcspCache>>>,
+    pub crl_generation_lock: Arc<Mutex<()>>, // Prevents concurrent CRL generation
+    pub certificate_locks: Arc<dashmap::DashMap<i64, Arc<tokio::sync::Mutex<()>>>>, // Per-certificate locks for revocation operations
+    pub ca_locks: Arc<dashmap::DashMap<i64, Arc<tokio::sync::Mutex<()>>>>, // Per-CA locks for CA operations
     pub certificate_service: Arc<crate::services::CertificateService>,
     pub ca_service: Arc<crate::services::CAService>,
     pub user_service: Arc<crate::services::UserService>,

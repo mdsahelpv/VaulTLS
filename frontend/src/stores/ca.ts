@@ -15,9 +15,13 @@ export const useCAStore = defineStore('ca', {
     async fetchCAList() {
       this.loading = true;
       this.error = null;
+      const previousCAList = [...this.caList]; // Store previous state for rollback
+
       try {
         this.caList = await fetchCAs();
       } catch (error) {
+        // Rollback: restore previous state
+        this.caList = previousCAList;
         this.error = 'Failed to fetch CA list';
         console.error('Error fetching CA list:', error);
         throw error;
@@ -29,9 +33,13 @@ export const useCAStore = defineStore('ca', {
     async fetchCADetails() {
       this.loading = true;
       this.error = null;
+      const previousCADetails = this.currentCADetails; // Store previous state for rollback
+
       try {
         this.currentCADetails = await getCADetails();
       } catch (error) {
+        // Rollback: restore previous state
+        this.currentCADetails = previousCADetails;
         this.error = 'Failed to fetch CA details';
         console.error('Error fetching CA details:', error);
         throw error;

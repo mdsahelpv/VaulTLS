@@ -135,7 +135,9 @@ pub(crate) fn authenticate_auth_token(request: &Request<'_>) -> Option<Claims> {
 /// If cert_thumbprint is provided, creates a certificate-bound token (RFC 8705)
 pub(crate) fn generate_token(jwt_key: &[u8], user_id: i64, user_role: UserRole, cert_thumbprint: Option<String>) -> Result<String, ApiError> {
     let expires = SystemTime::now() + Duration::from_secs(60 * 60 /* 1 hour */);
-    let expires_unix = expires.duration_since(UNIX_EPOCH).unwrap().as_secs() as usize;
+    let expires_unix = expires.duration_since(UNIX_EPOCH)
+        .map_err(|_| "Invalid session expiration time")?
+        .as_secs() as usize;
     
     let cnf = cert_thumbprint.map(|thumbprint| CnfClaim {
         x5t_s256: thumbprint,
