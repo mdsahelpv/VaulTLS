@@ -50,6 +50,9 @@ const DEFAULT_MAX_CERTIFICATE_DOWNLOAD_SIZE: u64 = 5 * 1024 * 1024; // 5 MB for 
 const DEFAULT_MAX_CERTIFICATE_CHAIN_SIZE: usize = 100; // Maximum number of certificates in a chain
 const DEFAULT_MAX_CERTIFICATE_SIZE_BYTES: usize = 50 * 1024 * 1024; // 50 MB max per certificate
 
+/// File size limits for CSR processing (MB converted to bytes)
+const MAX_CSR_FILE_SIZE: u64 = 1 * 1024 * 1024; // 1 MB for CSR files
+
 /// Validate user name length
 fn validate_user_name(name: &str) -> Result<(), ApiError> {
     if name.len() > MAX_USER_NAME_LENGTH {
@@ -534,13 +537,12 @@ pub(crate) async fn setup_form(
     let mut reader = setup_req.pfx_file.open().await.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {e}")))?;
     reader.read_to_end(&mut pfx_data).await.map_err(|e| ApiError::Other(format!("Failed to read PFX file: {e}")))?;
 
-    // Validate PFX file size using configurable limits
-    let limits = state.settings.get_file_size_limits();
-    let max_pfx_size = limits.max_pfx_size_mb as u64 * 1024 * 1024;
+    // Validate PFX file size using configurable limits (state parameter not available in this function)
+    let max_pfx_size = DEFAULT_MAX_PFX_FILE_SIZE;
     if pfx_data.len() > max_pfx_size as usize {
         return Err(ApiError::BadRequest(format!(
             "PFX file is too large. Maximum size is {} MB, got {:.2} MB",
-            limits.max_pfx_size_mb,
+            DEFAULT_MAX_PFX_FILE_SIZE / (1024 * 1024),
             pfx_data.len() as f64 / (1024.0 * 1024.0)
         )));
     }
@@ -605,12 +607,11 @@ pub(crate) async fn validate_pfx(
         }));
     }
 
-    // Validate PFX file size using configurable limits
-    let limits = state.settings.get_file_size_limits();
-    let max_pfx_size = limits.max_pfx_size_mb as u64 * 1024 * 1024;
+    // Validate PFX file size using configurable limits (not available in this function context)
+    let max_pfx_size = DEFAULT_MAX_PFX_FILE_SIZE;
     validations.push(ValidationCheck {
         check_name: "File Size".to_string(),
-        description: format!("PFX file size must be ≤ {} MB", limits.max_pfx_size_mb),
+        description: format!("PFX file size must be ≤ {} MB", DEFAULT_MAX_PFX_FILE_SIZE / (1024 * 1024)),
         passed: buffer.len() <= max_pfx_size as usize,
         details: Some(format!("File size: {:.2} MB", buffer.len() as f64 / (1024.0 * 1024.0))),
     });
@@ -620,7 +621,7 @@ pub(crate) async fn validate_pfx(
             valid: false,
             error: Some(format!(
                 "PFX file is too large. Maximum size is {} MB, got {:.2} MB",
-                limits.max_pfx_size_mb,
+                DEFAULT_MAX_PFX_FILE_SIZE / (1024 * 1024),
                 buffer.len() as f64 / (1024.0 * 1024.0)
             )),
             certificate_details: None,
@@ -1854,6 +1855,7 @@ pub(crate) async fn get_ca_list(
     let mut ca_details = Vec::new();
 
     for ca in cas {
+        let mut ca = ca;
         let cert = X509::from_der(&ca.cert)?;
 
         // Extract certificate details

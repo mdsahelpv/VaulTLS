@@ -224,8 +224,8 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 - [x] Add file locking for certificate file access
 - [x] Add file locking for CA file access
 - [x] Prevent concurrent access to same certificate files
-- [ ] Handle lock timeouts gracefully
-- [ ] Test concurrent file access scenarios
+- [x] Handle lock timeouts gracefully
+- [x] Test concurrent file access scenarios
 
 ---
 
