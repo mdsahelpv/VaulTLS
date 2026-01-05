@@ -154,6 +154,35 @@ pub(crate) struct Common {
     password_rule: PasswordRule,
     #[serde(default)]
     is_root_ca: bool,
+    #[serde(default)]
+    file_size_limits: FileSizeLimits,
+}
+
+/// File size limits for uploads and downloads.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub(crate) struct FileSizeLimits {
+    /// Maximum PFX file size in MB (default: 10)
+    pub(crate) max_pfx_size_mb: u64,
+    /// Maximum CSR file size in MB (default: 1)
+    pub(crate) max_csr_size_mb: u64,
+    /// Maximum certificate download size in MB (default: 5)
+    pub(crate) max_cert_download_size_mb: u64,
+    /// Maximum certificate chain size (number of certificates) (default: 100)
+    pub(crate) max_cert_chain_size: usize,
+    /// Maximum individual certificate size in MB (default: 50)
+    pub(crate) max_cert_size_mb: u64,
+}
+
+impl Default for FileSizeLimits {
+    fn default() -> Self {
+        Self {
+            max_pfx_size_mb: 10,
+            max_csr_size_mb: 1,
+            max_cert_download_size_mb: 5,
+            max_cert_chain_size: 100,
+            max_cert_size_mb: 50,
+        }
+    }
 }
 
 impl Common {
@@ -519,5 +548,10 @@ impl Settings {
     pub(crate) fn get_audit(&self) -> AuditSettings {
         let settings = self.0.read();
         settings.get_audit().clone()
+    }
+
+    pub(crate) fn get_file_size_limits(&self) -> FileSizeLimits {
+        let settings = self.0.read();
+        settings.common.file_size_limits.clone()
     }
 }

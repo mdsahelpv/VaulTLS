@@ -1,7 +1,7 @@
 {
   "common": {
     "password_enabled": true,
-    "vaultls_url": "",
+    "vaultls_url": "https://vaultls.example.com",
     "password_rule": 0,
     "is_root_ca": false,
     "file_size_limits": {
@@ -13,21 +13,21 @@
     }
   },
   "auth": {
-    "jwt_key": "4v0tXj5J45a4er8z9mAf1HQcobC1/pCzrc+SNKh6OmE="
+    "jwt_key": "auto-generated-jwt-secret-key"
   },
   "oidc": {
-    "id": "",
-    "secret": "",
-    "auth_url": "",
-    "callback_url": ""
+    "id": "your-oidc-client-id",
+    "secret": "your-oidc-client-secret",
+    "auth_url": "https://your-oidc-provider.com",
+    "callback_url": "https://vaultls.example.com/api/auth/oidc/callback"
   },
   "mail": {
-    "smtp_host": "",
-    "smtp_port": 0,
-    "encryption": 0,
-    "username": null,
-    "password": null,
-    "from": ""
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "encryption": 1,
+    "username": "your-email@gmail.com",
+    "password": "your-app-password",
+    "from": "noreply@vaultls.example.com"
   },
   "logic": {
     "db_encrypted": false
@@ -35,11 +35,11 @@
   "crl": {
     "validity_days": 7,
     "refresh_interval_hours": 24,
-    "distribution_url": null,
+    "distribution_url": "https://vaultls.example.com/api/certificates/crl",
     "enabled": true
   },
   "ocsp": {
-    "responder_url": null,
+    "responder_url": "https://vaultls.example.com/api/ocsp",
     "validity_hours": 24,
     "signing_cert_path": null,
     "enabled": true

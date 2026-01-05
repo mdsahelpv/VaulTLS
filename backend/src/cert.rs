@@ -2297,9 +2297,37 @@ pub(crate) fn get_pem(ca: &CA) -> Result<Vec<u8>, ErrorStack> {
 }
 
 /// Saves the CA certificate to a file for filesystem access.
+/// Uses file locking to prevent concurrent access corruption.
 pub(crate) fn save_ca(ca: &CA) -> Result<(), ApiError> {
     let pem = get_pem(ca)?;
-    fs::write(CA_FILE_PATH, pem).map_err(|e| ApiError::Other(e.to_string()))?;
+
+    // Open file with exclusive lock to prevent concurrent writes
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(CA_FILE_PATH)
+        .map_err(|e| ApiError::Other(format!("Failed to open CA file for writing: {}", e)))?;
+
+    // Acquire exclusive lock with timeout to prevent deadlocks
+    file.lock_exclusive()
+        .map_err(|e| ApiError::Other(format!("Failed to acquire file lock: {}", e)))?;
+
+    // Write the PEM data
+    use std::io::Write;
+    let mut writer = std::io::BufWriter::new(&file);
+    writer.write_all(&pem)
+        .map_err(|e| ApiError::Other(format!("Failed to write CA certificate: {}", e)))?;
+
+    // Explicitly flush to ensure data is written
+    writer.flush()
+        .map_err(|e| ApiError::Other(format!("Failed to flush CA certificate: {}", e)))?;
+
+    // Lock is automatically released when file is closed
+    drop(writer);
+    drop(file);
+
+    debug!("Successfully saved CA certificate to {}", CA_FILE_PATH);
     Ok(())
 }
 
@@ -2797,6 +2825,7 @@ pub fn crl_to_pem(crl_der: &[u8]) -> Result<Vec<u8>, ApiError> {
 }
 
 /// Save CRL to file system with metadata
+/// Uses file locking to prevent concurrent access corruption
 #[allow(dead_code)]
 pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -2812,22 +2841,61 @@ pub fn save_crl_to_file(crl_der: &[u8], ca_id: i64) -> Result<(), ApiError> {
     // Convert to PEM format for storage
     let crl_pem = crl_to_pem(crl_der)?;
 
-    // Save to current CRL file
-    std::fs::write(CURRENT_CRL_FILE_PATH, &crl_pem).map_err(|e| {
-        error!("Failed to write CRL file: {}", e);
-        ApiError::Other(format!("Failed to write CRL file: {e}"))
-    })?;
+    // Save to current CRL file with exclusive locking
+    {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(CURRENT_CRL_FILE_PATH)
+            .map_err(|e| ApiError::Other(format!("Failed to open CRL file for writing: {}", e)))?;
 
-    // Create timestamped backup
+        // Acquire exclusive lock to prevent concurrent writes
+        file.lock_exclusive()
+            .map_err(|e| ApiError::Other(format!("Failed to acquire CRL file lock: {}", e)))?;
+
+        // Write the PEM data
+        use std::io::Write;
+        let mut writer = std::io::BufWriter::new(&file);
+        writer.write_all(&crl_pem)
+            .map_err(|e| ApiError::Other(format!("Failed to write CRL file: {}", e)))?;
+
+        // Explicitly flush to ensure data is written
+        writer.flush()
+            .map_err(|e| ApiError::Other(format!("Failed to flush CRL file: {}", e)))?;
+
+        // Lock is automatically released when file is closed
+    }
+
+    // Create timestamped backup (also with locking for safety)
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("System time is before UNIX epoch")
         .as_millis();
     let backup_path = format!("{CRL_DIR_PATH}/ca_{ca_id}_{timestamp}.crl");
-    std::fs::write(&backup_path, &crl_pem).map_err(|e| {
-        error!("Failed to write CRL backup file: {}", e);
-        ApiError::Other(format!("Failed to write CRL backup file: {e}"))
-    })?;
+
+    {
+        let backup_file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&backup_path)
+            .map_err(|e| ApiError::Other(format!("Failed to open CRL backup file for writing: {}", e)))?;
+
+        // Acquire exclusive lock for backup file
+        backup_file.lock_exclusive()
+            .map_err(|e| ApiError::Other(format!("Failed to acquire CRL backup file lock: {}", e)))?;
+
+        // Write the PEM data
+        use std::io::Write;
+        let mut writer = std::io::BufWriter::new(&backup_file);
+        writer.write_all(&crl_pem)
+            .map_err(|e| ApiError::Other(format!("Failed to write CRL backup file: {}", e)))?;
+
+        // Explicitly flush to ensure data is written
+        writer.flush()
+            .map_err(|e| ApiError::Other(format!("Failed to flush CRL backup file: {}", e)))?;
+    }
 
     debug!("Successfully saved CRL to file system (main: {}, backup: {})",
            CURRENT_CRL_FILE_PATH, backup_path);

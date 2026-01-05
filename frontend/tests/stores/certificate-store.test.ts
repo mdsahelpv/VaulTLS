@@ -264,6 +264,22 @@ const mockCertificates: Certificate[] = [
         expect(certificateStore.error).toBe('Failed to create certificate')
         expect(certificateStore.loading).toBe(false)
       })
+
+      it('should rollback state on creation failure', async () => {
+        // Setup initial state
+        certificateStore.certificates.set(1, mockCertificates[0])
+        const initialState = new Map(certificateStore.certificates)
+
+        const error = new Error('Creation failed')
+        vi.mocked(createCertificate).mockRejectedValue(error)
+        vi.mocked(fetchCertificates).mockResolvedValue(mockCertificates) // Won't be called due to rollback
+
+        await expect(certificateStore.createCertificate(mockCertReq)).rejects.toThrow()
+
+        // State should be rolled back to initial state
+        expect(certificateStore.certificates).toEqual(initialState)
+        expect(fetchCertificates).not.toHaveBeenCalled() // Should not refresh on error
+      })
     })
 
     describe('deleteCertificate', () => {
@@ -290,6 +306,23 @@ const mockCertificates: Certificate[] = [
         expect(certificateStore.error).toBe('Failed to delete certificate')
         expect(certificateStore.loading).toBe(false)
       })
+
+      it('should rollback state on deletion failure', async () => {
+        // Setup initial state with certificate
+        certificateStore.certificates.set(1, mockCertificates[0])
+        const initialState = new Map(certificateStore.certificates)
+
+        const error = new Error('Deletion failed')
+        vi.mocked(deleteCertificate).mockRejectedValue(error)
+        vi.mocked(fetchCertificates).mockResolvedValue(mockCertificates) // Won't be called due to rollback
+
+        await expect(certificateStore.deleteCertificate(1)).rejects.toThrow()
+
+        // State should be rolled back - certificate should still exist
+        expect(certificateStore.certificates).toEqual(initialState)
+        expect(certificateStore.certificates.has(1)).toBe(true) // Certificate should still be there
+        expect(fetchCertificates).not.toHaveBeenCalled() // Should not refresh on error
+      })
     })
 
     describe('revokeCertificate', () => {
@@ -303,6 +336,32 @@ const mockCertificates: Certificate[] = [
         expect(fetchCertificates).toHaveBeenCalledTimes(1) // Refreshes list
         expect(certificateStore.loading).toBe(false)
         expect(certificateStore.error).toBe(null)
+      })
+
+      it('should handle revocation errors', async () => {
+        const error = new Error('Revocation failed')
+        vi.mocked(revokeCertificate).mockRejectedValue(error)
+
+        await expect(certificateStore.revokeCertificate(1, 1, true, 'Test revocation')).rejects.toThrow()
+        expect(certificateStore.error).toBe('Failed to revoke certificate')
+        expect(certificateStore.loading).toBe(false)
+      })
+
+      it('should rollback state on revocation failure', async () => {
+        // Setup initial state with certificate
+        certificateStore.certificates.set(1, mockCertificates[0]) // Active certificate
+        const initialState = new Map(certificateStore.certificates)
+
+        const error = new Error('Revocation failed')
+        vi.mocked(revokeCertificate).mockRejectedValue(error)
+        vi.mocked(fetchCertificates).mockResolvedValue(mockCertificates) // Won't be called due to rollback
+
+        await expect(certificateStore.revokeCertificate(1, 1, true, 'Test revocation')).rejects.toThrow()
+
+        // State should be rolled back - certificate should remain in initial state
+        expect(certificateStore.certificates).toEqual(initialState)
+        expect(certificateStore.certificates.get(1)?.is_revoked).toBe(false) // Should still be active
+        expect(fetchCertificates).not.toHaveBeenCalled() // Should not refresh on error
       })
     })
 
@@ -361,6 +420,195 @@ const mockCertificates: Certificate[] = [
       certificateStore.updateCertificatePassword(1, 'newpassword')
 
       expect(certificateStore.certificates.get(1)?.pkcs12_password).toBe('newpassword')
+    })
+  })
+
+  describe('Loading State Management', () => {
+    describe('Duplicate Request Prevention', () => {
+      it('should prevent duplicate certificate fetch requests', async () => {
+        vi.mocked(fetchCertificates).mockResolvedValue(mockCertificates)
+
+        // Start first request
+        const firstRequest = certificateStore.fetchCertificates()
+        expect(certificateStore.loadingCertificates).toBe(true)
+
+        // Second request should be ignored
+        await certificateStore.fetchCertificates()
+        expect(vi.mocked(fetchCertificates)).toHaveBeenCalledTimes(1)
+
+        // Wait for first request to complete
+        await firstRequest
+      })
+
+      it('should prevent duplicate certificate creation requests', async () => {
+        vi.mocked(createCertificate).mockImplementation(() => new Promise(resolve => setTimeout(resolve, 100)))
+        vi.mocked(fetchCertificates).mockResolvedValue(mockCertificates)
+
+        const certReq: CertificateRequirements = {
+          cert_name: 'Test Cert',
+          user_id: 1,
+          validity_in_years: 1,
+          system_generated_password: true,
+          pkcs12_password: '',
+          notify_user: false,
+          cert_type: 'Client',
+          dns_names: [],
+          renew_method: 'None',
+          ca_id: 1,
+        }
+
+        // First request should start
+        const firstRequest = certificateStore.createCertificate(certReq)
+        expect(certificateStore.creatingCertificate).toBe(true)
+
+        // Second request should throw error
+        await expect(certificateStore.createCertificate(certReq)).rejects.toThrow('Certificate creation already in progress')
+
+        // Wait for first request to complete
+        await firstRequest
+        expect(certificateStore.creatingCertificate).toBe(false)
+      })
+
+      it('should prevent duplicate certificate deletion requests', async () => {
+        vi.mocked(deleteCertificate).mockResolvedValue(undefined)
+        vi.mocked(fetchCertificates).mockResolvedValue([])
+
+        // First request should start
+        const firstRequest = certificateStore.deleteCertificate(1)
+        expect(certificateStore.deletingCertificate).toBe(true)
+
+        // Second request should throw error
+        await expect(certificateStore.deleteCertificate(1)).rejects.toThrow('Certificate deletion already in progress')
+
+        // Wait for first request to complete
+        await firstRequest
+        expect(certificateStore.deletingCertificate).toBe(false)
+      })
+
+      it('should prevent duplicate password fetch requests', async () => {
+        vi.mocked(fetchCertificatePassword).mockResolvedValue('password123')
+
+        // First request should start
+        const firstRequest = certificateStore.fetchCertificatePassword(1)
+        expect(certificateStore.fetchingPassword).toBe(true)
+
+        // Second request should throw error
+        await expect(certificateStore.fetchCertificatePassword(1)).rejects.toThrow('Password fetch already in progress')
+
+        // Wait for first request to complete
+        await firstRequest
+        expect(certificateStore.fetchingPassword).toBe(false)
+      })
+
+      it('should prevent duplicate download requests', async () => {
+        vi.mocked(downloadCertificate).mockResolvedValue(undefined)
+        certificateStore.certificates.set(1, mockCertificates[0])
+
+        // First request should start
+        const firstRequest = certificateStore.downloadCertificate(1)
+        expect(certificateStore.downloadingCertificate).toBe(true)
+
+        // Second request should throw error
+        await expect(certificateStore.downloadCertificate(1)).rejects.toThrow('Certificate download already in progress')
+
+        // Wait for first request to complete
+        await firstRequest
+        expect(certificateStore.downloadingCertificate).toBe(false)
+      })
+    })
+
+    describe('Loading State Transitions', () => {
+      it('should set correct loading states during successful operations', async () => {
+        vi.mocked(createCertificate).mockResolvedValue(undefined)
+        vi.mocked(fetchCertificates).mockResolvedValue(mockCertificates)
+
+        const certReq: CertificateRequirements = {
+          cert_name: 'Test Cert',
+          user_id: 1,
+          validity_in_years: 1,
+          system_generated_password: true,
+          pkcs12_password: '',
+          notify_user: false,
+          cert_type: 'Client',
+          dns_names: [],
+          renew_method: 'None',
+          ca_id: 1,
+        }
+
+        expect(certificateStore.creatingCertificate).toBe(false)
+        expect(certificateStore.loading).toBe(false)
+
+        const promise = certificateStore.createCertificate(certReq)
+
+        expect(certificateStore.creatingCertificate).toBe(true)
+        expect(certificateStore.loading).toBe(true)
+
+        await promise
+
+        expect(certificateStore.creatingCertificate).toBe(false)
+        expect(certificateStore.loading).toBe(false)
+      })
+
+      it('should reset loading states on operation failure', async () => {
+        const error = new Error('API Error')
+        vi.mocked(createCertificate).mockRejectedValue(error)
+
+        const certReq: CertificateRequirements = {
+          cert_name: 'Test Cert',
+          user_id: 1,
+          validity_in_years: 1,
+          system_generated_password: true,
+          pkcs12_password: '',
+          notify_user: false,
+          cert_type: 'Client',
+          dns_names: [],
+          renew_method: 'None',
+          ca_id: 1,
+        }
+
+        expect(certificateStore.creatingCertificate).toBe(false)
+        expect(certificateStore.loading).toBe(false)
+
+        await expect(certificateStore.createCertificate(certReq)).rejects.toThrow()
+
+        expect(certificateStore.creatingCertificate).toBe(false)
+        expect(certificateStore.loading).toBe(false)
+        expect(certificateStore.error).toBe('Failed to create certificate')
+      })
+
+      it('should maintain global loading state when multiple operations are active', async () => {
+        vi.mocked(fetchCertificates).mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(mockCertificates), 100)))
+        vi.mocked(createCertificate).mockImplementation(() => new Promise(resolve => setTimeout(resolve, 50)))
+
+        const certReq: CertificateRequirements = {
+          cert_name: 'Test Cert',
+          user_id: 1,
+          validity_in_years: 1,
+          system_generated_password: true,
+          pkcs12_password: '',
+          notify_user: false,
+          cert_type: 'Client',
+          dns_names: [],
+          renew_method: 'None',
+          ca_id: 1,
+        }
+
+        // Start fetch operation
+        const fetchPromise = certificateStore.fetchCertificates()
+        expect(certificateStore.loading).toBe(true)
+
+        // Start create operation
+        const createPromise = certificateStore.createCertificate(certReq)
+        expect(certificateStore.loading).toBe(true) // Should still be true
+
+        // Wait for create to finish first
+        await createPromise
+        expect(certificateStore.loading).toBe(true) // Should still be true because fetch is still running
+
+        // Wait for fetch to finish
+        await fetchPromise
+        expect(certificateStore.loading).toBe(false)
+      })
     })
   })
 })

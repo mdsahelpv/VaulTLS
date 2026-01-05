@@ -215,6 +215,7 @@ onMounted(async () => {
 // Methods
 const handleCreateUser = async () => {
   await userStore.createUser(newUser.value);
+  await userStore.fetchUsers(); // Refresh user list after creation
   isCreateModalVisible.value = false;
   // Reset form
   newUser.value = {
@@ -238,8 +239,9 @@ const closeDeleteModal = () => {
 const deleteUser = async () => {
   if (userToDelete.value) {
     await userStore.deleteUser(userToDelete.value.id);
+    await userStore.fetchUsers(); // Refresh user list after deletion
     const certStore = useCertificateStore();
-    await certStore.fetchCertificates();
+    await certStore.fetchCertificates(); // Also refresh certificates since user deletion affects certificates
     closeDeleteModal();
   }
 };

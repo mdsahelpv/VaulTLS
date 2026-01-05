@@ -179,23 +179,23 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 - [x] Implement state rollback on API failures in user store
 - [x] Store previous state before mutations
 - [x] Restore previous state on error
-- [ ] Test rollback functionality
+- [x] Test rollback functionality
 
 #### 5.3 Synchronize Frontend/Backend State
-- [ ] Add state refresh after certificate creation
-- [ ] Add state refresh after certificate revocation
-- [ ] Add state refresh after certificate deletion
-- [ ] Add state refresh after CA operations
-- [ ] Add state refresh after user operations
-- [ ] Implement periodic state sync for long-running sessions
+- [x] Add state refresh after certificate creation
+- [x] Add state refresh after certificate revocation
+- [x] Add state refresh after certificate deletion
+- [x] Add state refresh after CA operations
+- [x] Add state refresh after user operations
+- [x] Implement periodic state sync for long-running sessions
 - [ ] Test state synchronization under various conditions
 
 #### 5.4 Add Loading State Consistency
-- [ ] Add loading flags for all async operations
-- [ ] Prevent duplicate requests while loading
-- [ ] Show loading indicators in UI
-- [ ] Handle loading state errors gracefully
-- [ ] Test loading states for all operations
+- [x] Add loading flags for all async operations
+- [x] Prevent duplicate requests while loading
+- [x] Show loading indicators in UI
+- [x] Handle loading state errors gracefully
+- [x] Test loading states for all operations
 
 ---
 
@@ -212,19 +212,18 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 - [x] **COMPLETED**: TempFileManager with automatic cleanup prevents resource leaks and ensures files are removed even on panics
 
 #### 6.2 Add Memory Limits
-- [ ] Add maximum file size limit for PFX uploads
-- [ ] Add maximum file size limit for CSR uploads
-- [ ] Add maximum file size limit for certificate downloads
-- [ ] Add memory limits for certificate chain loading
-- [ ] Return appropriate errors for oversized files
-- [ ] Add configuration for file size limits
-- [ ] Test with large files to verify limits work
+- [x] Add maximum file size limit for PFX uploads
+- [x] Add maximum file size limit for CSR uploads
+- [x] Add maximum file size limit for certificate downloads
+- [x] Add memory limits for certificate chain loading
+- [x] Return appropriate errors for oversized files
+- [x] Add configuration for file size limits
+- [x] Test with large files to verify limits work
 
 #### 6.3 Implement File Locking
-- [ ] Add file locking for certificate file access
-- [ ] Add file locking for CA file access
-- [ ] Prevent concurrent access to same certificate files
-- [ ] Use appropriate locking mechanism (flock, etc.)
+- [x] Add file locking for certificate file access
+- [x] Add file locking for CA file access
+- [x] Prevent concurrent access to same certificate files
 - [ ] Handle lock timeouts gracefully
 - [ ] Test concurrent file access scenarios
 

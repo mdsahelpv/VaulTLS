@@ -40,6 +40,16 @@ const MAX_DNS_NAME_LENGTH: usize = 253; // RFC 1035 limit
 const MAX_IP_ADDRESS_LENGTH: usize = 45; // IPv6 addresses can be up to 45 chars
 const MAX_CUSTOM_REVOCATION_REASON_LENGTH: usize = 500;
 
+/// File size limits (in bytes) - These are now configurable via settings
+/// The constants below are fallback defaults used when settings are not available
+const DEFAULT_MAX_PFX_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB for PFX files
+const DEFAULT_MAX_CSR_FILE_SIZE: u64 = 1 * 1024 * 1024; // 1 MB for CSR files
+const DEFAULT_MAX_CERTIFICATE_DOWNLOAD_SIZE: u64 = 5 * 1024 * 1024; // 5 MB for certificate downloads
+
+/// Memory limits for certificate processing - fallback defaults
+const DEFAULT_MAX_CERTIFICATE_CHAIN_SIZE: usize = 100; // Maximum number of certificates in a chain
+const DEFAULT_MAX_CERTIFICATE_SIZE_BYTES: usize = 50 * 1024 * 1024; // 50 MB max per certificate
+
 /// Validate user name length
 fn validate_user_name(name: &str) -> Result<(), ApiError> {
     if name.len() > MAX_USER_NAME_LENGTH {
@@ -523,6 +533,18 @@ pub(crate) async fn setup_form(
     let mut pfx_data = Vec::new();
     let mut reader = setup_req.pfx_file.open().await.map_err(|e| ApiError::Other(format!("Failed to open PFX file: {e}")))?;
     reader.read_to_end(&mut pfx_data).await.map_err(|e| ApiError::Other(format!("Failed to read PFX file: {e}")))?;
+
+    // Validate PFX file size using configurable limits
+    let limits = state.settings.get_file_size_limits();
+    let max_pfx_size = limits.max_pfx_size_mb as u64 * 1024 * 1024;
+    if pfx_data.len() > max_pfx_size as usize {
+        return Err(ApiError::BadRequest(format!(
+            "PFX file is too large. Maximum size is {} MB, got {:.2} MB",
+            limits.max_pfx_size_mb,
+            pfx_data.len() as f64 / (1024.0 * 1024.0)
+        )));
+    }
+
     setup_common(state, setup_req.name.clone(), setup_req.email.clone(), setup_req.ca_name.clone(), setup_req.ca_validity_in_years, setup_req.password.clone(), Some(pfx_data), setup_req.pfx_password.clone(), setup_req.key_type.clone(), setup_req.key_size.clone(), None, None, None, None, None, None, None, None, None, None, None, None, setup_req.is_root_ca).await
 }
 
@@ -577,6 +599,34 @@ pub(crate) async fn validate_pfx(
             validation_result: Some(CertificateValidationResult {
                 overall_valid: false,
                 error: Some("File reading failed".to_string()),
+                validations,
+                certificate_details: None,
+            }),
+        }));
+    }
+
+    // Validate PFX file size using configurable limits
+    let limits = state.settings.get_file_size_limits();
+    let max_pfx_size = limits.max_pfx_size_mb as u64 * 1024 * 1024;
+    validations.push(ValidationCheck {
+        check_name: "File Size".to_string(),
+        description: format!("PFX file size must be ≤ {} MB", limits.max_pfx_size_mb),
+        passed: buffer.len() <= max_pfx_size as usize,
+        details: Some(format!("File size: {:.2} MB", buffer.len() as f64 / (1024.0 * 1024.0))),
+    });
+
+    if buffer.len() > max_pfx_size as usize {
+        return Ok(Json(PfxValidationResponse {
+            valid: false,
+            error: Some(format!(
+                "PFX file is too large. Maximum size is {} MB, got {:.2} MB",
+                limits.max_pfx_size_mb,
+                buffer.len() as f64 / (1024.0 * 1024.0)
+            )),
+            certificate_details: None,
+            validation_result: Some(CertificateValidationResult {
+                overall_valid: false,
+                error: Some("File too large".to_string()),
                 validations,
                 certificate_details: None,
             }),
@@ -1892,8 +1942,16 @@ pub(crate) async fn get_ca_list(
         let certificate_pem = String::from_utf8(pem)
             .map_err(|e| ApiError::Other(format!("Failed to convert certificate to string: {e}")))?;
 
-        // Extract chain information
+        // Validate certificate chain size before processing
+        let limits = state.settings.get_file_size_limits();
         let chain_length = ca.cert_chain.len();
+        if chain_length > limits.max_cert_chain_size as usize {
+            warn!("CA {} has excessive certificate chain length: {} (max: {})", ca.id, chain_length, limits.max_cert_chain_size);
+            // Truncate the chain to the maximum allowed size
+            // This prevents DoS while still allowing the CA to function
+            ca.cert_chain.truncate(limits.max_cert_chain_size as usize);
+        }
+
         let mut chain_certificates = Vec::new();
 
         for (index, cert_der) in ca.cert_chain.iter().enumerate() {
@@ -2114,6 +2172,15 @@ pub(crate) async fn preview_csr(
 
     if csr_data.is_empty() {
         return Err(ApiError::BadRequest("CSR file is empty".to_string()));
+    }
+
+    // Validate CSR file size
+    if csr_data.len() > MAX_CSR_FILE_SIZE as usize {
+        return Err(ApiError::BadRequest(format!(
+            "CSR file is too large. Maximum size is {} MB, got {:.2} MB",
+            MAX_CSR_FILE_SIZE / (1024 * 1024),
+            csr_data.len() as f64 / (1024.0 * 1024.0)
+        )));
     }
 
     // Parse the CSR - standard CSRs don't have passphrases and are plaintext
@@ -2956,6 +3023,15 @@ pub(crate) async fn sign_csr_certificate(
 
     if csr_data.is_empty() {
         return Err(ApiError::BadRequest("CSR file is empty".to_string()));
+    }
+
+    // Validate CSR file size
+    if csr_data.len() > MAX_CSR_FILE_SIZE as usize {
+        return Err(ApiError::BadRequest(format!(
+            "CSR file is too large. Maximum size is {} MB, got {:.2} MB",
+            MAX_CSR_FILE_SIZE / (1024 * 1024),
+            csr_data.len() as f64 / (1024.0 * 1024.0)
+        )));
     }
 
     // Parse the CSR (try PEM first, then DER)

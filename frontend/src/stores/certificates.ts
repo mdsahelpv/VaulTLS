@@ -16,11 +16,31 @@ import type { CertificateRequirements } from "@/types/CertificateRequirements.ts
 export const useCertificateStore = defineStore('certificate', {
     state: () => ({
         certificates: new Map<number, Certificate>(),
-        loading: false,
+        // Specific loading states for different operations
+        loadingCertificates: false,
+        creatingCertificate: false,
+        deletingCertificate: false,
+        revokingCertificate: false,
+        downloadingCertificate: false,
+        signingCsr: false,
+        previewingCsr: false,
+        fetchingPassword: false,
         error: null as string | null,
     }),
 
     getters: {
+        // Global loading state - true if any operation is in progress
+        loading: (state): boolean => {
+            return state.loadingCertificates ||
+                   state.creatingCertificate ||
+                   state.deletingCertificate ||
+                   state.revokingCertificate ||
+                   state.downloadingCertificate ||
+                   state.signingCsr ||
+                   state.previewingCsr ||
+                   state.fetchingPassword;
+        },
+
         // Get certificates as array for easier template usage
         certificatesList: (state): Certificate[] => Array.from(state.certificates.values()),
 
@@ -58,8 +78,14 @@ export const useCertificateStore = defineStore('certificate', {
          * Fetch all certificates from the API and update local state
          */
         async fetchCertificates(): Promise<void> {
-            this.loading = true;
+            // Prevent duplicate requests
+            if (this.loadingCertificates) {
+                return;
+            }
+
+            this.loadingCertificates = true;
             this.error = null;
+
             try {
                 const certificates = await fetchCertificates();
                 this.updateCertificates(certificates);
@@ -68,7 +94,7 @@ export const useCertificateStore = defineStore('certificate', {
                 console.error('Error fetching certificates:', err);
                 throw err;
             } finally {
-                this.loading = false;
+                this.loadingCertificates = false;
             }
         },
 
@@ -76,6 +102,14 @@ export const useCertificateStore = defineStore('certificate', {
          * Fetch password for a specific certificate
          */
         async fetchCertificatePassword(id: number): Promise<string> {
+            // Prevent duplicate requests for the same certificate
+            if (this.fetchingPassword) {
+                throw new Error('Password fetch already in progress');
+            }
+
+            this.fetchingPassword = true;
+            this.error = null;
+
             try {
                 const password = await fetchCertificatePassword(id);
                 this.updateCertificatePassword(id, password);
@@ -84,6 +118,8 @@ export const useCertificateStore = defineStore('certificate', {
                 this.error = 'Failed to fetch certificate password';
                 console.error('Error fetching certificate password:', err);
                 throw err;
+            } finally {
+                this.fetchingPassword = false;
             }
         },
 
@@ -93,7 +129,12 @@ export const useCertificateStore = defineStore('certificate', {
          * Create a new certificate
          */
         async createCertificate(certReq: CertificateRequirements): Promise<void> {
-            this.loading = true;
+            // Prevent duplicate creation requests
+            if (this.creatingCertificate) {
+                throw new Error('Certificate creation already in progress');
+            }
+
+            this.creatingCertificate = true;
             this.error = null;
             const previousCertificates = new Map(this.certificates); // Store previous state for rollback
 
@@ -107,7 +148,7 @@ export const useCertificateStore = defineStore('certificate', {
                 console.error('Error creating certificate:', err);
                 throw err;
             } finally {
-                this.loading = false;
+                this.creatingCertificate = false;
             }
         },
 
@@ -115,7 +156,12 @@ export const useCertificateStore = defineStore('certificate', {
          * Delete a certificate by ID
          */
         async deleteCertificate(id: number): Promise<void> {
-            this.loading = true;
+            // Prevent duplicate deletion requests
+            if (this.deletingCertificate) {
+                throw new Error('Certificate deletion already in progress');
+            }
+
+            this.deletingCertificate = true;
             this.error = null;
             const previousCertificates = new Map(this.certificates); // Store previous state for rollback
 
@@ -130,7 +176,7 @@ export const useCertificateStore = defineStore('certificate', {
                 console.error('Error deleting certificate:', err);
                 throw err;
             } finally {
-                this.loading = false;
+                this.deletingCertificate = false;
             }
         },
 
@@ -138,7 +184,12 @@ export const useCertificateStore = defineStore('certificate', {
          * Revoke a certificate
          */
         async revokeCertificate(id: number, reason: number, notifyUser: boolean, customReason?: string): Promise<void> {
-            this.loading = true;
+            // Prevent duplicate revocation requests
+            if (this.revokingCertificate) {
+                throw new Error('Certificate revocation already in progress');
+            }
+
+            this.revokingCertificate = true;
             this.error = null;
             const previousCertificates = new Map(this.certificates); // Store previous state for rollback
 
@@ -152,7 +203,7 @@ export const useCertificateStore = defineStore('certificate', {
                 console.error('Error revoking certificate:', err);
                 throw err;
             } finally {
-                this.loading = false;
+                this.revokingCertificate = false;
             }
         },
 
@@ -162,8 +213,15 @@ export const useCertificateStore = defineStore('certificate', {
          * Download a certificate in the specified format
          */
         async downloadCertificate(id: number, format: string = 'pkcs12'): Promise<void> {
+            // Prevent duplicate download requests
+            if (this.downloadingCertificate) {
+                throw new Error('Certificate download already in progress');
+            }
+
+            this.downloadingCertificate = true;
+            this.error = null;
+
             try {
-                this.error = null;
                 const certificate = this.certificates.get(id);
                 if (!certificate) {
                     throw new Error(`Certificate with ID ${id} not found`);
@@ -173,6 +231,8 @@ export const useCertificateStore = defineStore('certificate', {
                 this.error = 'Failed to download certificate';
                 console.error('Error downloading certificate:', err);
                 throw err;
+            } finally {
+                this.downloadingCertificate = false;
             }
         },
 
@@ -182,8 +242,14 @@ export const useCertificateStore = defineStore('certificate', {
          * Sign a Certificate Signing Request
          */
         async signCsrCertificate(formData: FormData): Promise<Certificate> {
-            this.loading = true;
+            // Prevent duplicate CSR signing requests
+            if (this.signingCsr) {
+                throw new Error('CSR signing already in progress');
+            }
+
+            this.signingCsr = true;
             this.error = null;
+
             try {
                 const certificate = await signCsrCertificate(formData);
                 await this.fetchCertificates(); // Refresh the list
@@ -193,7 +259,7 @@ export const useCertificateStore = defineStore('certificate', {
                 console.error('Error signing CSR:', err);
                 throw err;
             } finally {
-                this.loading = false;
+                this.signingCsr = false;
             }
         },
 
@@ -201,13 +267,22 @@ export const useCertificateStore = defineStore('certificate', {
          * Preview a CSR file to show its contents
          */
         async previewCsr(formData: FormData): Promise<CsrPreviewResponse> {
+            // Prevent duplicate CSR preview requests
+            if (this.previewingCsr) {
+                throw new Error('CSR preview already in progress');
+            }
+
+            this.previewingCsr = true;
+            this.error = null;
+
             try {
-                this.error = null;
                 return await previewCsr(formData);
             } catch (err: unknown) {
                 this.error = 'Failed to preview CSR';
                 console.error('Error previewing CSR:', err);
                 throw err;
+            } finally {
+                this.previewingCsr = false;
             }
         },
 

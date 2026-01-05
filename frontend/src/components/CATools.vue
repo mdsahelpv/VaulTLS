@@ -858,7 +858,7 @@ const createSelfSignedCAWrapper = async () => {
       selfSignedForm.value.keyType
     );
     console.log('Created CA with ID:', id);
-    await loadCAs();
+    await loadCAs(); // Refresh CA list after creation
     showAddCAModal.value = false;
     resetForms();
   } catch (err: unknown) {
@@ -880,7 +880,7 @@ const importCA = async () => {
     creatingCA.value = true;
     const id = await importCAFromFile(formData);
     console.log('Imported CA with ID:', id);
-    await loadCAs();
+    await loadCAs(); // Refresh CA list after import
     showAddCAModal.value = false;
     resetForms();
   } catch (err: unknown) {

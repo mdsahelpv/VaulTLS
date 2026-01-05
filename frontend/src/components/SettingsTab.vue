@@ -314,6 +314,10 @@ const saveSettings = async () => {
   if (hasUserChanged.value && editableUser.value) {
     success &&= await userStore.updateUser(editableUser.value);
     await authStore.fetchCurrentUser();
+    // Refresh user list if current user is admin (to reflect any changes)
+    if (current_user.value?.role === UserRole.Admin) {
+      await userStore.fetchUsers();
+    }
   }
 
   saved_successfully.value = success;
