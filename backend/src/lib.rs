@@ -143,9 +143,12 @@ pub async fn create_rocket() -> Rocket<Build> {
     let db_arc = Arc::new(db);
     let settings_arc = Arc::new(settings);
 
+    // Initialize repositories
+    let certificate_repository = Arc::new(crate::services::DatabaseCertificateRepository::new(db_arc.clone()));
+
     // Initialize services
     let certificate_service = Arc::new(crate::services::CertificateService::new(
-        db_arc.clone(),
+        certificate_repository,
         settings_arc.clone(),
         mailer.clone(),
     ));
@@ -309,9 +312,12 @@ pub async fn create_test_rocket() -> Rocket<Build> {
     let db_arc = Arc::new(db);
     let settings_arc = Arc::new(settings);
 
+    // Initialize repositories for test
+    let certificate_repository = Arc::new(crate::services::DatabaseCertificateRepository::new(db_arc.clone()));
+
     // Initialize services for test
     let certificate_service = Arc::new(crate::services::CertificateService::new(
-        db_arc.clone(),
+        certificate_repository,
         settings_arc.clone(),
         Arc::new(Mutex::new(mailer)),
     ));

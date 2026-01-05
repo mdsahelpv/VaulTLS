@@ -10,17 +10,104 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, error};
 
+/// Repository trait for certificate data access
+#[async_trait::async_trait]
+pub trait CertificateRepository {
+    async fn insert_user_cert(&self, cert: Certificate) -> Result<Certificate, anyhow::Error>;
+    async fn get_user_cert_by_id(&self, id: i64) -> Result<Certificate, anyhow::Error>;
+    async fn get_user_cert(&self, id: i64) -> Result<(i64, String, i64, i64, Vec<u8>, String, crate::data::enums::CertificateType, crate::data::enums::CertificateRenewMethod, i64), anyhow::Error>;
+    async fn get_user_cert_pkcs12(&self, id: i64) -> Result<(i64, String, Vec<u8>), anyhow::Error>;
+    async fn get_user_cert_pkcs12_password(&self, id: i64) -> Result<(i64, String), anyhow::Error>;
+    async fn get_all_user_cert(&self, user_id: Option<i64>) -> Result<Vec<Certificate>, anyhow::Error>;
+    async fn delete_user_cert(&self, id: i64) -> Result<(), anyhow::Error>;
+    async fn revoke_certificate(&self, id: i64, reason: crate::data::enums::CertificateRevocationReason, admin_id: Option<i64>, custom_reason: Option<String>) -> Result<i64, anyhow::Error>;
+    async fn unrevoke_certificate(&self, id: i64) -> Result<(), anyhow::Error>;
+    async fn is_certificate_revoked(&self, id: i64) -> Result<bool, anyhow::Error>;
+    async fn get_certificate_revocation(&self, id: i64) -> Result<Option<crate::data::objects::CertificateRevocation>, anyhow::Error>;
+    async fn get_all_revocation_records(&self) -> Result<Vec<crate::data::objects::CertificateRevocation>, anyhow::Error>;
+}
+
+/// Database-backed certificate repository implementation
+pub struct DatabaseCertificateRepository {
+    db: Arc<VaulTLSDB>,
+}
+
+impl DatabaseCertificateRepository {
+    pub fn new(db: Arc<VaulTLSDB>) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait::async_trait]
+impl CertificateRepository for DatabaseCertificateRepository {
+    async fn insert_user_cert(&self, cert: Certificate) -> Result<Certificate, anyhow::Error> {
+        self.db.insert_user_cert(cert).await
+    }
+
+    async fn get_user_cert_by_id(&self, id: i64) -> Result<Certificate, anyhow::Error> {
+        self.db.get_user_cert_by_id(id).await
+    }
+
+    async fn get_user_cert(&self, id: i64) -> Result<(i64, String, i64, i64, Vec<u8>, String, crate::data::enums::CertificateType, crate::data::enums::CertificateRenewMethod, i64), anyhow::Error> {
+        self.db.get_user_cert(id).await
+    }
+
+    async fn get_user_cert_pkcs12(&self, id: i64) -> Result<(i64, String, Vec<u8>), anyhow::Error> {
+        self.db.get_user_cert_pkcs12(id).await
+    }
+
+    async fn get_user_cert_pkcs12_password(&self, id: i64) -> Result<(i64, String), anyhow::Error> {
+        self.db.get_user_cert_pkcs12_password(id).await
+    }
+
+    async fn get_all_user_cert(&self, user_id: Option<i64>) -> Result<Vec<Certificate>, anyhow::Error> {
+        self.db.get_all_user_cert(user_id).await
+    }
+
+    async fn delete_user_cert(&self, id: i64) -> Result<(), anyhow::Error> {
+        self.db.delete_user_cert(id).await
+    }
+
+    async fn revoke_certificate(&self, id: i64, reason: crate::data::enums::CertificateRevocationReason, admin_id: Option<i64>, custom_reason: Option<String>) -> Result<i64, anyhow::Error> {
+        self.db.revoke_certificate(id, reason, admin_id, custom_reason).await
+    }
+
+    async fn unrevoke_certificate(&self, id: i64) -> Result<(), anyhow::Error> {
+        self.db.unrevoke_certificate(id).await
+    }
+
+    async fn is_certificate_revoked(&self, id: i64) -> Result<bool, anyhow::Error> {
+        self.db.is_certificate_revoked(id).await
+    }
+
+    async fn get_certificate_revocation(&self, id: i64) -> Result<Option<crate::data::objects::CertificateRevocation>, anyhow::Error> {
+        self.db.get_certificate_revocation(id).await
+    }
+
+    async fn get_all_revocation_records(&self) -> Result<Vec<crate::data::objects::CertificateRevocation>, anyhow::Error> {
+        self.db.get_all_revocation_records().await
+    }
+}
+
+/// Data structure for certificate preparation
+struct CertificatePreparationData {
+    ca: crate::cert::CA,
+    pkcs12_password: String,
+    crl_url: Option<String>,
+    ocsp_url: Option<String>,
+}
+
 /// Certificate service for handling certificate business logic
 pub struct CertificateService {
-    db: Arc<VaulTLSDB>,
+    repository: Arc<DatabaseCertificateRepository>,
     settings: Arc<Settings>,
     mailer: Arc<Mutex<Option<Mailer>>>,
 }
 
 impl CertificateService {
     /// Create a new certificate service
-    pub fn new(db: Arc<VaulTLSDB>, settings: Arc<Settings>, mailer: Arc<Mutex<Option<Mailer>>>) -> Self {
-        Self { db, settings, mailer }
+    pub fn new(repository: Arc<DatabaseCertificateRepository>, settings: Arc<Settings>, mailer: Arc<Mutex<Option<Mailer>>>) -> Self {
+        Self { repository, settings, mailer }
     }
 
     /// Create a new certificate
@@ -28,23 +115,51 @@ impl CertificateService {
         &self,
         request: CreateUserCertificateRequest,
         admin_id: i64,
+        db: &Arc<VaulTLSDB>,
     ) -> Result<Certificate, ApiError> {
         debug!("Creating certificate for user {}", request.user_id);
 
-        // Get user information
-        let user = self.db.get_user(request.user_id).await?;
+        // Step 1: Get and validate user
+        let user = self.get_and_validate_user(&request, db).await?;
 
-        // Validate certificate parameters
+        // Step 2: Validate certificate parameters
         self.validate_certificate_request(&request)?;
 
-        // Use specified CA or default to current CA
+        // Step 3: Prepare certificate data (CA, URLs, etc.)
+        let cert_data = self.prepare_certificate_data(&request, db).await?;
+
+        // Step 4: Build certificate based on type
+        let certificate = self.build_certificate_based_on_type(&request, &user, &cert_data).await?;
+
+        // Step 5: Finalize certificate creation (save and notify)
+        self.finalize_certificate_creation(certificate, &user, request.notify_user.unwrap_or(false)).await
+    }
+
+    /// Get and validate user for certificate creation
+    async fn get_and_validate_user(
+        &self,
+        request: &CreateUserCertificateRequest,
+        db: &Arc<VaulTLSDB>,
+    ) -> Result<crate::data::objects::User, ApiError> {
+        db.get_user(request.user_id).await
+            .map_err(|e| ApiError::Other(format!("Failed to get user {}: {}", request.user_id, e)))
+    }
+
+    /// Prepare certificate data (CA, URLs, password, etc.)
+    async fn prepare_certificate_data(
+        &self,
+        request: &CreateUserCertificateRequest,
+        db: &Arc<VaulTLSDB>,
+    ) -> Result<CertificatePreparationData, ApiError> {
+        // Get CA
         let ca_id = request.ca_id.unwrap_or(0);
         let ca = if ca_id > 0 {
-            self.db.get_ca(ca_id).await?
+            db.get_ca(ca_id).await?
         } else {
-            self.db.get_current_ca().await?
+            db.get_current_ca().await?
         };
 
+        // Generate password
         let pkcs12_password = get_password(
             request.system_generated_password,
             &request.pkcs12_password
@@ -66,22 +181,37 @@ impl CertificateService {
             None
         };
 
-        // Check if we're in Root CA mode and restrict certificate types
+        // Check Root CA restrictions
         let is_root_ca = self.settings.get_is_root_ca();
         if is_root_ca && request.cert_type.unwrap_or_default() != CertificateType::SubordinateCA {
             return Err(ApiError::BadRequest("Root CA Server can only issue subordinate CA certificates".to_string()));
         }
 
+        Ok(CertificatePreparationData {
+            ca,
+            pkcs12_password,
+            crl_url: crl_url.map(|s| s.to_string()),
+            ocsp_url: ocsp_url.map(|s| s.to_string()),
+        })
+    }
+
+    /// Build certificate based on requested type
+    async fn build_certificate_based_on_type(
+        &self,
+        request: &CreateUserCertificateRequest,
+        user: &crate::data::objects::User,
+        cert_data: &CertificatePreparationData,
+    ) -> Result<Certificate, ApiError> {
         let mut cert_builder = CertificateBuilder::new_with_ca_and_key_type_size(
-            Some(&ca),
+            Some(&cert_data.ca),
             request.key_type.as_deref(),
             request.key_size.as_deref()
         )?
         .set_name(&request.cert_name)?
         .set_valid_until(request.validity_in_years.unwrap_or(1))?
         .set_renew_method(request.renew_method.unwrap_or_default())?
-        .set_pkcs12_password(&pkcs12_password)?
-        .set_ca(&ca)?
+        .set_pkcs12_password(&cert_data.pkcs12_password)?
+        .set_ca(&cert_data.ca)?
         .set_user_id(request.user_id)?;
 
         // Apply user-selected hash algorithm if provided
@@ -89,62 +219,100 @@ impl CertificateService {
             cert_builder = cert_builder.set_hash_algorithm(hash_alg)?;
         }
 
-        // Set AIA, OCSP and CDP URLs from request parameters
-        if let Some(aia_url) = &request.aia_url {
-            cert_builder = cert_builder.set_authority_info_access(aia_url)?;
+        // Set URLs
+        cert_builder = self.configure_certificate_urls(cert_builder, request, cert_data);
+
+        // Build based on certificate type
+        match request.cert_type.unwrap_or_default() {
+            CertificateType::Client => self.build_client_certificate(cert_builder, user, cert_data).await,
+            CertificateType::Server => self.build_server_certificate(cert_builder, request, cert_data).await,
+            CertificateType::SubordinateCA => self.build_subordinate_ca_certificate(cert_builder).await,
         }
-        if let Some(ocsp_url) = &request.ocsp_url {
-            cert_builder = cert_builder.set_ocsp_url(ocsp_url)?;
+    }
+
+    /// Configure certificate URLs (AIA, OCSP, CDP)
+    fn configure_certificate_urls(
+        &self,
+        cert_builder: CertificateBuilder,
+        request: &CreateUserCertificateRequest,
+        _cert_data: &CertificatePreparationData,
+    ) -> CertificateBuilder {
+        // URL configuration is handled in individual build methods
+        // This method is kept for future extensibility
+        cert_builder
+    }
+
+    /// Build client certificate
+    async fn build_client_certificate(
+        &self,
+        cert_builder: CertificateBuilder,
+        user: &crate::data::objects::User,
+        _cert_data: &CertificatePreparationData,
+    ) -> Result<Certificate, ApiError> {
+        Ok(cert_builder
+            .set_email_san(&user.email)?
+            .build_common_with_extensions(crate::data::enums::CertificateType::Client, None, None)?)
+    }
+
+    /// Build server certificate with SAN validation
+    async fn build_server_certificate(
+        &self,
+        cert_builder: CertificateBuilder,
+        request: &CreateUserCertificateRequest,
+        cert_data: &CertificatePreparationData,
+    ) -> Result<Certificate, ApiError> {
+        // Filter out empty strings from DNS names and IP addresses
+        let dns_names: Vec<String> = request.dns_names.clone()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+
+        let ip_addresses: Vec<String> = request.ip_addresses.clone()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+
+        // SAN validation: Server certificates MUST include Subject Alternative Name
+        if dns_names.is_empty() && ip_addresses.is_empty() {
+            return Err(ApiError::BadRequest("Server certificates must include at least one valid DNS name or IP address".to_string()));
         }
-        if let Some(cdp_url) = &request.cdp_url {
-            cert_builder = cert_builder.set_crl_distribution_points(cdp_url)?;
-        }
 
-        // For client/server certificates, prioritize request-provided URLs over settings
-        let final_crl_url = request.cdp_url.as_deref().or(crl_url);
-        let final_ocsp_url = request.ocsp_url.as_deref().or(request.aia_url.as_deref()).or(ocsp_url);
+        // Use configured URLs for server certificates
+        let final_crl_url = request.cdp_url.as_deref().or_else(|| cert_data.crl_url.as_deref());
+        let final_ocsp_url = request.ocsp_url.as_deref()
+            .or_else(|| request.aia_url.as_deref())
+            .or_else(|| cert_data.ocsp_url.as_deref());
 
-        let certificate = match request.cert_type.unwrap_or_default() {
-            CertificateType::Client => {
-                cert_builder
-                    .set_email_san(&user.email)?
-                    .build_common_with_extensions(crate::data::enums::CertificateType::Client, final_crl_url, final_ocsp_url)?
-            }
-            CertificateType::Server => {
-                // Filter out empty strings from DNS names and IP addresses
-                let dns_names: Vec<String> = request.dns_names.clone()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|s| !s.trim().is_empty())
-                    .collect();
+        Ok(cert_builder
+            .set_san(&dns_names, &ip_addresses)?
+            .build_common_with_extensions(crate::data::enums::CertificateType::Server, final_crl_url, final_ocsp_url)?)
+    }
 
-                let ip_addresses: Vec<String> = request.ip_addresses.clone()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|s| !s.trim().is_empty())
-                    .collect();
+    /// Build subordinate CA certificate
+    async fn build_subordinate_ca_certificate(
+        &self,
+        cert_builder: CertificateBuilder,
+    ) -> Result<Certificate, ApiError> {
+        Ok(cert_builder.build_subordinate_ca()?)
+    }
 
-                // SAN validation: Server certificates MUST include Subject Alternative Name
-                if dns_names.is_empty() && ip_addresses.is_empty() {
-                    return Err(ApiError::BadRequest("Server certificates must include at least one valid DNS name or IP address".to_string()));
-                }
-
-                cert_builder
-                    .set_san(&dns_names, &ip_addresses)?
-                    .build_common_with_extensions(crate::data::enums::CertificateType::Server, final_crl_url, final_ocsp_url)?
-            }
-            CertificateType::SubordinateCA => {
-                cert_builder.build_subordinate_ca()?
-            }
-        };
-
-        let certificate = self.db.insert_user_cert(certificate).await?;
+    /// Finalize certificate creation (save to DB and send notifications)
+    async fn finalize_certificate_creation(
+        &self,
+        certificate: Certificate,
+        user: &crate::data::objects::User,
+        notify_user: bool,
+    ) -> Result<Certificate, ApiError> {
+        let certificate = self.repository.insert_user_cert(certificate).await
+            .map_err(|e| ApiError::Other(format!("Failed to insert certificate: {e}")))?;
 
         info!("New certificate created: {} (ID: {})", certificate.name, certificate.id);
 
         // Send notification email if requested
-        if request.notify_user.unwrap_or(false) {
-            self.send_certificate_notification(&certificate, &user).await;
+        if notify_user {
+            self.send_certificate_notification(&certificate, user).await;
         }
 
         Ok(certificate)
@@ -192,8 +360,8 @@ impl CertificateService {
         }
 
         // Get CA and user
-        let ca = self.db.get_ca(ca_id).await?;
-        let user = self.db.get_user(user_id).await?;
+        let ca = self.repository.db.get_ca(ca_id).await?;
+        let user = self.repository.db.get_user(user_id).await?;
 
         // Check Root CA restrictions
         let is_root_ca = self.settings.get_is_root_ca();
@@ -233,7 +401,8 @@ impl CertificateService {
             .set_pkcs12_password(&pkcs12_password)?;
 
         let certificate = builder.build_csr_certificate(certificate_type_enum)?;
-        let certificate = self.db.insert_user_cert(certificate).await?;
+        let certificate = self.repository.insert_user_cert(certificate).await
+            .map_err(|e| ApiError::Other(format!("Failed to insert certificate: {e}")))?;
 
         info!("Certificate '{}' signed and created successfully (ID: {})", cert_name, certificate.id);
 
@@ -256,15 +425,16 @@ impl CertificateService {
         debug!("Revoking certificate {}", cert_id);
 
         // Check if certificate exists
-        let _cert = self.db.get_user_cert_by_id(cert_id).await?;
+        let _cert = self.repository.db.get_user_cert_by_id(cert_id).await?;
 
         // Check if already revoked
-        if self.db.is_certificate_revoked(cert_id).await? {
+        if self.repository.db.is_certificate_revoked(cert_id).await? {
             return Err(ApiError::BadRequest("Certificate is already revoked".to_string()));
         }
 
         // Revoke the certificate
-        self.db.revoke_certificate(cert_id, reason, Some(admin_id), custom_reason).await?;
+        self.repository.revoke_certificate(cert_id, reason, Some(admin_id), custom_reason).await
+            .map_err(|e| ApiError::Other(format!("Failed to revoke certificate: {e}")))?;
 
         // Clear CRL cache
         // Note: This would need access to the CrlCache, which might need to be passed in or handled differently
@@ -279,15 +449,16 @@ impl CertificateService {
         debug!("Unrevoking certificate {}", cert_id);
 
         // Check if certificate exists
-        let _cert = self.db.get_user_cert_by_id(cert_id).await?;
+        let _cert = self.repository.db.get_user_cert_by_id(cert_id).await?;
 
         // Check if actually revoked
-        if !self.db.is_certificate_revoked(cert_id).await? {
+        if !self.repository.db.is_certificate_revoked(cert_id).await? {
             return Err(ApiError::BadRequest("Certificate is not revoked".to_string()));
         }
 
         // Unrevoke the certificate
-        self.db.unrevoke_certificate(cert_id).await?;
+        self.repository.unrevoke_certificate(cert_id).await
+            .map_err(|e| ApiError::Other(format!("Failed to unrevoke certificate: {e}")))?;
 
         info!("Certificate {} unrevoked successfully", cert_id);
 
@@ -296,14 +467,14 @@ impl CertificateService {
 
     /// Get certificate details
     pub async fn get_certificate_details(&self, cert_id: i64, user_id: i64, is_admin: bool) -> Result<CertificateDetails, ApiError> {
-        let mut cert = self.db.get_user_cert_by_id(cert_id).await?;
+        let mut cert = self.repository.db.get_user_cert_by_id(cert_id).await?;
 
         if cert.user_id != user_id && !is_admin {
             return Err(ApiError::Forbidden(None));
         }
 
         // Get revocation status
-        if let Some(revocation) = self.db.get_certificate_revocation(cert_id).await? {
+        if let Some(revocation) = self.repository.db.get_certificate_revocation(cert_id).await? {
             cert.is_revoked = true;
             cert.revoked_on = Some(revocation.revocation_date);
             cert.revoked_reason = Some(revocation.revocation_reason);

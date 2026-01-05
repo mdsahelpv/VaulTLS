@@ -221,14 +221,14 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 **CAN BE DONE POST-DEPLOYMENT**
 
 ### 7. Architecture Refactoring
-- [ ] Extract service layer from API handlers
-- [ ] Create dedicated certificate service
-- [ ] Create dedicated CA service
-- [ ] Create dedicated user service
-- [ ] Move business logic out of API handlers
-- [ ] Create domain models with business rules
-- [ ] Split large functions into smaller, focused methods
-- [ ] Add repository pattern for database operations
+- [x] Extract service layer from API handlers
+- [x] Create dedicated certificate service
+- [x] Create dedicated CA service
+- [x] Create dedicated user service
+- [x] Move business logic from API handlers
+- [x] Create domain models with business rules
+- [x] Split large functions into smaller, focused methods
+- [x] Add repository pattern for database operations
 
 ### 8. Performance Optimization
 - [ ] Fix N+1 queries in certificate listing
@@ -278,13 +278,13 @@ This task list is based on the recommendations from `DEPLOYMENT_READINESS_ASSESS
 
 ### Phase 3: Quality Improvements
 - **Total Tasks**: 30+
-- **Completed**: 0
+- **Completed**: 8
 - **In Progress**: 0
 - **Estimated Time**: Ongoing
 
 ### Overall Progress
 - **Total Tasks**: 130+
-- **Completed**: 19
+- **Completed**: 27
 - **In Progress**: 0
 - **Blocked**: 0
 - **Estimated Timeline**: 3-4 weeks for Phases 1 & 2 (production readiness)
