@@ -1164,4 +1164,70 @@ impl VaulTLSDB {
             }
         })
     }
+
+    /// Create a password reset token for a user
+    pub(crate) async fn create_password_reset_token(&self, user_id: i64, token_hash: String, expires_at: i64) -> Result<i64> {
+        db_do!(self.pool, |conn: &Connection| {
+            conn.execute(
+                "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?1, ?2, ?3)",
+                params![user_id, token_hash, expires_at],
+            )?;
+            Ok(conn.last_insert_rowid())
+        })
+    }
+
+    /// Verify and consume a password reset token
+    /// Returns the user_id if the token is valid and not expired
+    /// Marks the token as used and deletes it
+    pub(crate) async fn verify_password_reset_token(&self, token_hash: String) -> Result<Option<i64>> {
+        db_do_mut!(self.pool, |conn: &mut Connection| {
+            let tx = conn.transaction()?;
+
+            let current_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
+                .as_millis() as i64;
+
+            // Find valid, unused token
+            let result = tx.query_row(
+                "SELECT user_id FROM password_reset_tokens WHERE token_hash = ?1 AND expires_at > ?2 AND used = 0",
+                params![token_hash, current_time],
+                |row| row.get(0),
+            );
+
+            match result {
+                Ok(user_id) => {
+                    // Mark token as used
+                    tx.execute(
+                        "UPDATE password_reset_tokens SET used = 1 WHERE token_hash = ?1",
+                        params![token_hash],
+                    )?;
+
+                    tx.commit()?;
+                    Ok(Some(user_id))
+                },
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    Ok(None)
+                },
+                Err(e) => Err(anyhow!("Database error: {e}")),
+            }
+        })
+    }
+
+    /// Clean up expired password reset tokens
+    pub(crate) async fn cleanup_expired_password_reset_tokens(&self) -> Result<i64> {
+        db_do!(self.pool, |conn: &Connection| {
+            let current_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| anyhow!("System time calculation failed: {e}"))?
+                .as_millis() as i64;
+
+            let deleted_count = conn.execute(
+                "DELETE FROM password_reset_tokens WHERE expires_at <= ?1",
+                params![current_time],
+            )?;
+
+            Ok(deleted_count as i64)
+        })
+    }
 }

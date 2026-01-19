@@ -1,0 +1,2 @@
+-- Down migration not possible: V2 password hashes have been invalidated for security.
+-- Users must reset their passwords after this migration.

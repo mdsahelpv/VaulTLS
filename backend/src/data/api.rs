@@ -76,6 +76,17 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct PasswordResetRequest {
+    pub email: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct PasswordResetConfirmRequest {
+    pub token: String,
+    pub new_password: String,
+}
+
 #[derive(FromForm, JsonSchema)]
 pub struct CallbackQuery {
     pub code: String,

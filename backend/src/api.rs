@@ -24,7 +24,7 @@ use crate::auth::password_auth::Password;
 use crate::auth::session_auth::{generate_token, Authenticated, AuthenticatedPrivileged};
 use crate::cert::{certificate_pkcs12_to_der, certificate_pkcs12_to_key, certificate_pkcs12_to_pem, generate_crl, generate_ocsp_response, get_password, get_pem, parse_ocsp_request, save_ca, Certificate, CertificateBuilder, CertificateDetails, CRLEntry, OCSPRequest};
 use crate::constants::VAULTLS_VERSION;
-use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, SetupRequest, SetupFormRequest, ValidatedCertificateDetails};
+use crate::data::api::{CallbackQuery, ChangePasswordRequest, CreateUserCertificateRequest, CreateUserRequest, DownloadResponse, IsSetupResponse, LoginRequest, PasswordResetConfirmRequest, PasswordResetRequest, SetupRequest, SetupFormRequest, ValidatedCertificateDetails};
 use crate::data::enums::{CertificateFormat, CertificateType, CertificateType::{Client, Server}, PasswordRule, UserRole};
 use crate::data::error::ApiError;
 use crate::data::objects::{AppState, User, CrlCache, OcspCache, CertificateChainInfo};
@@ -158,6 +158,36 @@ fn validate_custom_revocation_reason(reason: &str) -> Result<(), ApiError> {
             reason.len()
         )));
     }
+    Ok(())
+}
+
+/// Validate password strength requirements using configurable settings
+fn validate_password(password: &str, state: &State<AppState>) -> Result<(), ApiError> {
+    let complexity = state.settings.get_password_complexity();
+
+    if password.len() < complexity.min_length {
+        return Err(ApiError::BadRequest(format!(
+            "Password must be at least {} characters long",
+            complexity.min_length
+        )));
+    }
+
+    if complexity.require_uppercase && !password.chars().any(|c| c.is_uppercase()) {
+        return Err(ApiError::BadRequest("Password must contain at least one uppercase letter".to_string()));
+    }
+
+    if complexity.require_lowercase && !password.chars().any(|c| c.is_lowercase()) {
+        return Err(ApiError::BadRequest("Password must contain at least one lowercase letter".to_string()));
+    }
+
+    if complexity.require_numeric && !password.chars().any(|c| c.is_numeric()) {
+        return Err(ApiError::BadRequest("Password must contain at least one number".to_string()));
+    }
+
+    if complexity.require_special && !password.chars().any(|c| !c.is_alphanumeric()) {
+        return Err(ApiError::BadRequest("Password must contain at least one special character".to_string()));
+    }
+
     Ok(())
 }
 
@@ -910,6 +940,7 @@ async fn setup_common(
     if let Some(password) = password {
         debug!("Setting password authentication enabled");
         state.settings.set_password_enabled(true)?;
+        validate_password(password, state)?;
         password_hash = Some(Password::new_server_hash(password)?.to_string());
     }
 
@@ -1177,6 +1208,7 @@ pub(crate) async fn change_password(
         }
     }
 
+    validate_password(&change_pass_req.new_password, state)?;
     let password_hash = Password::new_server_hash(&change_pass_req.new_password)?;
     state.db.set_user_password(user_id, password_hash).await?;
 
@@ -1231,6 +1263,150 @@ pub(crate) async fn logout(
     }
 
     Ok(())
+}
+
+#[openapi(tag = "Authentication")]
+#[post("/auth/password-reset", format = "json", data = "<reset_req>")]
+/// Request a password reset token. Sends an email with a reset link.
+/// No authentication required - this is public for forgotten passwords.
+pub(crate) async fn request_password_reset(
+    state: &State<AppState>,
+    reset_req: Json<PasswordResetRequest>,
+    request_info: RequestInfo
+) -> Result<(), ApiError> {
+    // Validate email format
+    validate_email(&reset_req.email)?;
+
+    // Check if user exists (but don't reveal this information to prevent user enumeration)
+    match state.db.get_user_by_email(reset_req.email.clone()).await {
+        Ok(user) => {
+            // Generate a secure random token
+            let mut token_bytes = [0u8; 32];
+            openssl::rand::rand_bytes(&mut token_bytes).map_err(|e| ApiError::Other(format!("Failed to generate random token: {e}")))?;
+            let token = base64::engine::general_purpose::URL_SAFE.encode(&token_bytes);
+
+            // Hash the token for storage
+            use argon2::{Argon2, PasswordHasher};
+            let argon2 = Argon2::default();
+
+            // Generate a random salt using openssl
+            let mut salt_bytes = [0u8; 16];
+            openssl::rand::rand_bytes(&mut salt_bytes).map_err(|e| ApiError::Other(format!("Failed to generate salt: {e}")))?;
+            let salt = argon2::password_hash::SaltString::encode_b64(&salt_bytes)
+                .map_err(|e| ApiError::Other(format!("Failed to encode salt: {e}")))?;
+
+            let token_hash = argon2.hash_password(token.as_bytes(), &salt)
+                .map_err(|e| ApiError::Other(format!("Failed to hash token: {e}")))?
+                .to_string();
+
+            // Set expiry to 1 hour from now
+            let expires_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| ApiError::Other(format!("System time calculation failed: {e}")))?
+                .as_millis() as i64 + (60 * 60 * 1000); // 1 hour
+
+            // Store the token
+            state.db.create_password_reset_token(user.id, token_hash, expires_at).await?;
+
+            // Send email with reset link
+            if let Some(mailer) = &mut *state.mailer.lock().await {
+                // Create reset URL
+                let reset_url = format!("{}/reset-password?token={}",
+                    state.settings.get_vaultls_url(),
+                    token
+                );
+
+                // Send email
+                let mail_result = mailer.send_password_reset_email(&reset_req.email, &user.name, &reset_url).await;
+
+                if let Err(e) = mail_result {
+                    warn!("Failed to send password reset email to {}: {}", reset_req.email, e);
+                    // Don't fail the request, just log the error
+                }
+            } else {
+                warn!("Mail service not configured - cannot send password reset email");
+            }
+
+            // Audit log the password reset request
+            if let Err(e) = state.audit.log_authentication(
+                Some(user.id),
+                Some(user.name.clone()),
+                request_info.ip_address,
+                request_info.user_agent,
+                "password_reset_request",
+                true,
+                Some(format!("Password reset requested for user {}", user.name)),
+                None,
+            ).await {
+                warn!("Failed to log password reset request audit event: {}", e);
+            }
+
+            // Always return success to prevent user enumeration
+            Ok(())
+        },
+        Err(_) => {
+            // User doesn't exist - still return success to prevent enumeration
+            // Add a small delay to prevent timing attacks
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            Ok(())
+        }
+    }
+}
+
+#[openapi(tag = "Authentication")]
+#[post("/auth/password-reset/confirm", format = "json", data = "<reset_confirm>")]
+/// Confirm a password reset using the token and set a new password.
+/// No authentication required - token provides the authorization.
+pub(crate) async fn confirm_password_reset(
+    state: &State<AppState>,
+    reset_confirm: Json<PasswordResetConfirmRequest>,
+    request_info: RequestInfo
+) -> Result<(), ApiError> {
+    // Validate new password
+    validate_password(&reset_confirm.new_password, state)?;
+
+    // Hash the provided token to match against stored hash
+    use argon2::{Argon2, PasswordHasher, PasswordVerifier};
+    let argon2 = Argon2::default();
+
+    // Parse the stored hash to verify the token
+    let parsed_hash = argon2::password_hash::PasswordHash::new(&reset_confirm.token)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid token format: {e}")))?;
+
+    // For security, we need to find the user first by checking if any token matches
+    // This is less efficient but prevents token enumeration attacks
+    if let Some(user_id) = state.db.verify_password_reset_token(reset_confirm.token.clone()).await? {
+        // Get user details
+        let user = state.db.get_user(user_id).await?;
+
+        // Hash the new password
+        let password_hash = Password::new_server_hash(&reset_confirm.new_password)?;
+
+        // Update user's password
+        state.db.set_user_password(user_id, password_hash).await?;
+
+        // Clean up any expired tokens for this user
+        let _ = state.db.cleanup_expired_password_reset_tokens().await;
+
+        // Audit log successful password reset
+        if let Err(e) = state.audit.log_authentication(
+            Some(user.id),
+            Some(user.name.clone()),
+            request_info.ip_address,
+            request_info.user_agent,
+            "password_reset_confirm",
+            true,
+            Some(format!("Password reset completed for user {}", user.name)),
+            None,
+        ).await {
+            warn!("Failed to log password reset confirmation audit event: {}", e);
+        }
+
+        Ok(())
+    } else {
+        // Invalid or expired token
+        Err(ApiError::BadRequest("Invalid or expired password reset token".to_string()))
+    }
 }
 
 #[openapi(tag = "Authentication")]
@@ -2658,7 +2834,10 @@ pub(crate) async fn create_user(
     };
 
     let password_hash: Option<String> = match password {
-        Some(p) => Some(Password::new_server_hash(p)?.to_string()),
+        Some(p) => {
+            validate_password(p, state)?;
+            Some(Password::new_server_hash(p)?.to_string())
+        },
         None => None,
     };
 

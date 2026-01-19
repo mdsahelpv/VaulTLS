@@ -145,6 +145,33 @@ impl JsonSchema for FrontendSettings {
     }
 }
 
+/// Password complexity requirements.
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+pub(crate) struct PasswordComplexity {
+    /// Minimum password length (default: 8)
+    pub(crate) min_length: usize,
+    /// Require at least one uppercase letter (default: true)
+    pub(crate) require_uppercase: bool,
+    /// Require at least one lowercase letter (default: true)
+    pub(crate) require_lowercase: bool,
+    /// Require at least one numeric character (default: true)
+    pub(crate) require_numeric: bool,
+    /// Require at least one special character (default: false)
+    pub(crate) require_special: bool,
+}
+
+impl Default for PasswordComplexity {
+    fn default() -> Self {
+        Self {
+            min_length: 8,
+            require_uppercase: true,
+            require_lowercase: true,
+            require_numeric: true,
+            require_special: false,
+        }
+    }
+}
+
 /// Common settings for the backend.
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Default, Debug)]
 pub(crate) struct Common {
@@ -152,6 +179,8 @@ pub(crate) struct Common {
     vaultls_url: String,
     #[serde(default)]
     password_rule: PasswordRule,
+    #[serde(default)]
+    password_complexity: PasswordComplexity,
     #[serde(default)]
     is_root_ca: bool,
     #[serde(default)]
@@ -553,5 +582,10 @@ impl Settings {
     pub(crate) fn get_file_size_limits(&self) -> FileSizeLimits {
         let settings = self.0.read();
         settings.common.file_size_limits.clone()
+    }
+
+    pub(crate) fn get_password_complexity(&self) -> PasswordComplexity {
+        let settings = self.0.read();
+        settings.common.password_complexity.clone()
     }
 }

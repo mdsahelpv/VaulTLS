@@ -9,15 +9,13 @@ use tracing::warn;
 
 #[derive(Clone, Debug)]
 pub enum Password {
-    V1(PasswordHashString),
-    V2(PasswordHashString)
+    V1(PasswordHashString)
 }
 
 impl Display for Password {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Password::V1(p) => write!(f, "v1{p}"),
-            Password::V2(p) => write!(f, "v2{p}")
+            Password::V1(p) => write!(f, "v1{p}")
         }
     }
 }
@@ -28,8 +26,6 @@ impl TryFrom<&str> for Password {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         if let Some(extract) = s.strip_prefix("v1") {
             Ok(Password::V1(PasswordHashString::new(extract)?))
-        } else if let Some(extract) = s.strip_prefix("v2") {
-            Ok(Password::V2(PasswordHashString::new(extract)?))
         } else {
             Ok(Password::V1(PasswordHashString::new(s)?))
         }
@@ -50,26 +46,19 @@ impl FromSql for Password {
 
 impl Password {
     /// Verify password hash with corresponding password
-    /// SECURITY: V2 password hashes are no longer accepted for security reasons.
-    /// Users with V2 hashes must re-authenticate and their passwords will be rehashed to V1.
     pub(crate) fn verify(&self, password: &str) -> bool {
         match self {
             Password::V1(inner) => {
                 // V1: Direct server-side hash verification
                 ARGON2.verify_password(password.as_bytes(), &inner.password_hash()).is_ok()
-            },
-            Password::V2(_) => {
-                // SECURITY: V2 password hashes are rejected due to hardcoded salt vulnerability
-                // Users with V2 hashes will fail authentication and need to reset their passwords
-                warn!("Attempted login with deprecated V2 password hash - password rehash required");
-                false
-            },
+            }
         }
     }
 
     /// Check if this password hash is using the deprecated V2 scheme
+    /// Always returns false since V2 is removed
     pub(crate) fn is_v2_hash(&self) -> bool {
-        matches!(self, Password::V2(_))
+        false
     }
 
 

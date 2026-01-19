@@ -196,4 +196,111 @@ impl Mailer {
 
         Ok(())
     }
+
+    pub async fn send_password_reset_email(&self, to: &str, username: &str, reset_url: &str) -> Result<(), anyhow::Error> {
+        let html_content = html! {
+            style {
+                r#"
+                .container {
+                    font-family: Arial, sans-serif;
+                    max-width: 600px;
+                    margin: 20px auto;
+                    background-color: #ffffff;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    overflow: hidden;
+                }
+                .header {
+                    background-color: #e3f2fd;
+                    padding: 15px;
+                    text-align: center;
+                    font-size: 24px;
+                    color: #1976d2;
+                }
+                .content {
+                    padding: 20px;
+                    background-color: #ffffff;
+                }
+                .reset-button {
+                    display: inline-block;
+                    background-color: #1976d2;
+                    color: white;
+                    padding: 12px 24px;
+                    text-decoration: none;
+                    border-radius: 4px;
+                    margin: 20px 0;
+                    font-weight: bold;
+                }
+                .warning {
+                    background-color: #fff3e0;
+                    border-left: 4px solid #ff9800;
+                    padding: 10px;
+                    margin: 15px 0;
+                }
+                .footer {
+                    background-color: #f5f5f5;
+                    padding: 15px;
+                    text-align: center;
+                    font-size: 12px;
+                    color: #666;
+                }
+                "#
+            }
+            div class="container" {
+                div class="header" {
+                    "VaulTLS - Password Reset"
+                }
+                div class="content" {
+                    p {
+                        "Hello " (username) ","
+                    }
+                    p {
+                        "We received a request to reset your password for your VaulTLS account. If you made this request, please click the button below to reset your password:"
+                    }
+                    a href=(reset_url) class="reset-button" {
+                        "Reset Password"
+                    }
+                    div class="warning" {
+                        strong { "Security Notice:" }
+                        " This link will expire in 1 hour. If you did not request a password reset, please ignore this email."
+                    }
+                    p {
+                        "If the button doesn't work, you can copy and paste this link into your browser:"
+                    }
+                    p style="word-break: break-all; font-family: monospace;" {
+                        (reset_url)
+                    }
+                    p {
+                        "For security reasons, this link can only be used once and will expire soon."
+                    }
+                }
+                div class="footer" {
+                    "If you have any questions, please contact your system administrator."
+                }
+            }
+        }.into_string();
+
+        let plain_content = format!(
+            "Hello {},\n\n\
+            We received a request to reset your password for your VaulTLS account.\n\n\
+            If you made this request, please visit this link to reset your password:\n\
+            {}\n\n\
+            This link will expire in 1 hour. If you did not request a password reset, please ignore this email.\n\n\
+            For security reasons, this link can only be used once and will expire soon.\n\n\
+            If you have any questions, please contact your system administrator.",
+            username, reset_url
+        );
+
+        let email = build_email_message!(
+            self.from.clone(),
+            to.to_string(),
+            "VaulTLS: Password Reset Request",
+            plain_content,
+            html_content
+        );
+
+        self.mailer.send(email).await?;
+
+        Ok(())
+    }
 }

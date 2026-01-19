@@ -3,6 +3,13 @@
     "password_enabled": true,
     "vaultls_url": "",
     "password_rule": 0,
+    "password_complexity": {
+      "min_length": 8,
+      "require_uppercase": true,
+      "require_lowercase": true,
+      "require_numeric": true,
+      "require_special": false
+    },
     "is_root_ca": false,
     "file_size_limits": {
       "max_pfx_size_mb": 10,

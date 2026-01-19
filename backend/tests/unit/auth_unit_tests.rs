@@ -28,24 +28,7 @@ mod tests {
         assert!(!hash.verify(""));
     }
 
-    #[test]
-    fn test_password_v2_hash_rejection() {
-        // Create a mock V2 hash for testing (simulating old format)
-        let salt_str = "VaulTLSVaulTLSVaulTLSVaulTLS";
-        let salt = SaltString::encode_b64(salt_str.as_bytes()).unwrap();
-        let client_hash = ARGON2.hash_password(b"test123", &salt).unwrap();
-        let client_hash_string = client_hash.serialize();
-        let v2_hash = ARGON2.hash_password(client_hash_string.as_bytes(), &SaltString::generate(&mut rand_core::OsRng).unwrap()).unwrap();
-        let v2_hash_string = format!("v2{}", v2_hash.serialize());
 
-        // Parse as V2 hash
-        let password_hash = Password::try_from(v2_hash_string.as_str()).unwrap();
-        assert!(password_hash.is_v2_hash()); // Should be detected as V2
-
-        // Should reject V2 verification (security fix)
-        assert!(!password_hash.verify("test123"));
-        assert!(!password_hash.verify("any_password"));
-    }
 
     #[test]
     fn test_password_hash_format_validation() {
@@ -54,10 +37,10 @@ mod tests {
         let password = Password::try_from(v1_hash).unwrap();
         assert!(!password.is_v2_hash());
 
-        // Test V2 format parsing
+        // Test V2 format parsing should fail (V2 removed)
         let v2_hash = "v2$argon2id$v=19$m=19456,t=2,p=1$YWJjZGVmZ2hpams$aGVsbG93b3JsZA";
-        let password = Password::try_from(v2_hash).unwrap();
-        assert!(password.is_v2_hash());
+        let result = Password::try_from(v2_hash);
+        assert!(result.is_err(), "V2 hashes should no longer be parseable");
 
         // Test plain format (backward compatibility)
         let plain_hash = "$argon2id$v=19$m=19456,t=2,p=1$YWJjZGVmZ2hpams$aGVsbG93b3JsZA";
@@ -131,31 +114,7 @@ mod tests {
                 duration_correct.as_millis(), duration_wrong.as_millis(), ratio);
     }
 
-    #[test]
-    fn test_password_hash_migration_scenario() {
-        // Simulate a user with V2 hash trying to log in
-        let salt_str = "VaulTLSVaulTLSVaulTLSVaulTLS";
-        let salt = SaltString::encode_b64(salt_str.as_bytes()).unwrap();
-        let client_hash = ARGON2.hash_password(b"migrate_me", &salt).unwrap();
-        let client_hash_string = client_hash.serialize();
-        let v2_hash = ARGON2.hash_password(client_hash_string.as_bytes(), &SaltString::generate(&mut rand_core::OsRng).unwrap()).unwrap();
-        let v2_hash_string = format!("v2{}", v2_hash.serialize());
 
-        let old_password_hash = Password::try_from(v2_hash_string.as_str()).unwrap();
-
-        // V2 hash should be detected
-        assert!(old_password_hash.is_v2_hash());
-
-        // V2 verification should fail (security requirement)
-        assert!(!old_password_hash.verify("migrate_me"));
-
-        // Create new V1 hash for the same password
-        let new_password_hash = Password::new_server_hash("migrate_me").unwrap();
-
-        // New hash should be V1 and verify correctly
-        assert!(!new_password_hash.is_v2_hash());
-        assert!(new_password_hash.verify("migrate_me"));
-    }
 
     #[test]
     fn test_password_hash_error_handling() {
