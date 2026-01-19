@@ -913,6 +913,9 @@ async fn setup_common(
         password_hash = Some(Password::new_server_hash(password)?.to_string());
     }
 
+    // Initialize transaction context for proper rollback
+    let mut ctx = SetupTransactionContext::new();
+
     // Validate CA certificate first before creating user
     let ca = if let Some(pfx_data) = pfx_data {
         debug!("Validating CA from PFX file (size: {} bytes)", pfx_data.len());
@@ -997,81 +1000,65 @@ async fn setup_common(
         }
     };
 
-    // Now that CA validation is successful, create the user
-    debug!("Creating user with name: {}, email: {}", name, email);
-    let user = User{
-        id: -1,
-        name: name.clone(),
-        email: email.clone(),
-        password_hash,
-        oidc_id: None,
-        role: UserRole::Admin,
-    };
+    // Execute setup operations with proper transaction handling and rollback
+    let setup_result = async {
+        // Step 1: Create the user
+        debug!("Creating user with name: {}, email: {}", name, email);
+        let user = User{
+            id: -1,
+            name: name.clone(),
+            email: email.clone(),
+            password_hash,
+            oidc_id: None,
+            role: UserRole::Admin,
+        };
 
-    match state.db.insert_user(user).await {
-        Ok(_) => debug!("User created successfully"),
-        Err(e) => {
-            error!("Failed to create user: {}", e);
-            return Err(ApiError::Other(format!("Failed to create user: {e}")))
+        let inserted_user = state.db.insert_user(user).await?;
+        ctx.set_created_user(inserted_user.id);
+        debug!("User created successfully with ID: {}", inserted_user.id);
+
+        // Step 2: Save CA certificate to file system
+        debug!("Saving CA certificate");
+        save_ca(&ca)?;
+        debug!("CA saved successfully");
+
+        // Step 3: Insert CA into database
+        debug!("Inserting CA into database");
+        let ca_id = state.db.insert_ca(ca).await?;
+        ctx.set_created_ca(ca_id);
+        debug!("CA inserted into database with ID: {}", ca_id);
+
+        // Step 4: Update CA URLs (optional, don't fail if this fails)
+        if let Err(e) = state.db.update_ca_urls(ca_id, aia_url.clone(), cdp_url.clone()).await {
+            warn!("Failed to update CA URLs in database during setup: {}", e);
+            // Don't fail setup for this - the URLs will be extracted from the certificate when needed
         }
-    }
 
-    debug!("Saving CA certificate");
-    match save_ca(&ca) {
-        Ok(_) => debug!("CA saved successfully"),
-        Err(e) => {
-            error!("Failed to save CA: {}", e);
-            // Clean up: delete the user if CA save fails
-            if let Ok(user_to_delete) = state.db.get_user_by_email(email.clone()).await {
-                if let Err(cleanup_err) = state.db.delete_user(user_to_delete.id).await {
-                    warn!("Failed to clean up user after CA save failure: {}", cleanup_err);
-                }
+        // Step 5: Set Root CA mode in settings
+        state.settings.set_is_root_ca(is_root_ca)?;
+        debug!("Root CA mode set to: {}", is_root_ca);
+
+        Ok(())
+    }.await;
+
+    // Handle setup result - rollback on failure
+    match setup_result {
+        Ok(_) => {
+            if is_root_ca {
+                info!("VaulTLS set up as Root CA Server - only subordinate CA certificates can be issued");
+            } else {
+                info!("VaulTLS set up as regular Certificate Authority - all certificate types available");
             }
-            return Err(ApiError::Other(format!("Failed to save CA certificate: {e}")))
-        }
-    }
-
-    debug!("Inserting CA into database");
-    let ca_id_result = state.db.insert_ca(ca).await;
-    let ca_id = match ca_id_result {
-        Ok(id) => id,
+            info!("VaulTLS was successfully set up for user: {}", name);
+            Ok(())
+        },
         Err(e) => {
-            error!("Failed to insert CA into database: {}", e);
-            // Clean up: delete the user if CA insertion fails
-            if let Ok(user_to_delete) = state.db.get_user_by_email(email.clone()).await {
-                if let Err(cleanup_err) = state.db.delete_user(user_to_delete.id).await {
-                    warn!("Failed to clean up user after CA insertion failure: {}", cleanup_err);
-                }
-            }
-            return Err(ApiError::Other(format!("Failed to save CA to database: {e}")))
+            // Rollback all changes on failure
+            error!("Setup failed, performing rollback: {}", e);
+            ctx.cleanup_on_failure(state).await;
+            Err(e)
         }
-    };
-
-    // Update the CA with the AIA and CDP URLs that were configured during setup
-    if let Err(e) = state.db.update_ca_urls(ca_id, aia_url.clone(), cdp_url.clone()).await {
-        warn!("Failed to update CA URLs in database during setup: {}", e);
-        // Don't fail setup for this - the URLs will be extracted from the certificate when needed
     }
-
-    // Set the Root CA mode in settings
-    if let Err(e) = state.settings.set_is_root_ca(is_root_ca) {
-        // Clean up: delete the user if settings save fails
-        if let Ok(user_to_delete) = state.db.get_user_by_email(email.clone()).await {
-            if let Err(cleanup_err) = state.db.delete_user(user_to_delete.id).await {
-                warn!("Failed to clean up user after settings failure: {}", cleanup_err);
-            }
-        }
-        return Err(ApiError::Other(format!("Failed to save settings: {e}")))
-    }
-
-    if is_root_ca {
-        info!("VaulTLS set up as Root CA Server - only subordinate CA certificates can be issued");
-    } else {
-        info!("VaulTLS set up as regular Certificate Authority - all certificate types available");
-    }
-
-    info!("VaulTLS was successfully set up for user: {}", name);
-    Ok(())
 }
 
 #[openapi(tag = "Authentication")]
@@ -1094,6 +1081,28 @@ pub(crate) async fn login(
     })?;
     if let Some(password_hash_str) = user.password_hash {
         let password_hash = Password::try_from(password_hash_str.as_str())?;
+
+        // Check if user has deprecated V2 password hash
+        if password_hash.is_v2_hash() {
+            warn!(user=user.name, "Login attempt with deprecated V2 password hash - account requires password reset");
+
+            // Audit log V2 hash detection
+            if let Err(e) = state.audit.log_authentication(
+                Some(user.id),
+                Some(user.name.clone()),
+                request_info.ip_address.clone(),
+                request_info.user_agent.clone(),
+                "login",
+                false,
+                Some("Deprecated V2 password hash detected - password reset required".to_string()),
+                None,
+            ).await {
+                warn!("Failed to log authentication audit event: {}", e);
+            }
+
+            return Err(ApiError::Unauthorized(Some("Your account uses an outdated password format. Please contact an administrator to reset your password.".to_string())));
+        }
+
         if password_hash.verify(&login_req_opt.password) {
             let jwt_key = state.settings.get_jwt_key()?;
             let token = generate_token(&jwt_key, user.id, user.role, None)?;
@@ -2555,9 +2564,6 @@ pub(crate) async fn update_settings(
 ) -> Result<(), ApiError> {
     let mut oidc = state.oidc.lock().await;
 
-    // Capture settings before changes for audit logging
-    let old_frontend_settings = FrontendSettings(state.settings.clone());
-
     state.settings.set_settings(&payload)?;
 
     let oidc_settings = state.settings.get_oidc();
@@ -2587,7 +2593,7 @@ pub(crate) async fn update_settings(
 
     info!("Settings updated.");
 
-    // Audit log settings change with before/after comparison
+    // Audit log settings change with before/after comparison (only on success)
     if let Err(e) = state.audit.log_settings_change(
         Some(authentication._claims.id), // Admin making the change
         None, // TODO: get actual admin user name
@@ -2596,12 +2602,11 @@ pub(crate) async fn update_settings(
         "update_settings", // Action
         true, // Success
         Some(serde_json::json!({
-            "old_settings": old_frontend_settings,
             "new_settings": FrontendSettings(state.settings.clone()),
             "modified_by": authentication._claims.id,
             "change_timestamp": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| format!("Failed to calculate CRL timestamp: {e}"))?
+                .map_err(|e| format!("Failed to calculate settings timestamp: {e}"))?
                 .as_millis()
         })),
         Some(serde_json::json!({
@@ -4268,6 +4273,140 @@ fn determine_certificate_type(cert: &X509, _index: usize, _chain_length: usize) 
         }
     } else {
         "Unknown".to_string()
+    }
+}
+
+/// Context for managing setup operations with proper rollback
+pub struct SetupTransactionContext {
+    temp_files: Vec<std::path::PathBuf>,
+    created_user_id: Option<i64>,
+    created_ca_id: Option<i64>,
+}
+
+impl SetupTransactionContext {
+    pub fn new() -> Self {
+        Self {
+            temp_files: Vec::new(),
+            created_user_id: None,
+            created_ca_id: None,
+        }
+    }
+
+    pub fn add_temp_file(&mut self, path: std::path::PathBuf) {
+        self.temp_files.push(path);
+    }
+
+    pub fn set_created_user(&mut self, user_id: i64) {
+        self.created_user_id = Some(user_id);
+    }
+
+    pub fn set_created_ca(&mut self, ca_id: i64) {
+        self.created_ca_id = Some(ca_id);
+    }
+
+    pub async fn cleanup_on_failure(self, state: &State<AppState>) {
+        // Clean up database records first
+        if let Some(ca_id) = self.created_ca_id {
+            if let Err(e) = state.db.delete_ca(ca_id).await {
+                warn!("Failed to clean up CA {} during setup rollback: {}", ca_id, e);
+            }
+        }
+
+        if let Some(user_id) = self.created_user_id {
+            if let Err(e) = state.db.delete_user(user_id).await {
+                warn!("Failed to clean up user {} during setup rollback: {}", user_id, e);
+            }
+        }
+
+        // Clean up temp files
+        for file_path in self.temp_files {
+            if file_path.exists() {
+                if let Err(e) = std::fs::remove_file(&file_path) {
+                    warn!("Failed to clean up temporary file {}: {}", file_path.display(), e);
+                } else {
+                    debug!("Cleaned up temporary file: {}", file_path.display());
+                }
+            }
+        }
+    }
+}
+
+/// Generic rollback context for multi-step operations
+pub struct OperationRollbackContext {
+    rollback_actions: Vec<Box<dyn FnOnce() -> Result<(), ApiError> + Send + Sync>>,
+    cleanup_files: Vec<std::path::PathBuf>,
+}
+
+impl OperationRollbackContext {
+    pub fn new() -> Self {
+        Self {
+            rollback_actions: Vec::new(),
+            cleanup_files: Vec::new(),
+        }
+    }
+
+    /// Add a rollback action that will be executed on failure
+    pub fn add_rollback_action<F>(&mut self, action: F)
+    where
+        F: FnOnce() -> Result<(), ApiError> + Send + Sync + 'static,
+    {
+        self.rollback_actions.push(Box::new(action));
+    }
+
+    /// Add a file to be cleaned up on failure
+    pub fn add_cleanup_file(&mut self, path: std::path::PathBuf) {
+        self.cleanup_files.push(path);
+    }
+
+    /// Execute all rollback actions and cleanup files
+    pub fn rollback(self) -> Result<(), ApiError> {
+        let mut errors = Vec::new();
+
+        // Execute rollback actions in reverse order
+        for action in self.rollback_actions.into_iter().rev() {
+            if let Err(e) = action() {
+                errors.push(format!("Rollback action failed: {}", e));
+            }
+        }
+
+        // Clean up files
+        for file_path in self.cleanup_files {
+            if file_path.exists() {
+                if let Err(e) = std::fs::remove_file(&file_path) {
+                    errors.push(format!("Failed to clean up file {}: {}", file_path.display(), e));
+                } else {
+                    debug!("Cleaned up file during rollback: {}", file_path.display());
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(ApiError::Other(format!("Rollback completed with errors: {}", errors.join("; "))))
+        }
+    }
+}
+
+/// Execute an operation with rollback capability
+pub async fn execute_with_rollback<F, Fut, T>(
+    mut ctx: OperationRollbackContext,
+    operation: F
+) -> Result<T, ApiError>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, ApiError>>,
+{
+    match operation().await {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            // Execute rollback on failure
+            if let Err(rollback_err) = ctx.rollback() {
+                error!("Rollback failed: {}", rollback_err);
+                // Return the original error, not the rollback error
+            }
+            Err(e)
+        }
     }
 }
 

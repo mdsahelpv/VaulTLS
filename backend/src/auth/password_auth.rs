@@ -5,6 +5,7 @@ use argon2::password_hash::{PasswordHashString, SaltString};
 use argon2::{password_hash, PasswordHasher, PasswordVerifier};
 use std::fmt::Display;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ValueRef};
+use tracing::warn;
 
 #[derive(Clone, Debug)]
 pub enum Password {
@@ -49,29 +50,26 @@ impl FromSql for Password {
 
 impl Password {
     /// Verify password hash with corresponding password
+    /// SECURITY: V2 password hashes are no longer accepted for security reasons.
+    /// Users with V2 hashes must re-authenticate and their passwords will be rehashed to V1.
     pub(crate) fn verify(&self, password: &str) -> bool {
         match self {
             Password::V1(inner) => {
                 // V1: Direct server-side hash verification
                 ARGON2.verify_password(password.as_bytes(), &inner.password_hash()).is_ok()
             },
-            Password::V2(inner) => {
-                // V2: Double-hashed password (client_hash + server_hash)
-                // For backward compatibility, apply client-side hashing to the plaintext password
-                let salt_str = "VaulTLSVaulTLSVaulTLSVaulTLS";
-                if let Ok(salt) = SaltString::encode_b64(salt_str.as_bytes()) {
-                    if let Ok(client_hash_result) = ARGON2.hash_password(password.as_bytes(), &salt) {
-                        let client_hash_string = client_hash_result.serialize();
-                        // Then verify the client_hash result against the stored V2 hash
-                        ARGON2.verify_password(client_hash_string.as_bytes(), &inner.password_hash()).is_ok()
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
+            Password::V2(_) => {
+                // SECURITY: V2 password hashes are rejected due to hardcoded salt vulnerability
+                // Users with V2 hashes will fail authentication and need to reset their passwords
+                warn!("Attempted login with deprecated V2 password hash - password rehash required");
+                false
             },
         }
+    }
+
+    /// Check if this password hash is using the deprecated V2 scheme
+    pub(crate) fn is_v2_hash(&self) -> bool {
+        matches!(self, Password::V2(_))
     }
 
 
