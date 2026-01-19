@@ -3078,8 +3078,11 @@ pub(crate) async fn revoke_certificate(
         state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id), custom_reason_to_store).await?;
 
         // Clear CRL cache since revocation list has changed
-        let mut cache = state.crl_cache.lock().await;
-        *cache = None;
+        // Use write lock to ensure thread safety
+        {
+            let mut cache = state.crl_cache.lock().await;
+            *cache = None;
+        }
         debug!("CRL cache cleared due to certificate revocation");
 
         info!(cert_id=id, cert_name=?cert.name, admin_id=?authentication._claims.id, "Certificate revoked successfully");
