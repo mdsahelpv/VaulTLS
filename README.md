@@ -116,6 +116,16 @@ Comprehensive configuration for security, performance, and features:
 
 📖 **Complete Configuration Guide**: See [`SETTINGS.md`](SETTINGS.md) and [`settings.example.json`](settings.example.json) for detailed documentation of all configuration options.
 
+### 🌐 Multi-CA CRL & OCSP Deployment
+
+VaulTLS supports hosting multiple CAs with distinct revocation endpoints:
+
+| Service | Endpoint URL | Configuration Note |
+|:---|:---|:---|
+| **CRL (Specific CA)** | `/api/certificates/crl/<ca_id>` | Set `cdp_url` to this path when creating a CA. |
+| **CRL (Default CA)** | `/api/certificates/crl` | Points to the most recently created or default CA. |
+| **OCSP Responder** | `/api/ocsp` | Unified endpoint. Set `aia_url` to this path for **all** CAs. |
+
 ## 📖 Usage
 
 ### Initial Setup
