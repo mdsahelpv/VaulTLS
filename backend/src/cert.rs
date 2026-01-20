@@ -3157,9 +3157,15 @@ pub fn extract_sans_from_csr(csr: &openssl::x509::X509Req) -> Vec<String> {
                                     if ip.len() == 4 {
                                         sans.push(format!("IP:{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]));
                                     } else if ip.len() == 16 {
-                                        sans.push(format!("IP:{:?}", ip));
+                                        // IPv6 formatting
+                                        use std::net::Ipv6Addr;
+                                        if let Ok(arr) = <[u8; 16]>::try_from(*ip) {
+                                            sans.push(format!("IP:{}", Ipv6Addr::from(arr)));
+                                        }
                                     }
-                                }
+                                },
+                                GeneralName::RFC822Name(email) => sans.push(format!("email:{}", email)),
+                                GeneralName::URI(uri) => sans.push(format!("URI:{}", uri)),
                                 _ => {}
                             }
                         }
