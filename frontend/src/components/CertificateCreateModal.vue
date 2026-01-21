@@ -276,10 +276,14 @@
             class="btn btn-primary"
             @click="generateCertificate"
             :disabled="!canGenerateCertificate"
+            :title="!canGenerateCertificate ? 'Please fill in all required fields (Name, Type, CA, and DNS Names for Server certs)' : 'Generate new certificate'"
           >
             <i class="bi bi-plus-circle me-1"></i>
             Generate Certificate
           </button>
+        </div>
+        <div v-if="!canGenerateCertificate" class="text-end mt-1">
+          <small class="text-muted">Required: Name, Type, CA, and DNS Names (for server certs)</small>
         </div>
       </div>
     </div>

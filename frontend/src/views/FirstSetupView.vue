@@ -632,6 +632,11 @@ const setupPassword = async () => {
       return;
     }
 
+    if (ca_type.value === 'upload' && validationStatus.value !== 'success') {
+      errorMessage.value = 'Please validate your certificate successfully before completing setup.';
+      return;
+    }
+
     // Validate required fields
     if (!username.value.trim()) {
       errorMessage.value = 'Username is required';

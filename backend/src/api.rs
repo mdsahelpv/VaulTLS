@@ -4391,53 +4391,33 @@ fn extract_aia_and_cdp_urls(cert: &X509) -> Result<(Option<String>, Option<Strin
     let mut aia_url = None;
     let mut cdp_url = None;
 
-    // Use openssl command to extract extensions since the API is complex
-    use std::process::Command;
+    let der = cert.to_der().map_err(|e| ApiError::Other(format!("Failed to serialize certificate: {e}")))?;
+    
+    use x509_parser::prelude::*;
+    let (_, x509) = X509Certificate::from_der(&der)
+        .map_err(|e| ApiError::Other(format!("Failed to parse certificate with x509-parser: {e}")))?;
 
-    let cert_pem = cert.to_pem().map_err(|e| ApiError::Other(format!("Failed to convert cert to PEM: {e}")))?;
-    let output = Command::new("openssl")
-        .args(&["x509", "-in", "/dev/stdin", "-text", "-noout"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| ApiError::Other(format!("Failed to spawn openssl: {e}")))?;
-
-    output.stdin.as_ref().unwrap().write_all(&cert_pem).map_err(|e| ApiError::Other(format!("Failed to write cert: {e}")))?;
-    let output = output.wait_with_output().map_err(|e| ApiError::Other(format!("Failed to run openssl: {e}")))?;
-
-    if !output.status.success() {
-        return Ok((None, None)); // Return None if openssl fails, don't error
-    }
-
-    let text_output = String::from_utf8(output.stdout).map_err(|e| ApiError::Other(format!("Failed to parse output: {e}")))?;
-
-    for line in text_output.lines() {
-        let line_trimmed = line.trim();
-
-        // Extract any URI line containing http
-        if let Some(http_start) = line_trimmed.find("URI:") {
-            if let Some(url_start_pos) = line_trimmed[http_start..].find("http") {
-                let actual_url_start = http_start + url_start_pos;
-                let url = &line_trimmed[actual_url_start..];
-
-                // Check what type of URL this is by examining the context in the line
-                if line_trimmed.contains("Authority Information Access") ||
-                   line_trimmed.contains("authorityInfoAccess") ||
-                   url.contains("ca.cert") {
-                    // This is an AIA (Authority Information Access) URL
-                    if aia_url.is_none() && url.starts_with("http") {
-                        aia_url = Some(url.trim_end_matches(':').trim().to_string());
-                    }
-                } else if line_trimmed.contains("CRL Distribution Points") ||
-                   line_trimmed.contains("crlDistributionPoints") ||
-                   url.contains(".crl") || url.contains("/crl/") {
-                    // This is a CDP (CRL Distribution Points) URL
-                    if cdp_url.is_none() && url.starts_with("http") {
-                        cdp_url = Some(url.trim_end_matches(':').trim().to_string());
-                    }
-                }
-            }
+    for ext in x509.extensions() {
+        let oid_str = ext.oid.to_id_string();
+        
+        if oid_str == "1.3.6.1.5.5.7.1.1" { // Authority Information Access
+             // Extract URI from raw extension value if ParsedExtension is being difficult
+             let ext_value = ext.value;
+             // Search for http in the raw DER (hacky but robust against API changes)
+             let value_str = String::from_utf8_lossy(ext_value);
+             if let Some(idx) = value_str.find("http") {
+                 let end = value_str[idx..].find(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != ':' && c != '-' && c != '_' && c != '?')
+                     .map(|i| idx + i).unwrap_or(value_str.len());
+                 aia_url = Some(value_str[idx..end].to_string());
+             }
+        } else if oid_str == "2.5.29.31" { // CRL Distribution Points
+             let ext_value = ext.value;
+             let value_str = String::from_utf8_lossy(ext_value);
+             if let Some(idx) = value_str.find("http") {
+                 let end = value_str[idx..].find(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != ':' && c != '-' && c != '_' && c != '?')
+                     .map(|i| idx + i).unwrap_or(value_str.len());
+                 cdp_url = Some(value_str[idx..end].to_string());
+             }
         }
     }
 
