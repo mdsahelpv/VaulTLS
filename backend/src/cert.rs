@@ -1348,7 +1348,7 @@ authorityKeyIdentifier=keyid:always,issuer
             "basicConstraints = critical, CA:true\n".to_string()
         };
         config_content.push_str(&bc);
-        config_content.push_str(r#"keyUsage = critical, digitalSignature, cRLSign, keyCertSign
+        config_content.push_str(r#"keyUsage = critical, keyCertSign, cRLSign, digitalSignature
 "#);
 
         // Add certificate policies if provided
@@ -1623,7 +1623,8 @@ countryName_default = QA
 
 [ v3_req ]
 basicConstraints = CA:FALSE
-keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+keyUsage = digitalSignature, keyEncipherment
+subjectKeyIdentifier = hash
 "#.to_string();
 
             // Add extended key usage based on certificate type
@@ -1702,7 +1703,7 @@ emailAddress = optional
 
 [ v3_ca ]
 subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid:always
+authorityKeyIdentifier = keyid:always,issuer
 basicConstraints = CA:FALSE
 "#);
 
@@ -2079,7 +2080,7 @@ authorityKeyIdentifier = keyid:always
             "basicConstraints = critical, CA:TRUE\n".to_string()
         };
         config_content.push_str(&bc);
-        config_content.push_str(r#"keyUsage = critical, digitalSignature, keyCertSign, cRLSign
+        config_content.push_str(r#"keyUsage = critical, keyCertSign, cRLSign, digitalSignature
 "#);
 
         // Add AIA extension if provided and not empty

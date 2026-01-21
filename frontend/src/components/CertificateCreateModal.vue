@@ -7,12 +7,12 @@
   >
     <div class="modal-dialog modal-xl">
       <div class="modal-content border-0 shadow-lg">
-        <div class="modal-header bg-primary text-white border-0">
+        <div class="modal-header bg-white border-0">
           <h5 class="modal-title d-flex align-items-center">
             <i class="bi bi-shield-plus me-2"></i>
             Generate New Certificate
           </h5>
-          <button type="button" class="btn-close btn-close-white" @click="closeModal"></button>
+          <button type="button" class="btn-close" @click="closeModal"></button>
         </div>
         <div class="modal-body">
           <!-- Server Error Display -->
