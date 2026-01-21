@@ -1980,7 +1980,7 @@ pub(crate) async fn download_ca_key_pair_by_id(
         warn!("Failed to log CA private key download audit event: {}", e);
     }
 
-    Ok(DownloadResponse::new(combined_pem, &format!("ca_certificate_and_key_{}.pem", ca.id)))
+    Ok(DownloadResponse::new(combined_pem, &format!("{}_and_key.pem", ca_name)))
 }
 
 #[openapi(tag = "Certificates")]
@@ -2008,6 +2008,14 @@ pub(crate) async fn download_ca_key_pair(
     combined_pem.extend(b"\n");
     combined_pem.extend(key_pem);
 
+    // Extract CA name from certificate subject
+    let ca_cert = X509::from_der(&ca.cert)?;
+    let subject_name = ca_cert.subject_name();
+    let ca_name = subject_name.entries().find(|e| e.object().nid().as_raw() == 13) // CN
+        .and_then(|e| e.data().as_utf8().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
+
     // Audit log CA private key download - HIGH SECURITY RISK
     if let Err(e) = state.audit.log_ca_operation(
         Some(authentication._claims.id), // Admin downloading the keys
@@ -2015,7 +2023,7 @@ pub(crate) async fn download_ca_key_pair(
         None, // TODO: extract IP from request
         None, // TODO: extract User-Agent from request
         ca.id,
-        "Unknown", // TODO: Extract CA name from certificate
+        &ca_name,
         "download_private_key",
         true,
         Some(serde_json::json!({
@@ -2032,7 +2040,7 @@ pub(crate) async fn download_ca_key_pair(
         warn!("Failed to log CA private key download audit event: {}", e);
     }
 
-    Ok(DownloadResponse::new(combined_pem, "ca_certificate_and_key.pem"))
+    Ok(DownloadResponse::new(combined_pem, &format!("{}_and_key.pem", ca_name)))
 }
 
 #[openapi(tag = "Certificates")]
