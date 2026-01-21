@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import type {CreateUserRequest, User} from "@/types/User.ts";
-import {createUser, deleteUser, fetchUsers, updateUser} from "@/api/users.ts";
+import type { CreateUserRequest, User } from "@/types/User.ts";
+import { createUser, deleteUser, fetchUsers, updateUser } from "@/api/users.ts";
 
 export const useUserStore = defineStore('user', {
     state: () => ({
@@ -19,10 +19,10 @@ export const useUserStore = defineStore('user', {
 
                 try {
                     this.users = await fetchUsers();
-                } catch (err) {
+                } catch (err: any) {
                     // Rollback: restore previous state
                     this.users = previousUsers;
-                    this.error = 'Failed to fetch users.';
+                    this.error = err.response?.data?.error || err.response?.data?.message || 'Failed to fetch users.';
                     console.error(err);
                     throw err;
                 } finally {
@@ -40,10 +40,10 @@ export const useUserStore = defineStore('user', {
             try {
                 await createUser(createUserReq);
                 this.users = await fetchUsers();
-            } catch (err) {
+            } catch (err: any) {
                 // Rollback: restore previous state
                 this.users = previousUsers;
-                this.error = 'Failed to create user.';
+                this.error = err.response?.data?.error || err.response?.data?.message || 'Failed to create user.';
                 console.error(err);
                 throw err;
             } finally {
@@ -63,11 +63,11 @@ export const useUserStore = defineStore('user', {
                 this.users = await fetchUsers();
                 this.loading = false;
                 return true;
-            } catch (err) {
+            } catch (err: any) {
                 // Rollback: restore previous state
                 this.users = previousUsers;
                 this.loading = false;
-                this.error = 'Failed to update user.';
+                this.error = err.response?.data?.error || err.response?.data?.message || 'Failed to update user.';
                 console.error(err);
                 return false;
             }
@@ -82,10 +82,10 @@ export const useUserStore = defineStore('user', {
             try {
                 await deleteUser(id); // This handles API deletion and fetch internally
                 this.users = await fetchUsers(); // Refresh the local state
-            } catch (err) {
+            } catch (err: any) {
                 // Rollback: restore previous state
                 this.users = previousUsers;
-                this.error = 'Failed to delete the user.';
+                this.error = err.response?.data?.error || err.response?.data?.message || 'Failed to delete the user.';
                 console.error(err);
                 throw err;
             } finally {

@@ -247,11 +247,15 @@ impl CertificateService {
         &self,
         cert_builder: CertificateBuilder,
         user: &crate::data::objects::User,
-        _cert_data: &CertificatePreparationData,
+        cert_data: &CertificatePreparationData,
     ) -> Result<Certificate, ApiError> {
+        let final_crl_url = cert_data.ca.cdp_url.as_deref().or(cert_data.crl_url.as_deref());
+        let final_aia_url = cert_data.ca.aia_url.as_deref();
+        let final_ocsp_url = cert_data.ocsp_url.as_deref();
+
         Ok(cert_builder
             .set_email_san(&user.email)?
-            .build_common_with_extensions(crate::data::enums::CertificateType::Client, None, None)?)
+            .build_common_with_extensions(crate::data::enums::CertificateType::Client, final_crl_url, final_aia_url, final_ocsp_url)?)
     }
 
     /// Build server certificate with SAN validation
@@ -279,15 +283,20 @@ impl CertificateService {
             return Err(ApiError::BadRequest("Server certificates must include at least one valid DNS name or IP address".to_string()));
         }
 
-        // Use configured URLs for server certificates
-        let final_crl_url = request.cdp_url.as_deref().or_else(|| cert_data.crl_url.as_deref());
+        // Use configured URLs for server certificates with proper fallback logic
+        let final_crl_url = request.cdp_url.as_deref()
+            .or(cert_data.ca.cdp_url.as_deref())
+            .or(cert_data.crl_url.as_deref());
+
+        let final_aia_url = request.aia_url.as_deref()
+            .or(cert_data.ca.aia_url.as_deref());
+
         let final_ocsp_url = request.ocsp_url.as_deref()
-            .or_else(|| request.aia_url.as_deref())
-            .or_else(|| cert_data.ocsp_url.as_deref());
+            .or(cert_data.ocsp_url.as_deref());
 
         Ok(cert_builder
             .set_san(&dns_names, &ip_addresses)?
-            .build_common_with_extensions(crate::data::enums::CertificateType::Server, final_crl_url, final_ocsp_url)?)
+            .build_common_with_extensions(crate::data::enums::CertificateType::Server, final_crl_url, final_aia_url, final_ocsp_url)?)
     }
 
     /// Build subordinate CA certificate
@@ -393,12 +402,28 @@ impl CertificateService {
         let pkcs12_password = get_password(false, &None);
 
         // Create certificate from CSR
-        let builder = CertificateBuilder::from_csr(&parsed_csr, Some(&ca))?
+        let mut builder = CertificateBuilder::from_csr(&parsed_csr, Some(&ca))?
             .set_name(&cert_name)?
             .set_certificate_type(certificate_type_enum)?
             .set_user_id(user.id)?
             .set_validity_days(validity_in_days as u64)?
             .set_pkcs12_password(&pkcs12_password)?;
+
+        // Set AIA and CDP from CA if available
+        if let Some(ref aia) = ca.aia_url {
+            builder = builder.set_authority_info_access(aia)?;
+        }
+        if let Some(ref cdp) = ca.cdp_url {
+            builder = builder.set_crl_distribution_points(cdp)?;
+        }
+        
+        // Set OCSP from system settings if available
+        let ocsp_settings = self.settings.get_ocsp();
+        if ocsp_settings.enabled {
+            if let Some(ref ocsp_url) = ocsp_settings.responder_url {
+                builder = builder.set_ocsp_url(ocsp_url)?;
+            }
+        }
 
         let certificate = builder.build_csr_certificate(certificate_type_enum)?;
         let certificate = self.repository.insert_user_cert(certificate).await

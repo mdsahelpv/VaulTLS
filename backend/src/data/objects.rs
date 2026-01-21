@@ -101,8 +101,8 @@ pub struct AppState {
     pub oidc: Arc<Mutex<Option<OidcAuth>>>,
     pub mailer: Arc<Mutex<Option<Mailer>>>,
     pub audit: Arc<AuditService>,
-    pub crl_cache: Arc<Mutex<Option<CrlCache>>>,
-    pub ocsp_cache: Arc<Mutex<Option<OcspCache>>>,
+    pub crl_cache: Arc<dashmap::DashMap<i64, CrlCache>>,
+    pub ocsp_cache: Arc<dashmap::DashMap<String, OcspCache>>,
     pub crl_generation_lock: Arc<Mutex<()>>, // Prevents concurrent CRL generation
     pub certificate_locks: Arc<dashmap::DashMap<i64, Arc<tokio::sync::Mutex<()>>>>, // Per-certificate locks for revocation operations
     pub ca_locks: Arc<dashmap::DashMap<i64, Arc<tokio::sync::Mutex<()>>>>, // Per-CA locks for CA operations

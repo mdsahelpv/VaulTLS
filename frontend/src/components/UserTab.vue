@@ -73,6 +73,9 @@
           </div>
           <div class="modal-body">
             <form @submit.prevent="handleCreateUser">
+              <div v-if="userStore.error" class="alert alert-danger">
+                {{ userStore.error }}
+              </div>
               <div class="mb-3">
                 <label for="user_name" class="form-label">Username</label>
                 <input
@@ -214,16 +217,20 @@ onMounted(async () => {
 
 // Methods
 const handleCreateUser = async () => {
-  await userStore.createUser(newUser.value);
-  await userStore.fetchUsers(); // Refresh user list after creation
-  isCreateModalVisible.value = false;
-  // Reset form
-  newUser.value = {
-    user_name: '',
-    user_email: '',
-    password: '',
-    role: UserRole.User,
-  };
+  try {
+    await userStore.createUser(newUser.value);
+    await userStore.fetchUsers(); // Refresh user list after creation
+    isCreateModalVisible.value = false;
+    // Reset form
+    newUser.value = {
+      user_name: '',
+      user_email: '',
+      password: '',
+      role: UserRole.User,
+    };
+  } catch (err) {
+    // Error is already handled/set in the store, modal stays open
+  }
 };
 
 const confirmDeleteUser = async (user: User) => {

@@ -32,13 +32,13 @@ export const useCertificateStore = defineStore('certificate', {
         // Global loading state - true if any operation is in progress
         loading: (state): boolean => {
             return state.loadingCertificates ||
-                   state.creatingCertificate ||
-                   state.deletingCertificate ||
-                   state.revokingCertificate ||
-                   state.downloadingCertificate ||
-                   state.signingCsr ||
-                   state.previewingCsr ||
-                   state.fetchingPassword;
+                state.creatingCertificate ||
+                state.deletingCertificate ||
+                state.revokingCertificate ||
+                state.downloadingCertificate ||
+                state.signingCsr ||
+                state.previewingCsr ||
+                state.fetchingPassword;
         },
 
         // Get certificates as array for easier template usage
@@ -141,10 +141,11 @@ export const useCertificateStore = defineStore('certificate', {
             try {
                 await createCertificate(certReq);
                 await this.fetchCertificates(); // Refresh the list
-            } catch (err: unknown) {
+            } catch (err: any) {
                 // Rollback: restore previous state
                 this.certificates = previousCertificates;
-                this.error = 'Failed to create certificate';
+                const serverMessage = err.response?.data?.message || err.response?.data?.error;
+                this.error = serverMessage || 'Failed to create certificate';
                 console.error('Error creating certificate:', err);
                 throw err;
             } finally {

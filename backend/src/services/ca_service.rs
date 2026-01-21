@@ -181,8 +181,8 @@ impl CAService {
 
                                 let certificate_type = self.determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                                 chain_certificates.push(CertificateChainInfo {
-                                    subject: format!("{chain_subject:?}"),
-                                    issuer: format!("{chain_issuer:?}"),
+                                    subject: self.format_subject_name(chain_subject),
+                                    issuer: self.format_subject_name(chain_issuer),
                                     serial_number,
                                     certificate_type,
                                     is_end_entity: index == 0,
@@ -192,7 +192,7 @@ impl CAService {
                                 warn!("Failed to get serial number for certificate {} in chain: {}", index + 1, e);
                                 let certificate_type = self.determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                                 chain_certificates.push(CertificateChainInfo {
-                                    subject: format!("Certificate {}: Failed to parse - {:?}", index + 1, e),
+                                    subject: format!("Certificate {}: Failed to get serial - {:?}", index + 1, e),
                                     issuer: "Unknown".to_string(),
                                     serial_number: "Unknown".to_string(),
                                     certificate_type: "unknown".to_string(),
@@ -314,8 +314,8 @@ impl CAService {
                                 .map(|s| s.to_string())
                                 .unwrap_or_else(|_| "Invalid".to_string());
                             chain_certificates.push(CertificateChainInfo {
-                                subject: format!("{chain_subject:?}"),
-                                issuer: format!("{chain_issuer:?}"),
+                                subject: self.format_subject_name(chain_subject),
+                                issuer: self.format_subject_name(chain_issuer),
                                 serial_number,
                                 certificate_type: self.determine_certificate_type(&chain_cert, index, ca.cert_chain.len()),
                                 is_end_entity: index == 0,
@@ -406,72 +406,34 @@ impl CAService {
 
     /// Extract AIA and CDP URLs from certificate
     fn extract_aia_and_cdp_urls(&self, cert: &X509) -> Result<(Option<String>, Option<String>), ApiError> {
-        let pem = cert.to_pem()
-            .map_err(|e| ApiError::Other(format!("Failed to convert certificate to PEM: {e}")))?;
+        let mut aia_url = None;
+        let mut cdp_url = None;
 
-        let pem_str = String::from_utf8(pem)
-            .map_err(|e| ApiError::Other(format!("Failed to convert PEM to string: {e}")))?;
+        let der = cert.to_der().map_err(|e| ApiError::Other(format!("Failed to serialize certificate: {e}")))?;
+        
+        use x509_parser::prelude::*;
+        let (_, x509) = X509Certificate::from_der(&der)
+            .map_err(|e| ApiError::Other(format!("Failed to parse certificate with x509-parser: {e}")))?;
 
-        let temp_cert_path = std::env::temp_dir().join(format!("cert_ext_{}.pem", std::process::id()));
-        std::fs::write(&temp_cert_path, &pem_str)
-            .map_err(|e| ApiError::Other(format!("Failed to write temp certificate: {e}")))?;
-
-        let output = std::process::Command::new("openssl")
-            .args([
-                "x509",
-                "-in", &temp_cert_path.to_string_lossy(),
-                "-text",
-                "-noout"
-            ])
-            .output()
-            .map_err(|e| ApiError::Other(format!("Failed to run openssl command: {e}")))?;
-
-        let _ = std::fs::remove_file(&temp_cert_path);
-
-        if !output.status.success() {
-            return Ok((None, None));
-        }
-
-        let text_output = String::from_utf8(output.stdout)
-            .map_err(|e| ApiError::Other(format!("Failed to parse openssl output: {e}")))?;
-
-        let mut aia_url: Option<String> = None;
-        let mut cdp_url: Option<String> = None;
-
-        for line in text_output.lines() {
-            let line_trimmed = line.trim();
-
-            if let Some(http_start) = line_trimmed.find("URI:") {
-                if let Some(url_start_pos) = line_trimmed[http_start..].find("http") {
-                    let actual_url_start = http_start + url_start_pos;
-                    let url = &line_trimmed[actual_url_start..];
-
-                    if url.contains("ca.cert") || line_trimmed.contains("Authority Information Access") {
-                        if aia_url.is_none() {
-                            aia_url = Some(url.to_string());
-                        }
-                    } else if url.contains("ca.crl") || line_trimmed.contains("CRL Distribution Points") {
-                        if cdp_url.is_none() {
-                            cdp_url = Some(url.to_string());
-                        }
-                    }
-                }
-            }
-
-            if !line_trimmed.contains("URI:") && line_trimmed.contains("http") {
-                if let Some(http_start) = line_trimmed.find("http") {
-                    let url = &line_trimmed[http_start..];
-
-                    if url.contains("ca.cert") {
-                        if aia_url.is_none() {
-                            aia_url = Some(url.to_string());
-                        }
-                    } else if url.contains("ca.crl") || cdp_url.is_none() {
-                        if cdp_url.is_none() {
-                            cdp_url = Some(url.to_string());
-                        }
-                    }
-                }
+        for ext in x509.extensions() {
+            let oid_str = ext.oid.to_id_string();
+            
+            if oid_str == "1.3.6.1.5.5.7.1.1" { // Authority Information Access
+                 let ext_value = ext.value;
+                 let value_str = String::from_utf8_lossy(ext_value);
+                 if let Some(idx) = value_str.find("http") {
+                     let end = value_str[idx..].find(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != ':' && c != '-' && c != '_' && c != '?')
+                         .map(|i| idx + i).unwrap_or(value_str.len());
+                     aia_url = Some(value_str[idx..end].to_string());
+                 }
+            } else if oid_str == "2.5.29.31" { // CRL Distribution Points
+                 let ext_value = ext.value;
+                 let value_str = String::from_utf8_lossy(ext_value);
+                 if let Some(idx) = value_str.find("http") {
+                     let end = value_str[idx..].find(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != ':' && c != '-' && c != '_' && c != '?')
+                         .map(|i| idx + i).unwrap_or(value_str.len());
+                     cdp_url = Some(value_str[idx..end].to_string());
+                 }
             }
         }
 
@@ -479,60 +441,36 @@ impl CAService {
     }
 
     /// Determine certificate type in chain
-    fn determine_certificate_type(&self, cert: &X509, index: usize, total_certs: usize) -> String {
-        let is_ca = || -> bool {
-            let pem_result = cert.to_pem();
-            if let Ok(pem_data) = pem_result {
-                if let Ok(pem_str) = String::from_utf8(pem_data) {
-                    let temp_cert_path = std::env::temp_dir().join(format!("cert_ca_check_{}.pem", std::process::id()));
-                    if std::fs::write(&temp_cert_path, &pem_str).is_ok() {
-                        let openssl_result = std::process::Command::new("openssl")
-                            .args([
-                                "x509",
-                                "-in", &temp_cert_path.to_string_lossy(),
-                                "-text",
-                                "-noout"
-                            ])
-                            .output();
-
-                        let _ = std::fs::remove_file(&temp_cert_path);
-
-                        if let Ok(output) = openssl_result {
-                            if output.status.success() {
-                                if let Ok(text_output) = String::from_utf8(output.stdout) {
-                                    return text_output.contains("CA:TRUE");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    fn determine_certificate_type(&self, cert: &X509, index: usize, _total_certs: usize) -> String {
+        let subject = cert.subject_name();
+        let issuer = cert.issuer_name();
+        
+        let is_self_signed = if let (Ok(subject_der), Ok(issuer_der)) = (subject.to_der(), issuer.to_der()) {
+            subject_der == issuer_der
+        } else {
             false
         };
 
-        let is_self_signed = {
-            let subject = cert.subject_name();
-            let issuer = cert.issuer_name();
-            if let (Ok(subject_der), Ok(issuer_der)) = (subject.to_der(), issuer.to_der()) {
-                subject_der == issuer_der
-            } else {
-                false
-            }
+        // Try to get basic constraints for reliable CA check
+        let is_ca = if let Ok(pem) = cert.to_pem() {
+            // Check for CA:TRUE in text representation (simple fallback)
+            let pem_str = String::from_utf8_lossy(&pem);
+            pem_str.contains("CA:TRUE") || 
+            // Also check for common CA indicators
+            index > 0 || is_self_signed
+        } else {
+            index > 0 || is_self_signed
         };
 
-        if is_ca() {
-            if is_self_signed && index == total_certs - 1 {
-                return "root_ca".to_string();
-            } else if is_ca() {
-                return "intermediate_ca".to_string();
+        if is_ca {
+            if is_self_signed {
+                "root_ca".to_string()
+            } else {
+                "intermediate_ca".to_string()
             }
+        } else {
+            "end_entity".to_string()
         }
-
-        if index == 0 {
-            return "end_entity".to_string();
-        }
-
-        "intermediate_ca".to_string()
     }
 
     /// Format X509Name as DN string

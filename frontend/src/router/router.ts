@@ -1,4 +1,4 @@
-import {createRouter, createWebHistory} from 'vue-router';
+import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useSetupStore } from '@/stores/setup';
 
@@ -76,7 +76,7 @@ const router = createRouter({
                         return next({ name: 'FirstSetup' });
                     }
                     let urlParams = new URLSearchParams(window.location.search);
-                    if (urlParams.has('oidc', 'success')) {
+                    if (urlParams.get('oidc') === 'success') {
                         await authStore.finishOIDC();
                     }
 

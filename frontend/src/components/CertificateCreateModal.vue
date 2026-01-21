@@ -6,12 +6,25 @@
     style="background: rgba(0, 0, 0, 0.5)"
   >
     <div class="modal-dialog modal-xl">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Generate New Certificate</h5>
-          <button type="button" class="btn-close" @click="closeModal"></button>
+      <div class="modal-content border-0 shadow-lg">
+        <div class="modal-header bg-primary text-white border-0">
+          <h5 class="modal-title d-flex align-items-center">
+            <i class="bi bi-shield-plus me-2"></i>
+            Generate New Certificate
+          </h5>
+          <button type="button" class="btn-close btn-close-white" @click="closeModal"></button>
         </div>
         <div class="modal-body">
+          <!-- Server Error Display -->
+          <div v-if="certificateStore.error" class="alert alert-danger mb-3 d-flex align-items-center">
+            <i class="bi bi-exclamation-octagon-fill me-2 fs-5"></i>
+            <div>
+              <div class="fw-bold">Error Creating Certificate</div>
+              <small>{{ certificateStore.error }}</small>
+            </div>
+            <button type="button" class="btn-close ms-auto" @click="certificateStore.clearError()" aria-label="Close"></button>
+          </div>
+
           <div class="mb-3">
             <label for="certName" class="form-label">Common Name</label>
             <input
@@ -282,8 +295,14 @@
             Generate Certificate
           </button>
         </div>
-        <div v-if="!canGenerateCertificate" class="text-end mt-1">
-          <small class="text-muted">Required: Name, Type, CA, and DNS Names (for server certs)</small>
+        <div v-if="!canGenerateCertificate" class="text-end mt-1 px-3 pb-3">
+          <small class="text-danger fw-bold">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            Missing: 
+            <span v-if="!certReq.cert_name.trim()">Common Name, </span>
+            <span v-if="certReq.ca_id === undefined">CA Selection, </span>
+            <span v-if="certReq.cert_type === CertificateType.Server && !hasValidDNSNames">DNS Names</span>
+          </small>
         </div>
       </div>
     </div>
@@ -316,7 +335,7 @@ interface Emits {
   (e: 'certificate-created'): void;
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
 // Reactive data
@@ -342,6 +361,10 @@ const certReq = ref<CertificateRequirements>({
 const showPassword = ref(false);
 const advancedConfigExpanded = ref(false);
 const validationErrors = ref<{ cert_name?: string }>({});
+
+// Initialize stores
+import { useCertificateStore } from '@/stores/certificates';
+const certificateStore = useCertificateStore();
 // Sanitize certificate name by removing dangerous characters
 const sanitizeCertificateName = (name: string): string => {
   // Remove or replace dangerous characters that could cause injection
@@ -355,13 +378,34 @@ const sanitizeCertificateName = (name: string): string => {
   return sanitized.trim();
 };
 
+// Auto-select CA and Type on mount or when availableCas change
+watch(() => props.availableCas, (newCas) => {
+  if (newCas && newCas.length === 1 && !certReq.value.ca_id) {
+    certReq.value.ca_id = newCas[0].id;
+  }
+}, { immediate: true });
+
+watch(() => props.isRootCa, (isRoot) => {
+  if (isRoot) {
+    certReq.value.cert_type = CertificateType.SubordinateCA;
+  } else if (certReq.value.cert_type === CertificateType.SubordinateCA) {
+    certReq.value.cert_type = CertificateType.Client;
+  }
+}, { immediate: true });
+
 // Computed properties
 const canGenerateCertificate = computed(() => {
-  return certReq.value.cert_name.trim() &&
-         certReq.value.cert_type &&
-         certReq.value.ca_id &&
-         certReq.value.validity_in_years > 0 &&
-         (certReq.value.cert_type !== CertificateType.Server || hasValidDNSNames.value);
+  const nameOk = !!certReq.value.cert_name.trim();
+  const typeOk = certReq.value.cert_type !== undefined && certReq.value.cert_type !== null;
+  const caOk = !!certReq.value.ca_id;
+  const validityOk = certReq.value.validity_in_years > 0;
+  const sanOk = (certReq.value.cert_type !== CertificateType.Server || hasValidDNSNames.value);
+  
+  if (!nameOk || !typeOk || !caOk || !validityOk || !sanOk) {
+    console.debug('Certificate generation blocked:', { nameOk, typeOk, caOk, validityOk, sanOk, certReq: certReq.value });
+  }
+  
+  return nameOk && typeOk && caOk && validityOk && sanOk;
 });
 
 const hasValidDNSNames = computed(() => {
@@ -378,6 +422,7 @@ const closeModal = () => {
 };
 
 const resetForm = () => {
+  certificateStore.clearError();
   certReq.value = {
     cert_name: '',
     user_id: 0,
@@ -421,7 +466,6 @@ const generateCertificate = async () => {
     closeModal();
   } catch (error) {
     console.error('Failed to generate certificate:', error);
-    // TODO: Show error message to user
   }
 };
 

@@ -1356,14 +1356,14 @@ authorityKeyIdentifier=keyid:always,issuer
             config_content.push_str(&format!("certificatePolicies = {oid}\n"));
         }
 
-        // Add AIA and CDP extensions using the configured URLs (only if provided)
-        if let Some(aia_url) = &self.authority_info_access {
+        // Add AIA and CDP extensions using the configured URLs (only if provided and not empty)
+        if let Some(aia_url) = self.authority_info_access.as_ref().filter(|s| !s.is_empty()) {
             config_content.push_str("authorityInfoAccess = ");
             config_content.push_str(&format!("caIssuers;URI:{aia_url}\n"));
         }
 
-        // Add CDP extension (only if provided)
-        if let Some(cdp_url) = &self.crl_distribution_points {
+        // Add CDP extension (only if provided and not empty)
+        if let Some(cdp_url) = self.crl_distribution_points.as_ref().filter(|s| !s.is_empty()) {
             config_content.push_str(&format!("crlDistributionPoints = URI:{cdp_url}\n"));
         }
 
@@ -1487,7 +1487,7 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             .build()?;
         self.x509.append_extension(ext_key_usage)?;
 
-        self.build_common_with_extensions(CertificateType::Client, None, None)
+        self.build_common_with_extensions(CertificateType::Client, None, None, None)
     }
 
     pub fn build_server(mut self) -> Result<Certificate, anyhow::Error> {
@@ -1496,19 +1496,24 @@ URI.0 = http://pki.yawal.io/crl/ca.crl.pem
             .build()?;
         self.x509.append_extension(ext_key_usage)?;
 
-        self.build_common_with_extensions(CertificateType::Server, None, None)
+        self.build_common_with_extensions(CertificateType::Server, None, None, None)
     }
 
-    pub fn build_common_with_extensions(mut self, certificate_type: CertificateType, crl_url: Option<&str>, ocsp_url: Option<&str>) -> Result<Certificate, anyhow::Error> {
+    pub fn build_common_with_extensions(mut self, certificate_type: CertificateType, crl_url: Option<&str>, aia_url: Option<&str>, ocsp_url: Option<&str>) -> Result<Certificate, anyhow::Error> {
         let name = self.name.ok_or(anyhow!("X509: name not set"))?;
         let valid_until = self.valid_until.ok_or(anyhow!("X509: valid_until not set"))?;
         let user_id = self.user_id.ok_or(anyhow!("X509: user_id not set"))?;
         let common_name_field = self.common_name;
 
+        // Use parameters if provided, otherwise fallback to internal fields, filtering out empty strings
+        let crl_url = crl_url.map(|s| s.to_string()).or_else(|| self.crl_distribution_points.clone()).filter(|s| !s.is_empty());
+        let aia_url = aia_url.map(|s| s.to_string()).or_else(|| self.authority_info_access.clone()).filter(|s| !s.is_empty());
+        let ocsp_url = ocsp_url.map(|s| s.to_string()).or_else(|| self.ocsp_url.clone()).filter(|s| !s.is_empty());
+
         // If we have CRL or OCSP URLs, we need to use OpenSSL CLI to generate the certificate
         // with proper extensions, since rust-openssl doesn't support these extensions
-        if crl_url.is_some() || ocsp_url.is_some() {
-            debug!("Certificate requires CRL/OCSP extensions, using OpenSSL CLI generation");
+        if crl_url.is_some() || aia_url.is_some() || ocsp_url.is_some() {
+            debug!("Certificate requires CRL/OCSP/AIA extensions, using OpenSSL CLI generation");
 
             use std::process::Command;
 
@@ -1636,18 +1641,18 @@ keyUsage = nonRepudiation, digitalSignature, keyEncipherment
             config_content.push_str(&eku_string);
 
             // Add CRL Distribution Points extension if requested
-            if let Some(crl_url) = crl_url {
-                config_content.push_str(&format!("crlDistributionPoints = URI:{crl_url}\n"));
+            if let Some(ref crl) = crl_url {
+                config_content.push_str(&format!("crlDistributionPoints = URI:{crl}\n"));
             }
 
             // Add Authority Information Access (CA Issuers) extension if requested
-            if let Some(aia_url) = ocsp_url {
-                config_content.push_str(&format!("authorityInfoAccess = caIssuers;URI:{aia_url}\n"));
+            if let Some(ref aia) = aia_url {
+                config_content.push_str(&format!("authorityInfoAccess = caIssuers;URI:{aia}\n"));
             }
 
             // Add Authority Information Access (OCSP) extension if requested
-            if let Some(ocsp_url) = &self.ocsp_url {
-                config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{ocsp_url}\n"));
+            if let Some(ref ocsp) = ocsp_url {
+                config_content.push_str(&format!("authorityInfoAccess = OCSP;URI:{ocsp}\n"));
             }
 
             // Add Subject Alternative Name extension for server certificates
@@ -2077,13 +2082,13 @@ authorityKeyIdentifier = keyid:always
         config_content.push_str(r#"keyUsage = critical, digitalSignature, keyCertSign, cRLSign
 "#);
 
-        // Add AIA extension if provided
-        if let Some(ref aia) = aia_url {
+        // Add AIA extension if provided and not empty
+        if let Some(ref aia) = aia_url.as_ref().filter(|s| !s.is_empty()) {
             config_content.push_str(&format!("authorityInfoAccess = caIssuers;URI:{aia}\n"));
         }
 
-        // Add CDP extension if provided
-        if let Some(ref cdp) = cdp_url {
+        // Add CRL distribution point extension if provided and not empty
+        if let Some(ref cdp) = cdp_url.as_ref().filter(|s| !s.is_empty()) {
             config_content.push_str(&format!("crlDistributionPoints = URI:{cdp}\n"));
         }
 

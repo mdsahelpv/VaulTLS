@@ -1611,16 +1611,22 @@ pub(crate) async fn create_user_certificate(
         cert_builder = cert_builder.set_crl_distribution_points(cdp_url)?;
     }
 
-    // For client/server certificates, prioritize request-provided URLs over settings
-    let final_crl_url = payload.cdp_url.as_deref().or(crl_url);
-    let final_ocsp_url = payload.ocsp_url.as_deref().or(payload.aia_url.as_deref()).or(ocsp_url);
+    // For client/server certificates, prioritize request-provided URLs over CA-level or settings-level
+    let final_crl_url = payload.cdp_url.as_deref()
+        .or(ca.cdp_url.as_deref())
+        .or(crl_url);
+        
+    let final_aia_url = payload.aia_url.as_deref()
+        .or(ca.aia_url.as_deref());
+
+    let final_ocsp_url = payload.ocsp_url.as_deref().or(ocsp_url);
 
     let mut cert = match payload.cert_type.unwrap_or_default() {
         CertificateType::Client => {
             let user = state.db.get_user(payload.user_id).await?;
             cert_builder
                 .set_email_san(&user.email)?
-                .build_common_with_extensions(Client, final_crl_url, final_ocsp_url)?
+                .build_common_with_extensions(Client, final_crl_url, final_aia_url, final_ocsp_url)?
         }
         CertificateType::Server => {
             // Filter out empty strings from DNS names and IP addresses
@@ -1643,7 +1649,7 @@ pub(crate) async fn create_user_certificate(
 
             cert_builder
                 .set_san(&dns_names, &ip_addresses)?
-                .build_common_with_extensions(Server, final_crl_url, final_ocsp_url)?
+                .build_common_with_extensions(Server, final_crl_url, final_aia_url, final_ocsp_url)?
         }
         CertificateType::SubordinateCA => {
             // For subordinate CA, use the AIA and CDP URLs that were already set above
@@ -2154,8 +2160,8 @@ pub(crate) async fn get_ca_list(
 
                             let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                         chain_certificates.push(CertificateChainInfo {
-                            subject: format!("{chain_subject:?}"),
-                            issuer: format!("{chain_issuer:?}"),
+                            subject: format_subject_name(chain_subject),
+                            issuer: format_subject_name(chain_issuer),
                             serial_number,
                             certificate_type,
                             is_end_entity: index == 0,
@@ -2166,8 +2172,8 @@ pub(crate) async fn get_ca_list(
                             // Add entry with invalid serial
                             let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                             chain_certificates.push(CertificateChainInfo {
-                                subject: format!("{chain_subject:?}"),
-                                issuer: format!("{chain_issuer:?}"),
+                                subject: format_subject_name(chain_subject),
+                                issuer: format_subject_name(chain_issuer),
                                 serial_number: "Invalid".to_string(),
                                 certificate_type,
                                 is_end_entity: index == 0,
@@ -2534,8 +2540,8 @@ pub(crate) async fn get_ca_details(
                                 .unwrap_or_else(|_| "Invalid".to_string());
 
                             chain_certificates.push(CertificateChainInfo {
-                                subject: format!("{chain_subject:?}"),
-                                issuer: format!("{chain_issuer:?}"),
+                                subject: format_subject_name(chain_subject),
+                                issuer: format_subject_name(chain_issuer),
                                 serial_number,
                                 certificate_type: determine_certificate_type(&chain_cert, index, ca.cert_chain.len()),
                                 is_end_entity: index == 0,
@@ -2546,8 +2552,8 @@ pub(crate) async fn get_ca_details(
                             // Add entry with invalid serial
                             let certificate_type = determine_certificate_type(&chain_cert, index, ca.cert_chain.len());
                             chain_certificates.push(CertificateChainInfo {
-                                subject: format!("{chain_subject:?}"),
-                                issuer: format!("{chain_issuer:?}"),
+                                subject: format_subject_name(chain_subject),
+                                issuer: format_subject_name(chain_issuer),
                                 serial_number: "Invalid".to_string(),
                                 certificate_type,
                                 is_end_entity: index == 0,
@@ -3078,12 +3084,9 @@ pub(crate) async fn revoke_certificate(
         state.db.revoke_certificate(id, payload.reason, Some(authentication._claims.id), custom_reason_to_store).await?;
 
         // Clear CRL cache since revocation list has changed
-        // Use write lock to ensure thread safety
-        {
-            let mut cache = state.crl_cache.lock().await;
-            *cache = None;
-        }
-        debug!("CRL cache cleared due to certificate revocation");
+        let ca_id = cert.ca_id;
+        state.crl_cache.remove(&ca_id);
+        debug!("CRL cache cleared for CA {} due to certificate revocation", ca_id);
 
         info!(cert_id=id, cert_name=?cert.name, admin_id=?authentication._claims.id, "Certificate revoked successfully");
 
@@ -3459,6 +3462,7 @@ pub(crate) async fn unrevoke_certificate(
             .map_err(|_| ApiError::NotFound(Some("Certificate not found".to_string())))?;
 
         // Check if certificate is actually revoked
+        let cert = state.db.get_user_cert_by_id(id).await?;
         if !state.db.is_certificate_revoked(id).await? {
             return Err(ApiError::BadRequest("Certificate is not revoked".to_string()));
         }
@@ -3467,9 +3471,9 @@ pub(crate) async fn unrevoke_certificate(
         state.db.unrevoke_certificate(id).await?;
 
         // Clear CRL cache since revocation list has changed
-        let mut cache = state.crl_cache.lock().await;
-        *cache = None;
-        debug!("CRL cache cleared due to certificate unrevocation");
+        let ca_id = cert.ca_id;
+        state.crl_cache.remove(&ca_id);
+        debug!("CRL cache cleared for CA {} due to certificate unrevocation", ca_id);
 
         info!(cert_id=id, "Certificate unrevoked successfully");
 
@@ -3532,18 +3536,13 @@ pub(crate) async fn download_crl_logic(
     };
 
     // First check: Try to get cached CRL without acquiring generation lock
-    {
-        let cache = state.crl_cache.lock().await;
-        if let Some(cached_crl) = &*cache {
-            // Check if cache matches the requested CA and is still valid
-            if cached_crl.ca_id == ca.id && current_time < cached_crl.valid_until {
-                debug!("Returning cached CRL for CA {} (valid until {})", ca.id, cached_crl.valid_until);
-                return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
-            } else if cached_crl.ca_id == ca.id {
-                 debug!("Cached CRL for CA {} expired, will regenerate", ca.id);
-            } else {
-                 debug!("Cached CRL is for CA {}, requested CA {}, will regenerate", cached_crl.ca_id, ca.id);
-            }
+    if let Some(cached_crl) = state.crl_cache.get(&ca.id) {
+        // Check if cache is still valid
+        if current_time < cached_crl.valid_until {
+            debug!("Returning cached CRL for CA {} (valid until {})", ca.id, cached_crl.valid_until);
+            return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
+        } else {
+             debug!("Cached CRL for CA {} expired, will regenerate", ca.id);
         }
     }
 
@@ -3552,13 +3551,10 @@ pub(crate) async fn download_crl_logic(
     debug!("Acquired CRL generation lock for CA {}", ca.id);
 
     // Double-check: Cache might have been populated by another thread while we waited for the lock
-    {
-        let cache = state.crl_cache.lock().await;
-        if let Some(cached_crl) = &*cache {
-            if cached_crl.ca_id == ca.id && current_time < cached_crl.valid_until {
-                debug!("CRL was generated by another thread, returning cached CRL for CA {}", ca.id);
-                return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
-            }
+    if let Some(cached_crl) = state.crl_cache.get(&ca.id) {
+        if current_time < cached_crl.valid_until {
+            debug!("CRL was generated by another thread, returning cached CRL for CA {}", ca.id);
+            return Ok(DownloadResponse::new(cached_crl.data.clone(), "certificate_revocation_list.crl"));
         }
     }
 
@@ -3653,15 +3649,12 @@ pub(crate) async fn download_crl_logic(
 
     // Cache the CRL for the configured interval
     let valid_until = current_time + cache_timeout_ms;
-    {
-        let mut cache = state.crl_cache.lock().await;
-        *cache = Some(CrlCache {
-            data: crl_pem.clone(),
-            last_updated: current_time,
-            valid_until,
-            ca_id: ca.id,
-        });
-    }
+    state.crl_cache.insert(ca.id, CrlCache {
+        data: crl_pem.clone(),
+        last_updated: current_time,
+        valid_until,
+        ca_id: ca.id,
+    });
 
     debug!("Generated, saved to file system, and cached new CRL (valid until {}, cache timeout: {} hours)",
            valid_until, crl_settings.refresh_interval_hours);
@@ -3840,10 +3833,7 @@ pub(crate) async fn generate_crl_endpoint(
     debug!("Manual CRL generation requested");
 
     // Clear CRL cache to force regeneration
-    {
-        let mut cache = state.crl_cache.lock().await;
-        *cache = None;
-    }
+    state.crl_cache.clear();
     debug!("CRL cache cleared");
 
     // Generate new CRL by calling download_crl (which handles the generation)
@@ -4030,9 +4020,8 @@ let current_time = SystemTime::now()
         .as_millis() as i64;
 
     // Check cache first
-    let mut cache = state.ocsp_cache.lock().await;
-    if let Some(cached_response) = &*cache {
-        if cached_response.cert_id_hash == cert_id_hash && current_time < cached_response.valid_until {
+    if let Some(cached_response) = state.ocsp_cache.get(&cert_id_hash) {
+        if current_time < cached_response.valid_until {
             debug!("Returning cached OCSP response for cert ID hash: {}", cert_id_hash);
             return Ok(cached_response.data.clone());
         }
@@ -4056,7 +4045,7 @@ let current_time = SystemTime::now()
 
     // Cache the response for 1 hour (OCSP responses are typically valid for 1 hour)
     let valid_until = current_time + (60 * 60 * 1000); // 1 hour in milliseconds
-    *cache = Some(OcspCache {
+    state.ocsp_cache.insert(cert_id_hash.clone(), OcspCache {
         data: response_der.clone(),
         cert_id_hash: cert_id_hash.clone(),
         last_updated: current_time,
@@ -4429,12 +4418,24 @@ fn determine_certificate_type(cert: &X509, _index: usize, _chain_length: usize) 
     // Try to get basic constraints
     if let Ok(Some((is_ca, _path_length))) = get_basic_constraints(cert) {
         if is_ca {
-            "CA".to_string()
+            // Check if it's self-signed (Root CA)
+            let subject = cert.subject_name();
+            let issuer = cert.issuer_name();
+            
+            // Compare by DER encoding for reliable self-signed check
+            let subject_der = subject.to_der().unwrap_or_default();
+            let issuer_der = issuer.to_der().unwrap_or_default();
+            
+            if !subject_der.is_empty() && subject_der == issuer_der {
+                "root_ca".to_string()
+            } else {
+                "intermediate_ca".to_string()
+            }
         } else {
-            "End Entity".to_string()
+            "end_entity".to_string()
         }
     } else {
-        "Unknown".to_string()
+        "unknown".to_string()
     }
 }
 
