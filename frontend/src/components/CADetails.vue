@@ -1,39 +1,55 @@
 <template>
   <div class="ca-tools-container">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h2 class="mb-0">Certificate Authority Details</h2>
+      <h2 class="mb-0">
+        Certificate Authority Details
+      </h2>
       <button
         class="btn btn-outline-primary"
-        @click="downloadCA"
         :disabled="loading"
+        @click="downloadCA"
       >
-        <i class="bi bi-download me-2"></i>
+        <i class="bi bi-download me-2" />
         Download CA Certificate
       </button>
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading" class="text-center py-5">
-      <div class="spinner-border text-primary" role="status">
+    <div
+      v-if="loading"
+      class="text-center py-5"
+    >
+      <div
+        class="spinner-border text-primary"
+        role="status"
+      >
         <span class="visually-hidden">Loading...</span>
       </div>
-      <p class="mt-3 text-muted">Loading CA details...</p>
+      <p class="mt-3 text-muted">
+        Loading CA details...
+      </p>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="alert alert-danger">
-      <i class="bi bi-exclamation-triangle me-2"></i>
+    <div
+      v-else-if="error"
+      class="alert alert-danger"
+    >
+      <i class="bi bi-exclamation-triangle me-2" />
       {{ error }}
     </div>
 
     <!-- CA Details -->
-    <div v-else-if="caDetails" class="row">
+    <div
+      v-else-if="caDetails"
+      class="row"
+    >
       <!-- Basic Information -->
       <div class="col-lg-6 mb-4">
         <div class="card h-100">
           <div class="card-header">
             <h5 class="mb-0">
-              <i class="bi bi-info-circle me-2"></i>
+              <i class="bi bi-info-circle me-2" />
               Basic Information
             </h5>
           </div>
@@ -79,7 +95,10 @@
                 <strong>Type:</strong>
               </div>
               <div class="col-sm-8">
-                <span class="badge" :class="caDetails.is_self_signed ? 'bg-success' : 'bg-warning'">
+                <span
+                  class="badge"
+                  :class="caDetails.is_self_signed ? 'bg-success' : 'bg-warning'"
+                >
                   {{ caDetails.is_self_signed ? 'Self-Signed' : 'Imported' }}
                 </span>
               </div>
@@ -93,7 +112,7 @@
         <div class="card h-100">
           <div class="card-header">
             <h5 class="mb-0">
-              <i class="bi bi-calendar-check me-2"></i>
+              <i class="bi bi-calendar-check me-2" />
               Validity Period
             </h5>
           </div>
@@ -121,7 +140,10 @@
                 <strong>Status:</strong>
               </div>
               <div class="col-sm-8">
-                <span class="badge" :class="getValidityStatusClass()">
+                <span
+                  class="badge"
+                  :class="getValidityStatusClass()"
+                >
                   {{ getValidityStatus() }}
                 </span>
               </div>
@@ -144,7 +166,7 @@
         <div class="card h-100">
           <div class="card-header">
             <h5 class="mb-0">
-              <i class="bi bi-person me-2"></i>
+              <i class="bi bi-person me-2" />
               Subject
             </h5>
           </div>
@@ -159,7 +181,7 @@
         <div class="card h-100">
           <div class="card-header">
             <h5 class="mb-0">
-              <i class="bi bi-building me-2"></i>
+              <i class="bi bi-building me-2" />
               Issuer
             </h5>
           </div>
@@ -174,15 +196,18 @@
         <div class="card">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">
-              <i class="bi bi-file-earmark-text me-2"></i>
+              <i class="bi bi-file-earmark-text me-2" />
               Certificate (PEM Format)
             </h5>
             <button
               class="btn btn-sm btn-outline-secondary"
-              @click="copyToClipboard"
               :disabled="copying"
+              @click="copyToClipboard"
             >
-              <i class="bi" :class="copying ? 'bi-check' : 'bi-clipboard'"></i>
+              <i
+                class="bi"
+                :class="copying ? 'bi-check' : 'bi-clipboard'"
+              />
               {{ copying ? 'Copied!' : 'Copy' }}
             </button>
           </div>
@@ -194,10 +219,20 @@
     </div>
 
     <!-- No CA Found -->
-    <div v-else class="text-center py-5">
-      <i class="bi bi-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
-      <h4 class="mt-3">No Certificate Authority Found</h4>
-      <p class="text-muted">The application hasn't been set up with a CA yet.</p>
+    <div
+      v-else
+      class="text-center py-5"
+    >
+      <i
+        class="bi bi-exclamation-triangle text-warning"
+        style="font-size: 3rem;"
+      />
+      <h4 class="mt-3">
+        No Certificate Authority Found
+      </h4>
+      <p class="text-muted">
+        The application hasn't been set up with a CA yet.
+      </p>
     </div>
   </div>
 </template>

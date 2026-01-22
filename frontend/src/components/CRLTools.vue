@@ -2,19 +2,24 @@ About CRL (Certificate Revocation List)
 <template>
   <div class="crl-tools">
     <h1>CRL / OCSP Management</h1>
-    <hr />
+    <hr>
 
     <!-- OCSP Responder Section -->
     <div class="card mb-4">
       <div class="card-header">
-        <h5 class="mb-0">OCSP Responder</h5>
+        <h5 class="mb-0">
+          OCSP Responder
+        </h5>
       </div>
       <div class="card-body">
         <div class="row">
           <div class="col-md-6">
             <h6>Status</h6>
             <div class="mb-3">
-              <span class="badge" :class="settings?.ocsp?.enabled ? 'bg-success' : 'bg-secondary'">
+              <span
+                class="badge"
+                :class="settings?.ocsp?.enabled ? 'bg-success' : 'bg-secondary'"
+              >
                 {{ settings?.ocsp?.enabled ? 'Active' : 'Disabled' }}
               </span>
             </div>
@@ -23,30 +28,44 @@ About CRL (Certificate Revocation List)
               <code class="text-break">{{ ocspResponderUrl || 'Not configured - enable OCSP and set server URL' }}</code>
               <small class="text-muted d-block mt-1">
                 Endpoint for real-time certificate status checking. Clients can query using OCSP protocol.
-                <strong v-if="!settings?.ocsp?.enabled" class="text-warning">⚠️ OCSP is disabled</strong>
+                <strong
+                  v-if="!settings?.ocsp?.enabled"
+                  class="text-warning"
+                >⚠️ OCSP is disabled</strong>
               </small>
             </div>
           </div>
           <div class="col-md-6">
             <h6>Response Configuration</h6>
             <dl class="row">
-              <dt class="col-sm-6">Validity:</dt>
-              <dd class="col-sm-6">{{ settings?.ocsp?.validity_hours || 'N/A' }} hours</dd>
+              <dt class="col-sm-6">
+                Validity:
+              </dt>
+              <dd class="col-sm-6">
+                {{ settings?.ocsp?.validity_hours || 'N/A' }} hours
+              </dd>
             </dl>
             <div class="mt-3">
               <button
                 class="btn btn-outline-info btn-sm"
-                @click="testOcsp"
                 :disabled="loading"
+                @click="testOcsp"
               >
-                <i class="bi bi-check-circle"></i> Check OCSP Config
+                <i class="bi bi-check-circle" /> Check OCSP Config
               </button>
             </div>
           </div>
         </div>
 
-        <div v-if="ocspTestResult" class="alert mt-3" :class="ocspTestResult.success ? 'alert-success' : 'alert-danger'">
-          <i class="bi" :class="ocspTestResult.success ? 'bi-check-circle' : 'bi-exclamation-triangle'"></i>
+        <div
+          v-if="ocspTestResult"
+          class="alert mt-3"
+          :class="ocspTestResult.success ? 'alert-success' : 'alert-danger'"
+        >
+          <i
+            class="bi"
+            :class="ocspTestResult.success ? 'bi-check-circle' : 'bi-exclamation-triangle'"
+          />
           {{ ocspTestResult.message }}
         </div>
       </div>
@@ -55,14 +74,19 @@ About CRL (Certificate Revocation List)
     <!-- CRL Configuration Section -->
     <div class="card mb-4">
       <div class="card-header">
-        <h5 class="mb-0">CRL Configuration</h5>
+        <h5 class="mb-0">
+          CRL Configuration
+        </h5>
       </div>
       <div class="card-body">
         <div class="row">
           <div class="col-md-6">
             <h6>Status</h6>
             <div class="mb-3">
-              <span class="badge" :class="crlMeta.file_size > 0 ? 'bg-success' : 'bg-secondary'">
+              <span
+                class="badge"
+                :class="crlMeta.file_size > 0 ? 'bg-success' : 'bg-secondary'"
+              >
                 {{ crlMeta.file_size > 0 ? 'Active' : 'No CRLs Generated' }}
               </span>
             </div>
@@ -77,12 +101,24 @@ About CRL (Certificate Revocation List)
           <div class="col-md-6">
             <h6>File Information</h6>
             <dl class="row">
-              <dt class="col-sm-5">File Size:</dt>
-              <dd class="col-sm-7">{{ formatBytes(crlMeta.file_size) }}</dd>
-              <dt class="col-sm-5">Last Modified:</dt>
-              <dd class="col-sm-7">{{ formatDate(crlMeta.modified_time) }}</dd>
-              <dt class="col-sm-5">Backups:</dt>
-              <dd class="col-sm-7">{{ crlMeta.backup_count }}</dd>
+              <dt class="col-sm-5">
+                File Size:
+              </dt>
+              <dd class="col-sm-7">
+                {{ formatBytes(crlMeta.file_size) }}
+              </dd>
+              <dt class="col-sm-5">
+                Last Modified:
+              </dt>
+              <dd class="col-sm-7">
+                {{ formatDate(crlMeta.modified_time) }}
+              </dd>
+              <dt class="col-sm-5">
+                Backups:
+              </dt>
+              <dd class="col-sm-7">
+                {{ crlMeta.backup_count }}
+              </dd>
             </dl>
           </div>
         </div>
@@ -90,34 +126,34 @@ About CRL (Certificate Revocation List)
         <div class="d-grid gap-2 d-md-flex">
           <button
             class="btn btn-primary"
-            @click="downloadCRLButton"
             :disabled="loading"
+            @click="downloadCRLButton"
           >
-            <i class="bi bi-download me-2"></i>
+            <i class="bi bi-download me-2" />
             Download Current CRL
           </button>
           <button
             class="btn btn-info"
-            @click="viewCRLDetails"
             :disabled="loading"
+            @click="viewCRLDetails"
           >
-            <i class="bi bi-eye me-2"></i>
+            <i class="bi bi-eye me-2" />
             View CRL Details
           </button>
           <button
             class="btn btn-warning"
-            @click="generateCRLButton"
             :disabled="loading"
+            @click="generateCRLButton"
           >
-            <i class="bi bi-arrow-repeat me-2"></i>
+            <i class="bi bi-arrow-repeat me-2" />
             Generate New CRL
           </button>
           <button
             class="btn btn-outline-secondary"
-            @click="loadCRLMetadata"
             :disabled="loading"
+            @click="loadCRLMetadata"
           >
-            <i class="bi bi-arrow-repeat me-2"></i>
+            <i class="bi bi-arrow-repeat me-2" />
             Refresh
           </button>
         </div>
@@ -127,60 +163,77 @@ About CRL (Certificate Revocation List)
 
 
     <!-- CRL Settings Section -->
-    <div v-if="authStore.isAdmin && settings" class="card mb-4">
+    <div
+      v-if="authStore.isAdmin && settings"
+      class="card mb-4"
+    >
       <div class="card-header">
-        <h5 class="mb-0">CRL Settings</h5>
+        <h5 class="mb-0">
+          CRL Settings
+        </h5>
       </div>
       <div class="card-body">
         <div class="mb-3 form-check form-switch">
           <input
-              type="checkbox"
-              class="form-check-input"
-              id="crl-enabled"
-              v-model="settings.crl.enabled"
-              role="switch"
-          />
-          <label class="form-check-label" for="crl-enabled">
+            id="crl-enabled"
+            v-model="settings.crl.enabled"
+            type="checkbox"
+            class="form-check-input"
+            role="switch"
+          >
+          <label
+            class="form-check-label"
+            for="crl-enabled"
+          >
             CRL enabled
           </label>
         </div>
         <div class="mb-3">
-          <label for="crl-validity-days" class="form-label">CRL Validity (days)</label>
+          <label
+            for="crl-validity-days"
+            class="form-label"
+          >CRL Validity (days)</label>
           <input
-              id="crl-validity-days"
-              v-model="settings.crl.validity_days"
-              type="number"
-              class="form-control"
-              min="1"
-              max="365"
-          />
+            id="crl-validity-days"
+            v-model="settings.crl.validity_days"
+            type="number"
+            class="form-control"
+            min="1"
+            max="365"
+          >
           <div class="form-text">
             How many days the CRL remains valid before requiring regeneration
           </div>
         </div>
         <div class="mb-3">
-          <label for="crl-refresh-interval" class="form-label">CRL Refresh Interval (hours)</label>
+          <label
+            for="crl-refresh-interval"
+            class="form-label"
+          >CRL Refresh Interval (hours)</label>
           <input
-              id="crl-refresh-interval"
-              v-model="settings.crl.refresh_interval_hours"
-              type="number"
-              class="form-control"
-              min="1"
-              max="168"
-          />
+            id="crl-refresh-interval"
+            v-model="settings.crl.refresh_interval_hours"
+            type="number"
+            class="form-control"
+            min="1"
+            max="168"
+          >
           <div class="form-text">
             How often the CRL cache is refreshed and regenerated (1 hour - 1 week)
           </div>
         </div>
         <div class="mb-3">
-          <label for="crl-distribution-url" class="form-label">CRL Distribution URL (optional)</label>
+          <label
+            for="crl-distribution-url"
+            class="form-label"
+          >CRL Distribution URL (optional)</label>
           <input
-              id="crl-distribution-url"
-              v-model="settings.crl.distribution_url"
-              type="url"
-              class="form-control"
-              :placeholder="computedCrlUrl || 'https://your-ca.example.com/api/certificates/crl'"
-          />
+            id="crl-distribution-url"
+            v-model="settings.crl.distribution_url"
+            type="url"
+            class="form-control"
+            :placeholder="computedCrlUrl || 'https://your-ca.example.com/api/certificates/crl'"
+          >
           <div class="form-text">
             Custom URL for CRL distribution. If empty, VaulTLS will use the default URL.
           </div>
@@ -189,46 +242,60 @@ About CRL (Certificate Revocation List)
     </div>
 
     <!-- OCSP Settings Section -->
-    <div v-if="authStore.isAdmin && settings" class="card mb-4">
+    <div
+      v-if="authStore.isAdmin && settings"
+      class="card mb-4"
+    >
       <div class="card-header">
-        <h5 class="mb-0">OCSP Settings</h5>
+        <h5 class="mb-0">
+          OCSP Settings
+        </h5>
       </div>
       <div class="card-body">
         <div class="mb-3 form-check form-switch">
           <input
-              type="checkbox"
-              class="form-check-input"
-              id="ocsp-enabled"
-              v-model="settings.ocsp.enabled"
-              role="switch"
-          />
-          <label class="form-check-label" for="ocsp-enabled">
+            id="ocsp-enabled"
+            v-model="settings.ocsp.enabled"
+            type="checkbox"
+            class="form-check-input"
+            role="switch"
+          >
+          <label
+            class="form-check-label"
+            for="ocsp-enabled"
+          >
             OCSP enabled
           </label>
         </div>
         <div class="mb-3">
-          <label for="ocsp-validity-hours" class="form-label">OCSP Response Validity (hours)</label>
+          <label
+            for="ocsp-validity-hours"
+            class="form-label"
+          >OCSP Response Validity (hours)</label>
           <input
-              id="ocsp-validity-hours"
-              v-model="settings.ocsp.validity_hours"
-              type="number"
-              class="form-control"
-              min="1"
-              max="168"
-          />
+            id="ocsp-validity-hours"
+            v-model="settings.ocsp.validity_hours"
+            type="number"
+            class="form-control"
+            min="1"
+            max="168"
+          >
           <div class="form-text">
             How many hours OCSP responses remain valid
           </div>
         </div>
         <div class="mb-3">
-          <label for="ocsp-responder-url" class="form-label">OCSP Responder URL (optional)</label>
+          <label
+            for="ocsp-responder-url"
+            class="form-label"
+          >OCSP Responder URL (optional)</label>
           <input
-              id="ocsp-responder-url"
-              v-model="settings.ocsp.responder_url"
-              type="url"
-              class="form-control"
-              placeholder="https://your-ca.example.com/ocsp"
-          />
+            id="ocsp-responder-url"
+            v-model="settings.ocsp.responder_url"
+            type="url"
+            class="form-control"
+            placeholder="https://your-ca.example.com/ocsp"
+          >
           <div class="form-text">
             Public URL for OCSP responder (auto-generated if not set)
           </div>
@@ -239,60 +306,119 @@ About CRL (Certificate Revocation List)
 
 
     <!-- Settings Actions -->
-    <div v-if="authStore.isAdmin && settings" class="mt-4">
-      <div v-if="settingsError" class="alert alert-danger mt-3">
+    <div
+      v-if="authStore.isAdmin && settings"
+      class="mt-4"
+    >
+      <div
+        v-if="settingsError"
+        class="alert alert-danger mt-3"
+      >
         {{ settingsError }}
       </div>
-      <div v-if="settingsSaved" class="alert alert-success mt-3">
+      <div
+        v-if="settingsSaved"
+        class="alert alert-success mt-3"
+      >
         CRL/OCSP Settings saved successfully
       </div>
-      <button class="btn btn-primary" @click="saveCrlOcspSettings" :disabled="saving">Save CRL/OCSP Settings</button>
+      <button
+        class="btn btn-primary"
+        :disabled="saving"
+        @click="saveCrlOcspSettings"
+      >
+        Save CRL/OCSP Settings
+      </button>
     </div>
 
     <!-- Error Display -->
-    <div v-if="error" class="alert alert-danger mt-3">
-      <i class="bi bi-exclamation-triangle me-2"></i>
+    <div
+      v-if="error"
+      class="alert alert-danger mt-3"
+    >
+      <i class="bi bi-exclamation-triangle me-2" />
       {{ error }}
     </div>
 
     <!-- CRL Details Modal -->
-    <div v-if="showCrlDetailsModal" class="modal fade show d-block" tabindex="-1" role="dialog">
-      <div class="modal-dialog modal-lg" role="document">
+    <div
+      v-if="showCrlDetailsModal"
+      class="modal fade show d-block"
+      tabindex="-1"
+      role="dialog"
+    >
+      <div
+        class="modal-dialog modal-lg"
+        role="document"
+      >
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">
-              <i class="bi bi-info-circle me-2"></i>
+              <i class="bi bi-info-circle me-2" />
               Certificate Revocation List Details
             </h5>
-            <button type="button" class="btn-close" @click="closeCrlDetailsModal" aria-label="Close"></button>
+            <button
+              type="button"
+              class="btn-close"
+              aria-label="Close"
+              @click="closeCrlDetailsModal"
+            />
           </div>
           <div class="modal-body">
-            <div v-if="crlDetailsLoading" class="text-center">
-              <div class="spinner-border" role="status">
+            <div
+              v-if="crlDetailsLoading"
+              class="text-center"
+            >
+              <div
+                class="spinner-border"
+                role="status"
+              >
                 <span class="visually-hidden">Loading CRL details...</span>
               </div>
-              <div class="mt-2">Loading CRL details...</div>
+              <div class="mt-2">
+                Loading CRL details...
+              </div>
             </div>
             <div v-else-if="crlDetails">
               <div class="row">
                 <div class="col-md-6">
                   <h6>Basic Information</h6>
                   <dl class="row">
-                    <dt class="col-sm-5">CA Name:</dt>
-                    <dd class="col-sm-7">{{ crlDetails.ca_name }}</dd>
-                    <dt class="col-sm-5">Version:</dt>
-                    <dd class="col-sm-7">{{ crlDetails.version }}</dd>
-                    <dt class="col-sm-5">File Size:</dt>
-                    <dd class="col-sm-7">{{ formatBytes(crlDetails.file_size) }}</dd>
+                    <dt class="col-sm-5">
+                      CA Name:
+                    </dt>
+                    <dd class="col-sm-7">
+                      {{ crlDetails.ca_name }}
+                    </dd>
+                    <dt class="col-sm-5">
+                      Version:
+                    </dt>
+                    <dd class="col-sm-7">
+                      {{ crlDetails.version }}
+                    </dd>
+                    <dt class="col-sm-5">
+                      File Size:
+                    </dt>
+                    <dd class="col-sm-7">
+                      {{ formatBytes(crlDetails.file_size) }}
+                    </dd>
                   </dl>
                 </div>
                 <div class="col-md-6">
                   <h6>Validity Period</h6>
                   <dl class="row">
-                    <dt class="col-sm-5">This Update:</dt>
-                    <dd class="col-sm-7">{{ formatDate(crlDetails.this_update) }}</dd>
-                    <dt class="col-sm-5">Next Update:</dt>
-                    <dd class="col-sm-7">{{ formatDate(crlDetails.next_update) }}</dd>
+                    <dt class="col-sm-5">
+                      This Update:
+                    </dt>
+                    <dd class="col-sm-7">
+                      {{ formatDate(crlDetails.this_update) }}
+                    </dd>
+                    <dt class="col-sm-5">
+                      Next Update:
+                    </dt>
+                    <dd class="col-sm-7">
+                      {{ formatDate(crlDetails.next_update) }}
+                    </dd>
                   </dl>
                 </div>
               </div>
@@ -300,37 +426,66 @@ About CRL (Certificate Revocation List)
               <div class="row">
                 <div class="col-md-6">
                   <h6>Issuer Information</h6>
-                  <p class="text-break small">{{ crlDetails.issuer }}</p>
+                  <p class="text-break small">
+                    {{ crlDetails.issuer }}
+                  </p>
                 </div>
                 <div class="col-md-6">
                   <h6>Technical Details</h6>
                   <dl class="row">
-                    <dt class="col-sm-5">Signature:</dt>
-                    <dd class="col-sm-7">{{ crlDetails.signature_algorithm }}</dd>
-                    <dt class="col-sm-5">Revoked Certs:</dt>
-                    <dd class="col-sm-7">{{ crlDetails.revoked_certificates_count }}</dd>
+                    <dt class="col-sm-5">
+                      Signature:
+                    </dt>
+                    <dd class="col-sm-7">
+                      {{ crlDetails.signature_algorithm }}
+                    </dd>
+                    <dt class="col-sm-5">
+                      Revoked Certs:
+                    </dt>
+                    <dd class="col-sm-7">
+                      {{ crlDetails.revoked_certificates_count }}
+                    </dd>
                   </dl>
                 </div>
               </div>
             </div>
-            <div v-else-if="crlDetailsError" class="alert alert-danger">
-              <i class="bi bi-exclamation-triangle me-2"></i>
+            <div
+              v-else-if="crlDetailsError"
+              class="alert alert-danger"
+            >
+              <i class="bi bi-exclamation-triangle me-2" />
               {{ crlDetailsError }}
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeCrlDetailsModal">Close</button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="closeCrlDetailsModal"
+            >
+              Close
+            </button>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Modal Backdrop -->
-    <div v-if="showCrlDetailsModal" class="modal-backdrop fade show" @click="closeCrlDetailsModal"></div>
+    <div
+      v-if="showCrlDetailsModal"
+      class="modal-backdrop fade show"
+      @click="closeCrlDetailsModal"
+    />
 
     <!-- Loading State -->
-    <div v-if="loading" class="text-center mt-3">
-      <div class="spinner-border" role="status">
+    <div
+      v-if="loading"
+      class="text-center mt-3"
+    >
+      <div
+        class="spinner-border"
+        role="status"
+      >
         <span class="visually-hidden">Loading...</span>
       </div>
     </div>
@@ -342,9 +497,8 @@ import { ref, onMounted, computed } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useSetupStore } from '@/stores/setup';
-import { downloadCRL, getCrlMetadata, getCrlDetails, fetchCAs, generateCRL } from '@/api/certificates';
+import { downloadCRL, getCrlMetadata, getCrlDetails, generateCRL } from '@/api/certificates';
 import type { CrlMetadata, CrlDetails } from '@/types/Certificate';
-import type { CAAndCertificate } from '@/types/CA';
 
 // Props and Emits (if needed for future)
 // defineProps()

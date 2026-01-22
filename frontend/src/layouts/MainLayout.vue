@@ -2,14 +2,17 @@
   <div class="d-flex">
     <!-- Sidebar -->
     <Sidebar
-        :currentTab="currentTab"
-        :visible="sidebarVisible"
-        @toggle-sidebar="toggleSidebar"
-        @change-tab="setTab"
+      :current-tab="currentTab"
+      :visible="sidebarVisible"
+      @toggle-sidebar="toggleSidebar"
+      @change-tab="setTab"
     />
 
     <!-- Main Content -->
-    <div class="container-fluid mt-4 flex-grow-1" :class="{ 'content-shifted': sidebarVisible }">
+    <div
+      class="container-fluid mt-4 flex-grow-1"
+      :class="{ 'content-shifted': sidebarVisible }"
+    >
       <router-view />
     </div>
   </div>

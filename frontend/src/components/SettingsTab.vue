@@ -1,49 +1,64 @@
 <template>
   <div class="settings-tab">
     <h1>Settings</h1>
-    <hr />
+    <hr>
     <!-- Application Section -->
-    <div v-if="authStore.isAdmin && settings" class="mb-3">
-
+    <div
+      v-if="authStore.isAdmin && settings"
+      class="mb-3"
+    >
       <!-- Common Section -->
       <h3>Common</h3>
       <div class="card mt-3 mb-3">
         <div class="card-body">
           <div class="mb-3 form-check form-switch">
             <input
-                type="checkbox"
-                class="form-check-input"
-                id="common-password-enabled"
-                v-model="settings.common.password_enabled"
-                role="switch"
-            />
-            <label class="form-check-label" for="common-password-enabled">
+              id="common-password-enabled"
+              v-model="settings.common.password_enabled"
+              type="checkbox"
+              class="form-check-input"
+              role="switch"
+            >
+            <label
+              class="form-check-label"
+              for="common-password-enabled"
+            >
               Password Login enabled
             </label>
           </div>
           <div class="mb-3">
-            <label for="common-vaultls-url" class="form-label">VaulTLS URL</label>
+            <label
+              for="common-vaultls-url"
+              class="form-label"
+            >VaulTLS URL</label>
             <input
-                id="common-vaultls-url"
-                v-model="settings.common.vaultls_url"
-                type="text"
-                class="form-control"
-            />
+              id="common-vaultls-url"
+              v-model="settings.common.vaultls_url"
+              type="text"
+              class="form-control"
+            >
           </div>
           <div class="mb-3">
-            <label for="common-password-rule" class="form-label">PKCS12 Password Rules</label>
+            <label
+              for="common-password-rule"
+              class="form-label"
+            >PKCS12 Password Rules</label>
             <select
-                id="common-password-rule"
-                v-model="settings.common.password_rule"
-                class="form-select"
+              id="common-password-rule"
+              v-model="settings.common.password_rule"
+              class="form-select"
             >
-              <option :value="PasswordRule.Optional">Optional</option>
-              <option :value="PasswordRule.Required">Required</option>
-              <option :value="PasswordRule.System">System Generated</option>
+              <option :value="PasswordRule.Optional">
+                Optional
+              </option>
+              <option :value="PasswordRule.Required">
+                Required
+              </option>
+              <option :value="PasswordRule.System">
+                System Generated
+              </option>
             </select>
           </div>
-
-
         </div>
       </div>
 
@@ -162,84 +177,123 @@
     <h2>User</h2>
     <div class="card mt-3 mb-3">
       <div class="card-body">
-        <h4 class="card-header">Change Password</h4>
+        <h4 class="card-header">
+          Change Password
+        </h4>
         <form @submit.prevent="changePassword">
           <div class="mb-3">
-            <label for="old-password" class="form-label">Current Password</label>
+            <label
+              for="old-password"
+              class="form-label"
+            >Current Password</label>
             <input
-                id="old-password"
-                v-model="changePasswordReq.oldPassword"
-                type="password"
-                class="form-control"
-            />
+              id="old-password"
+              v-model="changePasswordReq.oldPassword"
+              type="password"
+              class="form-control"
+            >
           </div>
           <div class="mb-3">
-            <label for="new-password" class="form-label">New Password</label>
+            <label
+              for="new-password"
+              class="form-label"
+            >New Password</label>
             <input
-                id="new-password"
-                v-model="changePasswordReq.newPassword"
-                type="password"
-                class="form-control"
-            />
+              id="new-password"
+              v-model="changePasswordReq.newPassword"
+              type="password"
+              class="form-control"
+            >
           </div>
           <div class="mb-3">
-            <label for="confirm-password" class="form-label">Confirm New Password</label>
+            <label
+              for="confirm-password"
+              class="form-label"
+            >Confirm New Password</label>
             <input
-                id="confirm-password"
-                v-model="confirmPassword"
-                type="password"
-                class="form-control"
-            />
+              id="confirm-password"
+              v-model="confirmPassword"
+              type="password"
+              class="form-control"
+            >
           </div>
-          <div v-if="password_error" class="alert alert-danger mt-3">
+          <div
+            v-if="password_error"
+            class="alert alert-danger mt-3"
+          >
             {{ password_error }}
           </div>
 
           <button
-              type="submit"
-              class="btn btn-primary"
-              :disabled="!canChangePassword"
+            type="submit"
+            class="btn btn-primary"
+            :disabled="!canChangePassword"
           >
             Change Password
           </button>
         </form>
       </div>
-      <div v-if="editableUser" class="card-body">
-        <h4 class="card-header">Profile</h4>
+      <div
+        v-if="editableUser"
+        class="card-body"
+      >
+        <h4 class="card-header">
+          Profile
+        </h4>
         <div class="mb-3">
-          <label for="user_name" class="form-label">Username</label>
+          <label
+            for="user_name"
+            class="form-label"
+          >Username</label>
           <input
-              id="user_name"
-              v-model="editableUser.name"
-              type="text"
-              class="form-control"
-          />
+            id="user_name"
+            v-model="editableUser.name"
+            type="text"
+            class="form-control"
+          >
         </div>
         <div class="mb-3">
-          <label for="user_email" class="form-label">E-Mail</label>
+          <label
+            for="user_email"
+            class="form-label"
+          >E-Mail</label>
           <input
-              id="user_email"
-              v-model="editableUser.email"
-              type="email"
-              class="form-control"
-          />
+            id="user_email"
+            v-model="editableUser.email"
+            type="email"
+            class="form-control"
+          >
         </div>
       </div>
     </div>
 
     <!-- Error Messages -->
-    <div v-if="settings_error" class="alert alert-danger mt-3">
+    <div
+      v-if="settings_error"
+      class="alert alert-danger mt-3"
+    >
       {{ settings_error }}
     </div>
-    <div v-if="user_error" class="alert alert-danger mt-3">
+    <div
+      v-if="user_error"
+      class="alert alert-danger mt-3"
+    >
       {{ user_error }}
     </div>
-    <div v-if="saved_successfully" class="alert alert-success mt-3">
+    <div
+      v-if="saved_successfully"
+      class="alert alert-success mt-3"
+    >
       Settings saved successfully
     </div>
 
     <!-- Save Button -->
-    <button class="btn btn-primary mt-3" @click="saveSettings">Save</button>
+    <button
+      class="btn btn-primary mt-3"
+      @click="saveSettings"
+    >
+      Save
+    </button>
   </div>
 </template>
 
@@ -251,7 +305,7 @@ import { useAuthStore } from '@/stores/auth';
 import { type User, UserRole } from "@/types/User.ts";
 import { useUserStore } from "@/stores/users.ts";
 import { useSetupStore } from "@/stores/setup.ts";
-import { Encryption, PasswordRule } from "@/types/Settings.ts";
+import { PasswordRule } from "@/types/Settings.ts";
 
 // Router
 const router = useRouter();

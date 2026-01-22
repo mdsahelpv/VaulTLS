@@ -1,36 +1,56 @@
 <template>
   <div
-      v-if="isVisible"
-      class="modal show d-block"
-      tabindex="-1"
-      style="background: rgba(0, 0, 0, 0.5)"
+    v-if="isVisible"
+    class="modal show d-block"
+    tabindex="-1"
+    style="background: rgba(0, 0, 0, 0.5)"
   >
     <div class="modal-dialog modal-xl">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">
-            <i class="bi bi-clock-history me-2"></i>
+            <i class="bi bi-clock-history me-2" />
             Certificate Revocation History
           </h5>
-          <button type="button" class="btn-close" @click="close"></button>
+          <button
+            type="button"
+            class="btn-close"
+            @click="close"
+          />
         </div>
         <div class="modal-body">
-          <div v-if="loading" class="text-center py-4">
-            <div class="spinner-border text-primary" role="status">
+          <div
+            v-if="loading"
+            class="text-center py-4"
+          >
+            <div
+              class="spinner-border text-primary"
+              role="status"
+            >
               <span class="visually-hidden">Loading...</span>
             </div>
-            <div class="mt-2">Loading revocation history...</div>
+            <div class="mt-2">
+              Loading revocation history...
+            </div>
           </div>
 
-          <div v-else-if="error" class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>
+          <div
+            v-else-if="error"
+            class="alert alert-danger"
+          >
+            <i class="bi bi-exclamation-triangle me-2" />
             {{ error }}
           </div>
 
-          <div v-else-if="revocationHistory.length === 0" class="text-center py-4 text-muted">
-            <i class="bi bi-info-circle fs-1 mb-3"></i>
+          <div
+            v-else-if="revocationHistory.length === 0"
+            class="text-center py-4 text-muted"
+          >
+            <i class="bi bi-info-circle fs-1 mb-3" />
             <h6>No certificates have been revoked yet</h6>
-            <p class="mb-0">Revocation history will appear here once certificates are revoked.</p>
+            <p class="mb-0">
+              Revocation history will appear here once certificates are revoked.
+            </p>
           </div>
 
           <div v-else>
@@ -56,7 +76,10 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="record in revocationHistory" :key="record.id">
+                  <tr
+                    v-for="record in revocationHistory"
+                    :key="record.id"
+                  >
                     <td>
                       <div>
                         <strong>{{ getCertificateName(record.certificate_id) }}</strong>
@@ -66,17 +89,26 @@
                     </td>
                     <td>{{ formatDate(record.revocation_date) }}</td>
                     <td>
-                      <span class="badge" :class="getReasonBadgeClass(record.revocation_reason)">
+                      <span
+                        class="badge"
+                        :class="getReasonBadgeClass(record.revocation_reason)"
+                      >
                         {{ record.revocation_reason_text }}
                       </span>
                       <br v-if="record.custom_reason">
-                      <small v-if="record.custom_reason" class="text-muted">{{ record.custom_reason }}</small>
+                      <small
+                        v-if="record.custom_reason"
+                        class="text-muted"
+                      >{{ record.custom_reason }}</small>
                     </td>
                     <td>
                       <div v-if="record.revoked_by_user_id">
                         {{ getUserName(record.revoked_by_user_id) }}
                       </div>
-                      <div v-else class="text-muted">
+                      <div
+                        v-else
+                        class="text-muted"
+                      >
                         <em>System</em>
                       </div>
                     </td>
@@ -87,12 +119,17 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" @click="close">Close</button>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="close"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
   </div>
-
 </template>
 
 <script setup lang="ts">
@@ -133,21 +170,7 @@ const getUserName = (userId: number): string => {
   return user?.name || `User ${userId}`;
 };
 
-const getRevocationReasonText = (reason: number): string => {
-  switch (reason) {
-    case 0: return 'Unspecified';
-    case 1: return 'Key Compromise';
-    case 2: return 'CA Compromise';
-    case 3: return 'Affiliation Changed';
-    case 4: return 'Superseded';
-    case 5: return 'Cessation of Operation';
-    case 6: return 'Certificate Hold';
-    case 7: return 'Remove from CRL';
-    case 8: return 'Privilege Withdrawn';
-    case 9: return 'AA Compromise';
-    default: return 'Unknown';
-  }
-};
+
 
 const getReasonBadgeClass = (reason: number): string => {
   switch (reason) {

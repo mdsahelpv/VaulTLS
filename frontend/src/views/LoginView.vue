@@ -1,62 +1,94 @@
 <template>
   <div class="container d-flex justify-content-center align-items-center vh-100">
     <div class="card shadow-lg">
-      <img src="@assets/logo.png" alt="Logo" class="logo d-block mx-auto">
+      <img
+        src="@assets/logo.png"
+        alt="Logo"
+        class="logo d-block mx-auto"
+      >
       
-      <form v-if="setupStore.passwordAuthEnabled" @submit.prevent="submitLogin">
+      <form
+        v-if="setupStore.passwordAuthEnabled"
+        @submit.prevent="submitLogin"
+      >
         <div class="mb-3">
-          <label for="email" class="form-label">E-Mail</label>
+          <label
+            for="email"
+            class="form-label"
+          >E-Mail</label>
           <input
-              id="email"
-              type="email"
-              v-model="email"
-              class="form-control"
-              placeholder="name@example.com"
-              required
-          />
+            id="email"
+            v-model="email"
+            type="email"
+            class="form-control"
+            placeholder="name@example.com"
+            required
+          >
         </div>
         <div class="mb-3">
-          <label for="password" class="form-label">Password</label>
+          <label
+            for="password"
+            class="form-label"
+          >Password</label>
           <div class="input-group">
             <input
-                id="password"
-                :type="showPassword ? 'text' : 'password'"
-                v-model="password"
-                class="form-control"
-                placeholder="••••••••"
-                autocomplete="current-password"
-                required
-            />
+              id="password"
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              class="form-control"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              required
+            >
             <button
-                type="button"
-                class="btn btn-outline-secondary"
-                @click="showPassword = !showPassword"
-                :title="showPassword ? 'Hide password' : 'Show password'"
+              type="button"
+              class="btn btn-outline-secondary"
+              :title="showPassword ? 'Hide password' : 'Show password'"
+              @click="showPassword = !showPassword"
             >
               <img
                 :src="showPassword ? '/images/eye-hidden.png' : '/images/eye-open.png'"
                 alt="Toggle"
                 style="width: 16px; height: 16px; opacity: 0.6;"
-              />
+              >
             </button>
           </div>
         </div>
-        <button type="submit" class="btn btn-primary w-100 login-btn" :disabled="isLoading">
-          <span v-if="isLoading" class="spinner-border spinner-border-sm me-2"></span>
+        <button
+          type="submit"
+          class="btn btn-primary w-100 login-btn"
+          :disabled="isLoading"
+        >
+          <span
+            v-if="isLoading"
+            class="spinner-border spinner-border-sm me-2"
+          />
           Login
         </button>
-        <p v-if="loginError" class="text-danger mt-3">
+        <p
+          v-if="loginError"
+          class="text-danger mt-3"
+        >
           {{ loginError }}
         </p>
       </form>
 
-      <p v-else class="text-center text-warning">
+      <p
+        v-else
+        class="text-center text-warning"
+      >
         Password authentication is disabled.
       </p>
 
-      <div v-if="setupStore.oidcUrl" class="mt-4 pt-3 border-top">
-        <button @click="redirectToOIDC" class="btn btn-outline-secondary w-100 oidc-btn">
-          <i class="bi bi-box-arrow-in-right me-2"></i> Login with OAuth
+      <div
+        v-if="setupStore.oidcUrl"
+        class="mt-4 pt-3 border-top"
+      >
+        <button
+          class="btn btn-outline-secondary w-100 oidc-btn"
+          @click="redirectToOIDC"
+        >
+          <i class="bi bi-box-arrow-in-right me-2" /> Login with OAuth
         </button>
       </div>
     </div>

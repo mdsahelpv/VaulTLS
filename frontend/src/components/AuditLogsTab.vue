@@ -2,64 +2,90 @@
   <div class="audit-logs-container">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <div>
-        <h2 class="mb-0">Audit Logs</h2>
-        <p class="text-muted mt-1 mb-0">Security event logging and monitoring</p>
+        <h2 class="mb-0">
+          Audit Logs
+        </h2>
+        <p class="text-muted mt-1 mb-0">
+          Security event logging and monitoring
+        </p>
       </div>
       <div class="d-flex gap-2">
         <button
           class="btn btn-outline-secondary"
-          @click="refreshLogs"
           :disabled="loading"
+          @click="refreshLogs"
         >
-          <i class="bi bi-arrow-clockwise me-1" :class="{ 'fa-spin': loading }"></i>
+          <i
+            class="bi bi-arrow-clockwise me-1"
+            :class="{ 'fa-spin': loading }"
+          />
           Refresh
         </button>
         <button
           class="btn btn-outline-primary"
-          @click="exportLogs"
           :disabled="!logs.length"
+          @click="exportLogs"
         >
-          <i class="bi bi-download me-1"></i>
+          <i class="bi bi-download me-1" />
           Export
         </button>
       </div>
     </div>
 
     <!-- Statistics Cards -->
-    <div class="row mb-4" v-if="stats">
+    <div
+      v-if="stats"
+      class="row mb-4"
+    >
       <div class="col-md-3">
         <div class="card stats-card bg-primary text-white">
           <div class="card-body text-center">
-            <i class="bi bi-graph-up fa-2x mb-2"></i>
-            <h4 class="card-title mb-1">{{ stats.total_events.toLocaleString() }}</h4>
-            <p class="card-text mb-0">Total Events</p>
+            <i class="bi bi-graph-up fa-2x mb-2" />
+            <h4 class="card-title mb-1">
+              {{ stats.total_events.toLocaleString() }}
+            </h4>
+            <p class="card-text mb-0">
+              Total Events
+            </p>
           </div>
         </div>
       </div>
       <div class="col-md-3">
         <div class="card stats-card bg-info text-white">
           <div class="card-body text-center">
-            <i class="bi bi-calendar-event fa-2x mb-2"></i>
-            <h4 class="card-title mb-1">{{ stats.events_today.toLocaleString() }}</h4>
-            <p class="card-text mb-0">Events Today</p>
+            <i class="bi bi-calendar-event fa-2x mb-2" />
+            <h4 class="card-title mb-1">
+              {{ stats.events_today.toLocaleString() }}
+            </h4>
+            <p class="card-text mb-0">
+              Events Today
+            </p>
           </div>
         </div>
       </div>
       <div class="col-md-3">
         <div class="card stats-card bg-warning text-dark">
           <div class="card-body text-center">
-            <i class="bi bi-exclamation-triangle fa-2x mb-2"></i>
-            <h4 class="card-title mb-1">{{ stats.failed_operations }}</h4>
-            <p class="card-text mb-0">Failed Operations</p>
+            <i class="bi bi-exclamation-triangle fa-2x mb-2" />
+            <h4 class="card-title mb-1">
+              {{ stats.failed_operations }}
+            </h4>
+            <p class="card-text mb-0">
+              Failed Operations
+            </p>
           </div>
         </div>
       </div>
       <div class="col-md-3">
         <div class="card stats-card bg-success text-white">
           <div class="card-body text-center">
-            <i class="bi bi-shield-check fa-2x mb-2"></i>
-            <h4 class="card-title mb-1">{{ Math.round((1 - stats.failed_operations / Math.max(stats.total_events, 1)) * 100) }}%</h4>
-            <p class="card-text mb-0">Success Rate</p>
+            <i class="bi bi-shield-check fa-2x mb-2" />
+            <h4 class="card-title mb-1">
+              {{ Math.round((1 - stats.failed_operations / Math.max(stats.total_events, 1)) * 100) }}%
+            </h4>
+            <p class="card-text mb-0">
+              Success Rate
+            </p>
           </div>
         </div>
       </div>
@@ -69,7 +95,7 @@
     <div class="card mb-4">
       <div class="card-header">
         <h6 class="mb-0">
-          <i class="bi bi-filter me-2"></i>
+          <i class="bi bi-filter me-2" />
           Filters
         </h6>
       </div>
@@ -77,19 +103,26 @@
         <!-- Quick Search - Always Visible -->
         <div class="row">
           <div class="col-md-8">
-            <label for="searchTerm" class="form-label">Search Logs</label>
+            <label
+              for="searchTerm"
+              class="form-label"
+            >Search Logs</label>
             <input
-              type="text"
-              class="form-control"
               id="searchTerm"
               v-model="filters.searchTerm"
+              type="text"
+              class="form-control"
               placeholder="Search logs by content, user, action, etc..."
               @keyup.enter="applyFilters"
             >
           </div>
           <div class="col-md-4 d-flex align-items-end">
-            <button class="btn btn-primary w-100" @click="applyFilters" :disabled="loading">
-              <i class="bi bi-search me-1"></i>
+            <button
+              class="btn btn-primary w-100"
+              :disabled="loading"
+              @click="applyFilters"
+            >
+              <i class="bi bi-search me-1" />
               Search
             </button>
           </div>
@@ -102,47 +135,112 @@
             class="btn btn-outline-secondary btn-sm"
             @click="advancedFiltersExpanded = !advancedFiltersExpanded"
           >
-            <i :class="advancedFiltersExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'"></i>
+            <i :class="advancedFiltersExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'" />
             {{ advancedFiltersExpanded ? 'Hide' : 'Show' }} Advanced Filters
           </button>
         </div>
 
-        <div v-if="advancedFiltersExpanded" class="border rounded p-3 mt-3 advanced-filters-container">
+        <div
+          v-if="advancedFiltersExpanded"
+          class="border rounded p-3 mt-3 advanced-filters-container"
+        >
           <div class="row">
             <div class="col-md-3">
-              <label for="eventCategory" class="form-label">Event Category</label>
-              <select class="form-select" id="eventCategory" v-model="filters.eventCategory">
-                <option value="">All Categories</option>
-                <option value="authentication">Authentication</option>
-                <option value="certificates">Certificates</option>
-                <option value="certificate_authority">Certificate Authority</option>
-                <option value="users">Users</option>
-                <option value="settings">Settings</option>
-                <option value="system">System</option>
+              <label
+                for="eventCategory"
+                class="form-label"
+              >Event Category</label>
+              <select
+                id="eventCategory"
+                v-model="filters.eventCategory"
+                class="form-select"
+              >
+                <option value="">
+                  All Categories
+                </option>
+                <option value="authentication">
+                  Authentication
+                </option>
+                <option value="certificates">
+                  Certificates
+                </option>
+                <option value="certificate_authority">
+                  Certificate Authority
+                </option>
+                <option value="users">
+                  Users
+                </option>
+                <option value="settings">
+                  Settings
+                </option>
+                <option value="system">
+                  System
+                </option>
               </select>
             </div>
             <div class="col-md-3">
-              <label for="eventType" class="form-label">Event Type</label>
-              <select class="form-select" id="eventType" v-model="filters.eventType">
-                <option value="">All Types</option>
-                <option value="user_action">User Action</option>
-                <option value="system_event">System Event</option>
-                <option value="security_event">Security Event</option>
+              <label
+                for="eventType"
+                class="form-label"
+              >Event Type</label>
+              <select
+                id="eventType"
+                v-model="filters.eventType"
+                class="form-select"
+              >
+                <option value="">
+                  All Types
+                </option>
+                <option value="user_action">
+                  User Action
+                </option>
+                <option value="system_event">
+                  System Event
+                </option>
+                <option value="security_event">
+                  Security Event
+                </option>
               </select>
             </div>
             <div class="col-md-3">
-              <label for="success" class="form-label">Status</label>
-              <select class="form-select" id="success" v-model="filters.success">
-                <option value="">All Events</option>
-                <option :value="true">Successful</option>
-                <option :value="false">Failed</option>
+              <label
+                for="success"
+                class="form-label"
+              >Status</label>
+              <select
+                id="success"
+                v-model="filters.success"
+                class="form-select"
+              >
+                <option value="">
+                  All Events
+                </option>
+                <option :value="true">
+                  Successful
+                </option>
+                <option :value="false">
+                  Failed
+                </option>
               </select>
             </div>
             <div class="col-md-3">
-              <label for="userId" class="form-label">User</label>
-              <select class="form-select" id="userId" v-model="filters.userId">
-                <option value="">All Users</option>
-                <option v-for="user in users" :key="user.id" :value="user.id">
+              <label
+                for="userId"
+                class="form-label"
+              >User</label>
+              <select
+                id="userId"
+                v-model="filters.userId"
+                class="form-select"
+              >
+                <option value="">
+                  All Users
+                </option>
+                <option
+                  v-for="user in users"
+                  :key="user.id"
+                  :value="user.id"
+                >
                   {{ user.name }}
                 </option>
               </select>
@@ -150,25 +248,67 @@
           </div>
           <div class="row mt-3">
             <div class="col-md-4">
-              <label for="startDate" class="form-label">Date From</label>
-              <input type="date" id="startDate" class="form-control" v-model="filters.startDate">
+              <label
+                for="startDate"
+                class="form-label"
+              >Date From</label>
+              <input
+                id="startDate"
+                v-model="filters.startDate"
+                type="date"
+                class="form-control"
+              >
             </div>
             <div class="col-md-4">
-              <label for="endDate" class="form-label">Date To</label>
-              <input type="date" id="endDate" class="form-control" v-model="filters.endDate">
+              <label
+                for="endDate"
+                class="form-label"
+              >Date To</label>
+              <input
+                id="endDate"
+                v-model="filters.endDate"
+                type="date"
+                class="form-control"
+              >
             </div>
             <div class="col-md-2">
-              <label for="page" class="form-label">Page</label>
-              <select class="form-select" id="page" v-model="filters.page">
-                <option v-for="n in totalPages" :key="n" :value="n">{{ n }}</option>
+              <label
+                for="page"
+                class="form-label"
+              >Page</label>
+              <select
+                id="page"
+                v-model="filters.page"
+                class="form-select"
+              >
+                <option
+                  v-for="n in totalPages"
+                  :key="n"
+                  :value="n"
+                >
+                  {{ n }}
+                </option>
               </select>
             </div>
             <div class="col-md-2">
-              <label for="limit" class="form-label">Results per page</label>
-              <select class="form-select" id="limit" v-model="filters.limit">
-                <option value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
+              <label
+                for="limit"
+                class="form-label"
+              >Results per page</label>
+              <select
+                id="limit"
+                v-model="filters.limit"
+                class="form-select"
+              >
+                <option value="25">
+                  25
+                </option>
+                <option value="50">
+                  50
+                </option>
+                <option value="100">
+                  100
+                </option>
               </select>
             </div>
           </div>
@@ -177,25 +317,44 @@
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading" class="text-center py-5">
-      <div class="spinner-border text-primary" role="status">
+    <div
+      v-if="loading"
+      class="text-center py-5"
+    >
+      <div
+        class="spinner-border text-primary"
+        role="status"
+      >
         <span class="visually-hidden">Loading audit logs...</span>
       </div>
-      <p class="mt-3 text-muted">Loading audit logs...</p>
+      <p class="mt-3 text-muted">
+        Loading audit logs...
+      </p>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="alert alert-danger">
-      <i class="bi bi-exclamation-triangle me-2"></i>
+    <div
+      v-else-if="error"
+      class="alert alert-danger"
+    >
+      <i class="bi bi-exclamation-triangle me-2" />
       {{ error }}
-      <button class="btn btn-sm btn-outline-danger ms-3" @click="loadLogs">Retry</button>
+      <button
+        class="btn btn-sm btn-outline-danger ms-3"
+        @click="loadLogs"
+      >
+        Retry
+      </button>
     </div>
 
     <!-- Logs Table -->
-    <div v-else-if="logs.length > 0" class="card">
+    <div
+      v-else-if="logs.length > 0"
+      class="card"
+    >
       <div class="card-header d-flex justify-content-between align-items-center">
         <h6 class="mb-0">
-          <i class="bi bi-table me-2"></i>
+          <i class="bi bi-table me-2" />
           Event Log ({{ totalResults }} events)
         </h6>
         <small class="text-muted">
@@ -218,12 +377,18 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="log in logs" :key="log.id">
+              <tr
+                v-for="log in logs"
+                :key="log.id"
+              >
                 <td class="text-nowrap">
                   {{ formatTimestamp(log.timestamp) }}
                 </td>
                 <td>
-                  <span class="badge" :class="getCategoryBadgeClass(log.event_category)">
+                  <span
+                    class="badge"
+                    :class="getCategoryBadgeClass(log.event_category)"
+                  >
                     {{ formatCategory(log.event_category) }}
                   </span>
                 </td>
@@ -235,33 +400,60 @@
                 <td>
                   <span v-if="log.user_name">{{ log.user_name }}</span>
                   <span v-else-if="log.user_id">User {{ log.user_id }}</span>
-                  <span v-else class="text-muted">System</span>
+                  <span
+                    v-else
+                    class="text-muted"
+                  >System</span>
                 </td>
                 <td class="text-nowrap">
                   {{ log.action }}
                 </td>
                 <td>
-                  <span v-if="log.resource_name" class="text-truncate" style="max-width: 200px;" :title="log.resource_name">
+                  <span
+                    v-if="log.resource_name"
+                    class="text-truncate"
+                    style="max-width: 200px;"
+                    :title="log.resource_name"
+                  >
                     {{ log.resource_name }}
                   </span>
                   <span v-else-if="log.resource_type && log.resource_id">
                     {{ log.resource_type }} {{ log.resource_id }}
                   </span>
-                  <span v-else class="text-muted">-</span>
+                  <span
+                    v-else
+                    class="text-muted"
+                  >-</span>
                 </td>
                 <td>
-                  <span class="badge" :class="log.success ? 'bg-success' : 'bg-danger'">
+                  <span
+                    class="badge"
+                    :class="log.success ? 'bg-success' : 'bg-danger'"
+                  >
                     {{ log.success ? 'Success' : 'Failed' }}
                   </span>
                 </td>
                 <td>
-                  <span v-if="log.details" class="text-truncate" style="max-width: 300px;" :title="log.details">
+                  <span
+                    v-if="log.details"
+                    class="text-truncate"
+                    style="max-width: 300px;"
+                    :title="log.details"
+                  >
                     {{ log.details }}
                   </span>
-                  <span v-else-if="log.error_message" class="text-truncate text-danger" style="max-width: 300px;" :title="log.error_message">
+                  <span
+                    v-else-if="log.error_message"
+                    class="text-truncate text-danger"
+                    style="max-width: 300px;"
+                    :title="log.error_message"
+                  >
                     Error: {{ log.error_message }}
                   </span>
-                  <span v-else class="text-muted">-</span>
+                  <span
+                    v-else
+                    class="text-muted"
+                  >-</span>
                 </td>
               </tr>
             </tbody>
@@ -272,8 +464,15 @@
         <div class="card-footer">
           <nav aria-label="Audit log pagination">
             <ul class="pagination justify-content-center mb-0">
-              <li class="page-item" :class="{ disabled: filters.page <= 1 }">
-                <a class="page-link" href="#" @click.prevent="changePage(filters.page - 1)">
+              <li
+                class="page-item"
+                :class="{ disabled: filters.page <= 1 }"
+              >
+                <a
+                  class="page-link"
+                  href="#"
+                  @click.prevent="changePage(filters.page - 1)"
+                >
                   Previous
                 </a>
               </li>
@@ -283,12 +482,23 @@
                 class="page-item"
                 :class="{ active: pageNum === filters.page }"
               >
-                <a class="page-link" href="#" @click.prevent="changePage(pageNum)">
+                <a
+                  class="page-link"
+                  href="#"
+                  @click.prevent="changePage(pageNum)"
+                >
                   {{ pageNum }}
                 </a>
               </li>
-              <li class="page-item" :class="{ disabled: filters.page >= totalPages }">
-                <a class="page-link" href="#" @click.prevent="changePage(filters.page + 1)">
+              <li
+                class="page-item"
+                :class="{ disabled: filters.page >= totalPages }"
+              >
+                <a
+                  class="page-link"
+                  href="#"
+                  @click.prevent="changePage(filters.page + 1)"
+                >
                   Next
                 </a>
               </li>
@@ -299,31 +509,58 @@
     </div>
 
     <!-- Empty State -->
-    <div v-else class="text-center py-5">
-      <i class="bi bi-journal-x text-muted" style="font-size: 3rem;"></i>
-      <h4 class="mt-3">No Audit Logs Found</h4>
+    <div
+      v-else
+      class="text-center py-5"
+    >
+      <i
+        class="bi bi-journal-x text-muted"
+        style="font-size: 3rem;"
+      />
+      <h4 class="mt-3">
+        No Audit Logs Found
+      </h4>
       <p class="text-muted">
         No audit events match your current filters, or audit logging may not be enabled yet.
       </p>
-      <button class="btn btn-primary" @click="clearFilters">Clear Filters</button>
+      <button
+        class="btn btn-primary"
+        @click="clearFilters"
+      >
+        Clear Filters
+      </button>
     </div>
 
     <!-- Recent Activity Summary -->
-    <div v-if="stats && stats.recent_events.length > 0" class="mt-4">
-      <h5 class="mb-3">Recent Activity (Last 24 hours)</h5>
+    <div
+      v-if="stats && stats.recent_events.length > 0"
+      class="mt-4"
+    >
+      <h5 class="mb-3">
+        Recent Activity (Last 24 hours)
+      </h5>
       <div class="row">
         <div class="col-md-6">
           <div class="card h-100">
             <div class="card-header">
-              <h6 class="mb-0">Top Actions</h6>
+              <h6 class="mb-0">
+                Top Actions
+              </h6>
             </div>
             <div class="card-body">
-              <div v-for="action in stats.top_actions.slice(0, 5)" :key="action.action" class="d-flex justify-content-between mb-2">
+              <div
+                v-for="action in stats.top_actions.slice(0, 5)"
+                :key="action.action"
+                class="d-flex justify-content-between mb-2"
+              >
                 <span>{{ action.action }}</span>
                 <span class="badge bg-primary">{{ action.count }}</span>
               </div>
-              <div v-if="stats.top_actions.length === 0" class="text-muted">
-                <i class="bi bi-info-circle me-1"></i>
+              <div
+                v-if="stats.top_actions.length === 0"
+                class="text-muted"
+              >
+                <i class="bi bi-info-circle me-1" />
                 No activity data available
               </div>
             </div>
@@ -332,15 +569,24 @@
         <div class="col-md-6">
           <div class="card h-100">
             <div class="card-header">
-              <h6 class="mb-0">Most Active Users</h6>
+              <h6 class="mb-0">
+                Most Active Users
+              </h6>
             </div>
             <div class="card-body">
-              <div v-for="user in stats.top_users.slice(0, 5)" :key="user.user_id" class="d-flex justify-content-between mb-2">
+              <div
+                v-for="user in stats.top_users.slice(0, 5)"
+                :key="user.user_id"
+                class="d-flex justify-content-between mb-2"
+              >
                 <span>{{ user.user_name }}</span>
                 <span class="badge bg-success">{{ user.event_count }} events</span>
               </div>
-              <div v-if="stats.top_users.length === 0" class="text-muted">
-                <i class="bi bi-info-circle me-1"></i>
+              <div
+                v-if="stats.top_users.length === 0"
+                class="text-muted"
+              >
+                <i class="bi bi-info-circle me-1" />
                 No user activity data available
               </div>
             </div>

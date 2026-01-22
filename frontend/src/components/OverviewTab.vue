@@ -1,8 +1,11 @@
 <template>
   <div class="overview-container">
     <!-- Root CA Mode Banner -->
-    <div v-if="isRootCA" class="alert alert-warning mb-3">
-      <i class="bi bi-shield-lock me-2"></i>
+    <div
+      v-if="isRootCA"
+      class="alert alert-warning mb-3"
+    >
+      <i class="bi bi-shield-lock me-2" />
       <strong>Root CA Server Mode</strong>
       <p class="mb-0 mt-1">
         This instance is configured as a Root CA Server. Only subordinate CA certificates can be issued.
@@ -11,71 +14,100 @@
     </div>
 
     <div class="d-flex justify-content-between align-items-center mb-3">
-      <h1 class="mb-0">Certificates</h1>
+      <h1 class="mb-0">
+        Certificates
+      </h1>
       <div class="d-flex gap-2 align-items-center">
         <div class="d-flex align-items-center gap-2">
-          <label for="statusFilter" class="form-label mb-0 fw-bold" title="Filter certificates by their current status">Filter:</label>
+          <label
+            for="statusFilter"
+            class="form-label mb-0 fw-bold"
+            title="Filter certificates by their current status"
+          >Filter:</label>
           <select
-              id="statusFilter"
-              v-model="statusFilter"
-              class="form-select form-select-sm"
-              style="width: auto; min-width: 140px;"
-              title="Choose which certificates to display: All, Active (valid), Revoked, or Expired"
+            id="statusFilter"
+            v-model="statusFilter"
+            class="form-select form-select-sm"
+            style="width: auto; min-width: 140px;"
+            title="Choose which certificates to display: All, Active (valid), Revoked, or Expired"
           >
-            <option value="all" title="Show all certificates regardless of status">All Certificates</option>
-            <option value="active" title="Show only valid, non-expired certificates">Active Only</option>
-            <option value="revoked" title="Show only revoked certificates">Revoked Only</option>
-            <option value="expired" title="Show only expired certificates">Expired Only</option>
+            <option
+              value="all"
+              title="Show all certificates regardless of status"
+            >
+              All Certificates
+            </option>
+            <option
+              value="active"
+              title="Show only valid, non-expired certificates"
+            >
+              Active Only
+            </option>
+            <option
+              value="revoked"
+              title="Show only revoked certificates"
+            >
+              Revoked Only
+            </option>
+            <option
+              value="expired"
+              title="Show only expired certificates"
+            >
+              Expired Only
+            </option>
           </select>
         </div>
         <button
-            id="CreateCertificateButton"
-            v-if="authStore.isAdmin"
-            class="btn btn-primary me-2"
-            @click="openGenerateModal"
+          v-if="authStore.isAdmin"
+          id="CreateCertificateButton"
+          class="btn btn-primary me-2"
+          @click="openGenerateModal"
         >
           {{ isRootCA ? 'Create Subordinate CA' : 'Create New Certificate' }}
         </button>
         <button
-            id="SignCSRButton"
-            v-if="authStore.isAdmin"
-            class="btn btn-success me-2"
-            @click="showSignCSRModalFunction"
-            title="Sign Certificate Signing Request (CSR) with available CAs"
+          v-if="authStore.isAdmin"
+          id="SignCSRButton"
+          class="btn btn-success me-2"
+          title="Sign Certificate Signing Request (CSR) with available CAs"
+          @click="showSignCSRModalFunction"
         >
-          <i class="bi bi-file-earmark-plus"></i> Sign CSR
+          <i class="bi bi-file-earmark-plus" /> Sign CSR
         </button>
         <button
-            v-if="authStore.isAdmin"
-            class="btn btn-warning"
-            @click="showRevocationHistory = true"
-            title="View Certificate Revocation History"
+          v-if="authStore.isAdmin"
+          class="btn btn-warning"
+          title="View Certificate Revocation History"
+          @click="showRevocationHistory = true"
         >
-          <i class="bi bi-clock-history me-1"></i>
+          <i class="bi bi-clock-history me-1" />
           Revocation History
         </button>
       </div>
     </div>
 
     <!-- Bulk Actions Toolbar -->
-    <div v-if="authStore.isAdmin && selectedCertificates.size > 0" class="mb-3 p-3 bg-light rounded">
+    <div
+      v-if="authStore.isAdmin && selectedCertificates.size > 0"
+      class="mb-3 p-3 bg-light rounded"
+    >
       <div class="d-flex justify-content-between align-items-center">
         <div>
           <strong>{{ selectedCertificates.size }} certificate{{ selectedCertificates.size > 1 ? 's' : '' }} selected</strong>
         </div>
         <div class="d-flex gap-2">
           <button
-              class="btn btn-warning btn-sm"
-              @click="confirmBulkRevocation"
-              title="Revoke all selected certificates with a single operation"
+            class="btn btn-warning btn-sm"
+            title="Revoke all selected certificates with a single operation"
+            @click="confirmBulkRevocation"
           >
-            <i class="bi bi-x-circle me-1"></i>
+            <i class="bi bi-x-circle me-1" />
             Revoke Selected ({{ selectedCertificates.size }})
           </button>
           <button
-              class="btn btn-secondary btn-sm"
-              @click="clearSelection"
-              title="Clear all certificate selections"
+            class="btn btn-secondary btn-sm"
+            title="Clear all certificate selections"
+            @click="clearSelection"
           >
             Clear Selection
           </button>
@@ -85,133 +117,192 @@
     <div class="card">
       <div class="card-body p-0">
         <table class="table table-hover mb-0">
-            <thead class="table-light">
-              <tr>
-                <th v-if="authStore.isAdmin" class="text-center" title="Select certificates for bulk operations">
-                  <input
-                      type="checkbox"
-                      :checked="selectedCertificates.size > 0 && selectedCertificates.size === selectableCertificates.length"
-                      :indeterminate="selectedCertificates.size > 0 && selectedCertificates.size < selectableCertificates.length"
-                      @change="toggleSelectAll"
-                      class="form-check-input"
-                      title="Select/deselect all active certificates for bulk revocation"
-                  />
-                </th>
-                <th v-if="authStore.isAdmin">User</th>
-                <th>Name</th>
-                <th class="d-none d-sm-table-cell">Type</th>
-                <th class="d-none d-sm-table-cell">Created on</th>
-                <th>Valid until</th>
-                <th>Status</th>
-                <th>Password</th>
-                <th class="d-none d-sm-table-cell">Renew Method</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="cert in filteredCertificates" :key="cert.id">
-                <td v-if="authStore.isAdmin" class="text-center">
-                  <input
-                      type="checkbox"
-                      :checked="selectedCertificates.has(cert.id)"
-                      :disabled="cert.is_revoked"
-                      @change="toggleCertificateSelection(cert.id)"
-                      class="form-check-input"
-                      :title="cert.is_revoked ? 'Revoked certificates cannot be selected for bulk operations' : `Select ${cert.name} for bulk revocation`"
-                  />
-                </td>
-                <td :id="'UserId-' + cert.id" v-if="authStore.isAdmin">{{ userStore.idToName(cert.user_id) }}</td>
-                <td :id="'CertName-' + cert.id" >{{ cert.name }}</td>
-                <td :id="'CertType-' + cert.id" class="d-none d-sm-table-cell">{{ CertificateType[cert.certificate_type] }}</td>
-                <td :id="'CreatedOn-' + cert.id" class="d-none d-sm-table-cell">{{ new Date(cert.created_on).toLocaleDateString() }}</td>
-                <td :id="'ValidUntil-' + cert.id" >{{ new Date(cert.valid_until).toLocaleDateString() }}</td>
-                <td :id="'Status-' + cert.id">
-                  <span class="badge" :class="getCertificateStatusClass(cert)" :title="getCertificateStatusTooltip(cert)">
-                    {{ getCertificateStatusText(cert) }}
-                  </span>
-                </td>
-                <td :id="'Password-' + cert.id" class="password-cell">
-                  <div class="d-flex align-items-center">
-                    <template v-if="shownCerts.has(cert.id)">
-                      <input
-                          :id="'PasswordInput-' + cert.id"
-                          type="text"
-                          :value="cert.pkcs12_password"
-                          readonly
-                          class="form-control form-control-sm me-2"
-                          style="font-family: monospace; max-width: 100px;"
-                      />
-                    </template>
-                    <template v-else>
-                      <span>•••••••</span>
-                    </template>
-                    <button
-                        v-if="shownCerts.has(cert.id) && cert.pkcs12_password"
-                        :id="'CopyPasswordButton-' + cert.id"
-                        class="btn btn-outline-primary btn-sm ms-1"
-                        @click="copyPasswordToClipboard(cert)"
-                        title="Copy password to clipboard"
+          <thead class="table-light">
+            <tr>
+              <th
+                v-if="authStore.isAdmin"
+                class="text-center"
+                title="Select certificates for bulk operations"
+              >
+                <input
+                  type="checkbox"
+                  :checked="selectedCertificates.size > 0 && selectedCertificates.size === selectableCertificates.length"
+                  :indeterminate="selectedCertificates.size > 0 && selectedCertificates.size < selectableCertificates.length"
+                  class="form-check-input"
+                  title="Select/deselect all active certificates for bulk revocation"
+                  @change="toggleSelectAll"
+                >
+              </th>
+              <th v-if="authStore.isAdmin">
+                User
+              </th>
+              <th>Name</th>
+              <th class="d-none d-sm-table-cell">
+                Type
+              </th>
+              <th class="d-none d-sm-table-cell">
+                Created on
+              </th>
+              <th>Valid until</th>
+              <th>Status</th>
+              <th>Password</th>
+              <th class="d-none d-sm-table-cell">
+                Renew Method
+              </th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="cert in filteredCertificates"
+              :key="cert.id"
+            >
+              <td
+                v-if="authStore.isAdmin"
+                class="text-center"
+              >
+                <input
+                  type="checkbox"
+                  :checked="selectedCertificates.has(cert.id)"
+                  :disabled="cert.is_revoked"
+                  class="form-check-input"
+                  :title="cert.is_revoked ? 'Revoked certificates cannot be selected for bulk operations' : `Select ${cert.name} for bulk revocation`"
+                  @change="toggleCertificateSelection(cert.id)"
+                >
+              </td>
+              <td
+                v-if="authStore.isAdmin"
+                :id="'UserId-' + cert.id"
+              >
+                {{ userStore.idToName(cert.user_id) }}
+              </td>
+              <td :id="'CertName-' + cert.id">
+                {{ cert.name }}
+              </td>
+              <td
+                :id="'CertType-' + cert.id"
+                class="d-none d-sm-table-cell"
+              >
+                {{ CertificateType[cert.certificate_type] }}
+              </td>
+              <td
+                :id="'CreatedOn-' + cert.id"
+                class="d-none d-sm-table-cell"
+              >
+                {{ new Date(cert.created_on).toLocaleDateString() }}
+              </td>
+              <td :id="'ValidUntil-' + cert.id">
+                {{ new Date(cert.valid_until).toLocaleDateString() }}
+              </td>
+              <td :id="'Status-' + cert.id">
+                <span
+                  class="badge"
+                  :class="getCertificateStatusClass(cert)"
+                  :title="getCertificateStatusTooltip(cert)"
+                >
+                  {{ getCertificateStatusText(cert) }}
+                </span>
+              </td>
+              <td
+                :id="'Password-' + cert.id"
+                class="password-cell"
+              >
+                <div class="d-flex align-items-center">
+                  <template v-if="shownCerts.has(cert.id)">
+                    <input
+                      :id="'PasswordInput-' + cert.id"
+                      type="text"
+                      :value="cert.pkcs12_password"
+                      readonly
+                      class="form-control form-control-sm me-2"
+                      style="font-family: monospace; max-width: 100px;"
                     >
-                      <i class="bi bi-clipboard me-1"></i>Copy
-                    </button>
-                    <img
-                        :id="'PasswordButton-' + cert.id"
-                        :src="shownCerts.has(cert.id) ? '/images/eye-open.png' : '/images/eye-hidden.png'"
-                        class="ms-1"
-                        style="width: 20px; cursor: pointer;"
-                        @click="togglePasswordShown(cert)"
-                        :title="shownCerts.has(cert.id) ? 'Hide password' : 'Show password'"
-                        alt="Button to show / hide password"
-                    />
-                  </div>
-                </td>
-                <td :id="'RenewMethod-' + cert.id" class="d-none d-sm-table-cell">{{ CertificateRenewMethod[cert.renew_method] }}</td>
-                <td>
-                  <div class="d-flex flex-sm-row flex-column gap-1">
-                    <button
-                        :id="'ViewButton-' + cert.id"
-                        class="btn btn-primary btn-sm"
-                        @click="viewCertificateDetails(cert.id)"
-                        title="View Certificate Details"
-                    >
-                      <i class="bi bi-eye"></i> View
-                    </button>
-                    <button
-                        :id="'DownloadButton-' + cert.id"
-                        class="btn btn-primary btn-sm flex-grow-1"
-                        @click="handleDownload({id: cert.id, name: cert.name})"
-                        title="Download Certificate"
-                    >
-                      Download
-                    </button>
-                    <button
-                        :id="'RevokeButton-' + cert.id"
-                        v-if="authStore.isAdmin && !cert.is_revoked"
-                        class="btn btn-warning btn-sm flex-grow-1"
-                        @click="confirmRevocation(cert)"
-                        title="Revoke Certificate"
-                    >
-                      <i class="bi bi-x-circle"></i> Revoke
-                    </button>
-                    <button
-                        :id="'DeleteButton-' + cert.id"
-                        v-if="authStore.isAdmin"
-                        class="btn btn-danger btn-sm flex-grow-1"
-                        @click="confirmDeletion(cert)"
-                        title="Delete Certificate"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                  </template>
+                  <template v-else>
+                    <span>•••••••</span>
+                  </template>
+                  <button
+                    v-if="shownCerts.has(cert.id) && cert.pkcs12_password"
+                    :id="'CopyPasswordButton-' + cert.id"
+                    class="btn btn-outline-primary btn-sm ms-1"
+                    title="Copy password to clipboard"
+                    @click="copyPasswordToClipboard(cert)"
+                  >
+                    <i class="bi bi-clipboard me-1" />Copy
+                  </button>
+                  <img
+                    :id="'PasswordButton-' + cert.id"
+                    :src="shownCerts.has(cert.id) ? '/images/eye-open.png' : '/images/eye-hidden.png'"
+                    class="ms-1"
+                    style="width: 20px; cursor: pointer;"
+                    :title="shownCerts.has(cert.id) ? 'Hide password' : 'Show password'"
+                    alt="Button to show / hide password"
+                    @click="togglePasswordShown(cert)"
+                  >
+                </div>
+              </td>
+              <td
+                :id="'RenewMethod-' + cert.id"
+                class="d-none d-sm-table-cell"
+              >
+                {{ CertificateRenewMethod[cert.renew_method] }}
+              </td>
+              <td>
+                <div class="d-flex flex-sm-row flex-column gap-1">
+                  <button
+                    :id="'ViewButton-' + cert.id"
+                    class="btn btn-primary btn-sm"
+                    title="View Certificate Details"
+                    @click="viewCertificateDetails(cert.id)"
+                  >
+                    <i class="bi bi-eye" /> View
+                  </button>
+                  <button
+                    :id="'DownloadButton-' + cert.id"
+                    class="btn btn-primary btn-sm flex-grow-1"
+                    title="Download Certificate"
+                    @click="handleDownload({id: cert.id, name: cert.name})"
+                  >
+                    Download
+                  </button>
+                  <button
+                    v-if="authStore.isAdmin && !cert.is_revoked"
+                    :id="'RevokeButton-' + cert.id"
+                    class="btn btn-warning btn-sm flex-grow-1"
+                    title="Revoke Certificate"
+                    @click="confirmRevocation(cert)"
+                  >
+                    <i class="bi bi-x-circle" /> Revoke
+                  </button>
+                  <button
+                    v-if="authStore.isAdmin"
+                    :id="'DeleteButton-' + cert.id"
+                    class="btn btn-danger btn-sm flex-grow-1"
+                    title="Delete Certificate"
+                    @click="confirmDeletion(cert)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <div v-if="loading" class="text-center mt-3">Loading certificates...</div>
-    <div v-if="error" class="alert alert-danger mt-3">{{ error }}</div>
+    <div
+      v-if="loading"
+      class="text-center mt-3"
+    >
+      Loading certificates...
+    </div>
+    <div
+      v-if="error"
+      class="alert alert-danger mt-3"
+    >
+      {{ error }}
+    </div>
 
     <!-- Generate Certificate Modal -->
     <CertificateCreateModal
@@ -225,16 +316,22 @@
 
     <!-- Revoke Confirmation Modal -->
     <div
-        v-if="isRevokeModalVisible"
-        class="modal show d-block"
-        tabindex="-1"
-        style="background: rgba(0, 0, 0, 0.5)"
+      v-if="isRevokeModalVisible"
+      class="modal show d-block"
+      tabindex="-1"
+      style="background: rgba(0, 0, 0, 0.5)"
     >
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Revoke Certificate</h5>
-            <button type="button" class="btn-close" @click="closeRevokeModal"></button>
+            <h5 class="modal-title">
+              Revoke Certificate
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="closeRevokeModal"
+            />
           </div>
           <div class="modal-body">
             <p v-if="selectedCertificates.size > 0">
@@ -250,48 +347,117 @@
               Any systems using {{ selectedCertificates.size > 0 ? 'these certificates' : 'this certificate' }} will no longer trust {{ selectedCertificates.size > 0 ? 'them' : 'it' }}.
             </p>
             <div class="mb-3">
-              <label for="revocationReason" class="form-label" title="Select the reason for revoking this certificate">Revocation Reason</label>
+              <label
+                for="revocationReason"
+                class="form-label"
+                title="Select the reason for revoking this certificate"
+              >Revocation Reason</label>
               <select
-                  id="revocationReason"
-                  v-model.number="revocationReason"
-                  class="form-select"
-                  required
-                  title="Choose the appropriate RFC 5280 standard revocation reason"
+                id="revocationReason"
+                v-model.number="revocationReason"
+                class="form-select"
+                required
+                title="Choose the appropriate RFC 5280 standard revocation reason"
               >
-                <option :value="0" title="No specific reason given (RFC 5280: unspecified)">Unspecified</option>
-                <option :value="1" title="Private key compromised (RFC 5280: keyCompromise)">Key Compromise</option>
-                <option :value="2" title="CA certificate compromised (RFC 5280: cACompromise)">CA Compromise</option>
-                <option :value="3" title="Affiliation or business relationship changed (RFC 5280: affiliationChanged)">Affiliation Changed</option>
-                <option :value="4" title="Certificate has been replaced (RFC 5280: superseded)">Superseded</option>
-                <option :value="5" title="Certificate operation ceased (RFC 5280: cessationOfOperation)">Cessation of Operation</option>
-                <option :value="6" title="Certificate temporarily suspended (RFC 5280: certificateHold)">Certificate Hold</option>
-                <option :value="7" title="Remove from CRL (RFC 5280: removeFromCRL)">Remove from CRL</option>
-                <option :value="8" title="Certificate privileges withdrawn (RFC 5280: privilegeWithdrawn)">Privilege Withdrawn</option>
-                <option :value="9" title="Authority compromised (RFC 5280: aACompromise)">AA Compromise</option>
+                <option
+                  :value="0"
+                  title="No specific reason given (RFC 5280: unspecified)"
+                >
+                  Unspecified
+                </option>
+                <option
+                  :value="1"
+                  title="Private key compromised (RFC 5280: keyCompromise)"
+                >
+                  Key Compromise
+                </option>
+                <option
+                  :value="2"
+                  title="CA certificate compromised (RFC 5280: cACompromise)"
+                >
+                  CA Compromise
+                </option>
+                <option
+                  :value="3"
+                  title="Affiliation or business relationship changed (RFC 5280: affiliationChanged)"
+                >
+                  Affiliation Changed
+                </option>
+                <option
+                  :value="4"
+                  title="Certificate has been replaced (RFC 5280: superseded)"
+                >
+                  Superseded
+                </option>
+                <option
+                  :value="5"
+                  title="Certificate operation ceased (RFC 5280: cessationOfOperation)"
+                >
+                  Cessation of Operation
+                </option>
+                <option
+                  :value="6"
+                  title="Certificate temporarily suspended (RFC 5280: certificateHold)"
+                >
+                  Certificate Hold
+                </option>
+                <option
+                  :value="7"
+                  title="Remove from CRL (RFC 5280: removeFromCRL)"
+                >
+                  Remove from CRL
+                </option>
+                <option
+                  :value="8"
+                  title="Certificate privileges withdrawn (RFC 5280: privilegeWithdrawn)"
+                >
+                  Privilege Withdrawn
+                </option>
+                <option
+                  :value="9"
+                  title="Authority compromised (RFC 5280: aACompromise)"
+                >
+                  AA Compromise
+                </option>
               </select>
               <div class="form-text">
                 Choose the RFC 5280 standard revocation reason that best fits the situation.
               </div>
             </div>
-            <div v-if="isMailValid" class="mb-3 form-check form-switch">
+            <div
+              v-if="isMailValid"
+              class="mb-3 form-check form-switch"
+            >
               <input
-                  type="checkbox"
-                  class="form-check-input"
-                  id="notify-user-revoke"
-                  v-model="notifyUserOnRevoke"
-                  role="switch"
-              />
-              <label class="form-check-label" for="notify-user-revoke">
+                id="notify-user-revoke"
+                v-model="notifyUserOnRevoke"
+                type="checkbox"
+                class="form-check-input"
+                role="switch"
+              >
+              <label
+                class="form-check-label"
+                for="notify-user-revoke"
+              >
                 Notify Certificate Owner
               </label>
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeRevokeModal">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="closeRevokeModal"
+            >
               Cancel
             </button>
-            <button type="button" class="btn btn-warning" @click="revokeCertificate" :disabled="!isRevokeValid">
-              <i class="bi bi-x-circle me-1"></i>
+            <button
+              type="button"
+              class="btn btn-warning"
+              :disabled="!isRevokeValid"
+              @click="revokeCertificate"
+            >
+              <i class="bi bi-x-circle me-1" />
               Revoke Certificate
             </button>
           </div>
@@ -301,16 +467,22 @@
 
     <!-- Delete Confirmation Modal -->
     <div
-        v-if="isDeleteModalVisible"
-        class="modal show d-block"
-        tabindex="-1"
-        style="background: rgba(0, 0, 0, 0.5)"
+      v-if="isDeleteModalVisible"
+      class="modal show d-block"
+      tabindex="-1"
+      style="background: rgba(0, 0, 0, 0.5)"
     >
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Delete Certificate</h5>
-            <button type="button" class="btn-close" @click="closeDeleteModal"></button>
+            <h5 class="modal-title">
+              Delete Certificate
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="closeDeleteModal"
+            />
           </div>
           <div class="modal-body">
             <p>
@@ -325,10 +497,18 @@
             </p>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeDeleteModal">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="closeDeleteModal"
+            >
               Cancel
             </button>
-            <button type="button" class="btn btn-danger" @click="deleteCertificate">
+            <button
+              type="button"
+              class="btn btn-danger"
+              @click="deleteCertificate"
+            >
               Delete
             </button>
           </div>
@@ -338,56 +518,84 @@
 
     <!-- Certificate Details Modal -->
     <div
-        v-if="isCertificateDetailsModalVisible"
-        class="modal show d-block"
-        tabindex="-1"
-        style="background: rgba(0, 0, 0, 0.5)"
+      v-if="isCertificateDetailsModalVisible"
+      class="modal show d-block"
+      tabindex="-1"
+      style="background: rgba(0, 0, 0, 0.5)"
     >
       <div class="modal-dialog modal-xl">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">
-              <i class="bi bi-file-earmark-text me-2"></i>
+              <i class="bi bi-file-earmark-text me-2" />
               Certificate Details: {{ certificateDetails?.name }}
             </h5>
-            <button type="button" class="btn-close" @click="closeCertificateDetailsModal"></button>
+            <button
+              type="button"
+              class="btn-close"
+              @click="closeCertificateDetailsModal"
+            />
           </div>
-          <div class="modal-body" v-if="certificateDetails">
+          <div
+            v-if="certificateDetails"
+            class="modal-body"
+          >
             <div class="row">
               <!-- Basic Information -->
               <div class="col-lg-6 mb-4">
                 <div class="card h-100">
                   <div class="card-header">
                     <h6 class="mb-0">
-                      <i class="bi bi-info-circle me-2"></i>
+                      <i class="bi bi-info-circle me-2" />
                       Basic Information
                     </h6>
                   </div>
                   <div class="card-body">
                     <div class="row">
-                      <div class="col-sm-4"><strong>Name:</strong></div>
-                      <div class="col-sm-8">{{ certificateDetails.name }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Serial:</strong></div>
-                      <div class="col-sm-8"><code>{{ certificateDetails.serial_number }}</code></div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Key Size:</strong></div>
-                      <div class="col-sm-8">{{ certificateDetails.key_size }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Algorithm:</strong></div>
-                      <div class="col-sm-8">{{ certificateDetails.signature_algorithm }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Type:</strong></div>
+                      <div class="col-sm-4">
+                        <strong>Name:</strong>
+                      </div>
                       <div class="col-sm-8">
-                        <span class="badge" :class="certificateDetails.certificate_type === CertificateType.Client ? 'bg-primary' : 'bg-success'">
+                        {{ certificateDetails.name }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Serial:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        <code>{{ certificateDetails.serial_number }}</code>
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Key Size:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        {{ certificateDetails.key_size }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Algorithm:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        {{ certificateDetails.signature_algorithm }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Type:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        <span
+                          class="badge"
+                          :class="certificateDetails.certificate_type === CertificateType.Client ? 'bg-primary' : 'bg-success'"
+                        >
                           <!-- eslint-disable-next-line -->
                           {{ CertificateType[certificateDetails.certificate_type] }}
                         </span>
@@ -395,8 +603,12 @@
                     </div>
                     <hr>
                     <div class="row">
-                      <div class="col-sm-4"><strong>Renew Method:</strong></div>
-                      <div class="col-sm-8">{{ CertificateRenewMethod[certificateDetails.renew_method] }}</div>
+                      <div class="col-sm-4">
+                        <strong>Renew Method:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        {{ CertificateRenewMethod[certificateDetails.renew_method] }}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -407,25 +619,38 @@
                 <div class="card h-100">
                   <div class="card-header">
                     <h6 class="mb-0">
-                      <i class="bi bi-calendar-check me-2"></i>
+                      <i class="bi bi-calendar-check me-2" />
                       Validity
                     </h6>
                   </div>
                   <div class="card-body">
                     <div class="row">
-                      <div class="col-sm-4"><strong>Created:</strong></div>
-                      <div class="col-sm-8">{{ formatDate(certificateDetails.created_on) }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Expires:</strong></div>
-                      <div class="col-sm-8">{{ formatDate(certificateDetails.valid_until) }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Status:</strong></div>
+                      <div class="col-sm-4">
+                        <strong>Created:</strong>
+                      </div>
                       <div class="col-sm-8">
-                        <span class="badge" :class="getStatusClass(certificateDetails)">
+                        {{ formatDate(certificateDetails.created_on) }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Expires:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        {{ formatDate(certificateDetails.valid_until) }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Status:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        <span
+                          class="badge"
+                          :class="getStatusClass(certificateDetails)"
+                        >
                           {{ getStatusText(certificateDetails) }}
                         </span>
                       </div>
@@ -434,448 +659,633 @@
                     <template v-if="certificateDetails.is_revoked">
                       <hr>
                       <div class="row">
-                        <div class="col-sm-4"><strong>Revoked:</strong></div>
-                        <div class="col-sm-8">{{ formatDate(certificateDetails.revoked_on!) }}</div>
+                        <div class="col-sm-4">
+                          <strong>Revoked:</strong>
+                        </div>
+                        <div class="col-sm-8">
+                          {{ formatDate(certificateDetails.revoked_on!) }}
+                        </div>
                       </div>
                       <hr>
                       <div class="row">
-                        <div class="col-sm-4"><strong>Revocation Reason:</strong></div>
+                        <div class="col-sm-4">
+                          <strong>Revocation Reason:</strong>
+                        </div>
                         <div class="col-sm-8">
                           <span class="badge bg-secondary">{{ getRevocationReasonText(certificateDetails.revoked_reason!) }}</span>
                         </div>
                       </div>
                       <hr>
                       <div class="row">
-                        <div class="col-sm-4"><strong>Revoked By:</strong></div>
-                        <div class="col-sm-8">{{ userStore.idToName(certificateDetails.revoked_by!) }}</div>
-                      </div>
-                                        </template>
-                                      </div>
-                                    </div>
-                                  </div>              </div>
-
-              <!-- Subject -->
-              <div class="col-lg-6 mb-4">
-                <div class="card h-100">
-                  <div class="card-header">
-                    <h6 class="mb-0">
-                      <i class="bi bi-person me-2"></i>
-                      Subject
-                    </h6>
-                  </div>
-                  <div class="card-body">
-                    <pre class="mb-0 text-break small">{{ certificateDetails.subject }}</pre>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Issuer -->
-              <div class="col-lg-6 mb-4">
-                <div class="card h-100">
-                  <div class="card-header">
-                    <h6 class="mb-0">
-                      <i class="bi bi-building me-2"></i>
-                      Issuer
-                    </h6>
-                  </div>
-                  <div class="card-body">
-                    <pre class="mb-0 text-break small">{{ certificateDetails.issuer }}</pre>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Certificate PEM -->
-            <div class="card">
-              <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">
-                  <i class="bi bi-file-earmark-text me-2"></i>
-                  Certificate (PEM Format)
-                </h6>
-                <div class="btn-group btn-group-sm">
-                  <button class="btn btn-outline-secondary" @click="copyToClipboard((certificateDetails as CertificateDetails).certificate_pem)">
-                    <i class="bi bi-clipboard me-1"></i>
-                    Copy
-                  </button>
-                  <button class="btn btn-outline-primary" @click="handleDownload({id: (certificateDetails as CertificateDetails).id, name: (certificateDetails as CertificateDetails).name})">
-                    <i class="bi bi-download me-1"></i>
-                    Download
-                  </button>
-                </div>
-              </div>
-              <div class="card-body">
-                <pre class="certificate-pem mb-0">{{ (certificateDetails as CertificateDetails).certificate_pem }}</pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Revocation History Modal -->
-    <RevocationHistoryModal
-        :isVisible="showRevocationHistory"
-        @close="showRevocationHistory = false"
-    />
-
-    <!-- Download Format Selection Modal -->
-    <div
-        v-if="showDownloadModal"
-        class="modal show d-block"
-        tabindex="-1"
-        style="background: rgba(0, 0, 0, 0.5)"
-    >
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Select Download Format</h5>
-            <button type="button" class="btn-close" @click="showDownloadModal = false"></button>
-          </div>
-          <div class="modal-body">
-            <p class="text-muted mb-3">
-              Choose the format for downloading the certificate:
-            </p>
-
-            <div class="mb-3">
-              <div class="form-check">
-                <input
-                    class="form-check-input"
-                    type="radio"
-                    v-model="selectedFormat"
-                    id="formatPkcs12"
-                    value="pkcs12"
-                />
-                <label class="form-check-label fw-bold" for="formatPkcs12">
-                  PKCS#12 (.p12)
-                </label>
-                <div class="form-text">
-                  Full bundle with certificate, private key, CA chain, and password protection
-                </div>
-              </div>
-            </div>
-
-            <div class="mb-3">
-              <div class="form-check">
-                <input
-                    class="form-check-input"
-                    type="radio"
-                    v-model="selectedFormat"
-                    id="formatPemKey"
-                    value="pem_key"
-                />
-                <label class="form-check-label fw-bold" for="formatPemKey">
-                  PEM + Key (.zip)
-                </label>
-                <div class="form-text">
-                  Separate files: certificate.pem + private_key.key in a ZIP archive
-                </div>
-              </div>
-            </div>
-
-            <div class="mb-3">
-              <div class="form-check">
-                <input
-                    class="form-check-input"
-                    type="radio"
-                    v-model="selectedFormat"
-                    id="formatPem"
-                    value="pem"
-                />
-                <label class="form-check-label fw-bold" for="formatPem">
-                  PEM (.pem)
-                </label>
-                <div class="form-text">
-                  Certificate only in text format
-                </div>
-              </div>
-            </div>
-
-            <div class="mb-3">
-              <div class="form-check">
-                <input
-                    class="form-check-input"
-                    type="radio"
-                    v-model="selectedFormat"
-                    id="formatDer"
-                    value="der"
-                />
-                <label class="form-check-label fw-bold" for="formatDer">
-                  DER (.der)
-                </label>
-                <div class="form-text">
-                  Certificate only in binary format
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="showDownloadModal = false">
-              Cancel
-            </button>
-            <button type="button" class="btn btn-primary" @click="confirmDownload">
-              Download
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- CSR Signing Modal -->
-    <div
-        v-if="showSignCSRModal"
-        class="modal show d-block"
-        tabindex="-1"
-        style="background: rgba(0, 0, 0, 0.5)"
-    >
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">
-              <i class="bi bi-file-earmark-plus me-2"></i>
-              Sign Certificate Signing Request (CSR)
-            </h5>
-            <button type="button" class="btn-close" @click="closeSignCSRModal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="row">
-              <!-- CSR Upload Section -->
-              <div class="col-md-8 mb-4">
-                <h6 class="mb-3">CSR File Upload</h6>
-
-                <!-- Drag & Drop Zone -->
-                <div
-                  class="border border-2 border-dashed rounded p-4 text-center"
-                  :class="csrSignData.csr_file ? 'border-success bg-light' : 'border-primary'"
-                  @dragover.prevent="handleDragOver"
-                  @dragleave.prevent="handleDragLeave"
-                  @drop.prevent="handleFileDrop"
-                  style="cursor: pointer; transition: all 0.2s;"
-                >
-                  <div v-if="!csrSignData.csr_file">
-                    <i class="bi bi-cloud-upload text-primary" style="font-size: 2rem;"></i>
-                    <p class="mb-2 mt-2 fw-bold">Drag & drop your CSR file here</p>
-                    <p class="text-muted small">Or click to browse files</p>
-                    <p class="text-muted small mb-3">Supported formats: .csr, .pem, .der (Max: 100KB)</p>
-                    <input
-                      ref="csrFileInput"
-                      type="file"
-                      class="d-none"
-                      accept=".csr,.pem,.der"
-                      @change="handleFileSelect"
-                    />
-                    <button
-                      type="button"
-                      class="btn btn-outline-primary"
-                      @click="csrFileInput?.click()"
-                    >
-                      <i class="bi bi-folder2-open me-1"></i>
-                      Browse Files
-                    </button>
-                  </div>
-
-                  <!-- File Selected Display -->
-                  <div v-else class="text-success">
-                    <i class="bi bi-check-circle-fill text-success" style="font-size: 2rem;"></i>
-                    <p class="mb-1 mt-2 fw-bold">{{ csrSignData.csr_file.name }}</p>
-                    <p class="text-muted small mb-2">{{ formatFileSize(csrSignData.csr_file.size) }}</p>
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-outline-danger"
-                      @click="clearCSRFile"
-                    >
-                      <i class="bi bi-x me-1"></i>
-                      Remove File
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Processing Status -->
-                <div v-if="csrParsing" class="mt-3">
-                  <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                    Parsing CSR file...
-                  </div>
-                </div>
-              </div>
-
-              <!-- Parameters Section -->
-              <div class="col-md-4">
-                <h6 class="mb-3">Signing Parameters</h6>
-
-                <div class="mb-3">
-                  <label for="csrCaId" class="form-label">Certificate Authority</label>
-                  <select
-                      id="csrCaId"
-                      v-model="csrSignData.ca_id"
-                      class="form-select"
-                      required
-                  >
-                    <option value="" disabled>Select a CA</option>
-                    <option v-for="ca in availableCAs" :key="ca.id" :value="ca.id">
-                      {{ ca.name }} ({{ ca.is_self_signed ? 'Self-Signed' : 'Imported' }})
-                    </option>
-                  </select>
-                </div>
-
-                <div class="mb-3">
-                  <label for="csrUserId" class="form-label">Assign to User</label>
-                  <select
-                      id="csrUserId"
-                      v-model="csrSignData.user_id"
-                      class="form-control"
-                      required
-                  >
-                    <option value="" disabled>Select a user</option>
-                    <option v-for="user in userStore.users" :key="user.id" :value="user.id">
-                      {{ user.name }}
-                    </option>
-                  </select>
-                </div>
-
-                <div class="mb-3">
-                  <label for="csrValidity" class="form-label">Validity Period</label>
-                  <select
-                      id="csrValidity"
-                      v-model="csrSignData.validity_in_days"
-                      class="form-select"
-                  >
-                    <option :value="'365'">1 Year</option>
-                    <option :value="'730'">2 Years</option>
-                    <option :value="'1095'">3 Years</option>
-                    <option :value="'1825'">5 Years</option>
-                  </select>
-                </div>
-
-                <div class="mb-3">
-                  <label for="csrCertType" class="form-label">Certificate Type</label>
-                  <select
-                      id="csrCertType"
-                      v-model="csrSignData.certificate_type"
-                      class="form-select"
-                      required
-                  >
-                    <option value="client">Client Certificate</option>
-                    <option value="server">Server Certificate</option>
-                  </select>
-                  <div v-if="isRootCA" class="form-text text-warning">
-                    <i class="bi bi-exclamation-triangle me-1"></i>
-                    Root CA mode: CSR signing restricted to client/server certificates only.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- CSR Details Preview -->
-            <div v-if="parsedCSRDetails" class="mt-4">
-              <h6 class="mb-3">
-                <i class="bi bi-info-circle me-2"></i>
-                CSR Details Preview
-              </h6>
-
-              <div class="row">
-                <!-- Subject Information -->
-                <div class="col-md-6 mb-3">
-                  <div class="card h-100">
-                    <div class="card-header py-2">
-                      <h6 class="mb-0 small">Subject Information</h6>
-                    </div>
-                    <div class="card-body py-2">
-                      <div class="row g-1">
-                        <div class="col-4 small text-muted">Common Name:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.commonName || 'N/A' }}</div>
-
-                        <div class="col-4 small text-muted">Organization:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.organizationName || 'N/A' }}</div>
-
-                        <div class="col-4 small text-muted">Org Unit:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.organizationalUnitName || 'N/A' }}</div>
-
-                        <div class="col-4 small text-muted">Locality:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.localityName || 'N/A' }}</div>
-
-                        <div class="col-4 small text-muted">State/Province:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.stateOrProvinceName || 'N/A' }}</div>
-
-                        <div class="col-4 small text-muted">Country:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.countryName || 'N/A' }}</div>
-
-                        <div class="col-4 small text-muted">Email:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.emailAddress || 'N/A' }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Certificate Details -->
-                <div class="col-md-6 mb-3">
-                  <div class="card h-100">
-                    <div class="card-header py-2">
-                      <h6 class="mb-0 small">Certificate Details</h6>
-                    </div>
-                    <div class="card-body py-2">
-                      <div class="row g-1">
-                        <div class="col-4 small text-muted">Algorithm:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.algorithm || 'N/A' }}</div>
-
-                        <div class="col-4 small text-muted">Key Size:</div>
-                        <div class="col-8 small fw-mono">{{ parsedCSRDetails.keySize || 'N/A' }}</div>
-
-                        <div class="col-4 small text-muted">Validates:</div>
-                        <div class="col-8 small fw-mono">
-                          {{ parsedCSRDetails.signatureValid ? 'Valid signature ✓' : 'Invalid signature ✗' }}
+                        <div class="col-sm-4">
+                          <strong>Revoked By:</strong>
+                        </div>
+                        <div class="col-sm-8">
+                          {{ userStore.idToName(certificateDetails.revoked_by!) }}
                         </div>
                       </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Subject -->
+            <div class="col-lg-6 mb-4">
+              <div class="card h-100">
+                <div class="card-header">
+                  <h6 class="mb-0">
+                    <i class="bi bi-person me-2" />
+                    Subject
+                  </h6>
+                </div>
+                <div class="card-body">
+                  <pre class="mb-0 text-break small">{{ certificateDetails.subject }}</pre>
+                </div>
+              </div>
+            </div>
+
+            <!-- Issuer -->
+            <div class="col-lg-6 mb-4">
+              <div class="card h-100">
+                <div class="card-header">
+                  <h6 class="mb-0">
+                    <i class="bi bi-building me-2" />
+                    Issuer
+                  </h6>
+                </div>
+                <div class="card-body">
+                  <pre class="mb-0 text-break small">{{ certificateDetails.issuer }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Certificate PEM -->
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">
+                <i class="bi bi-file-earmark-text me-2" />
+                Certificate (PEM Format)
+              </h6>
+              <div class="btn-group btn-group-sm">
+                <button
+                  class="btn btn-outline-secondary"
+                  @click="copyToClipboard((certificateDetails as CertificateDetails).certificate_pem)"
+                >
+                  <i class="bi bi-clipboard me-1" />
+                  Copy
+                </button>
+                <button
+                  class="btn btn-outline-primary"
+                  @click="handleDownload({id: (certificateDetails as CertificateDetails).id, name: (certificateDetails as CertificateDetails).name})"
+                >
+                  <i class="bi bi-download me-1" />
+                  Download
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <pre class="certificate-pem mb-0">{{ (certificateDetails as CertificateDetails).certificate_pem }}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Revocation History Modal -->
+  <RevocationHistoryModal
+    :is-visible="showRevocationHistory"
+    @close="showRevocationHistory = false"
+  />
+
+  <!-- Download Format Selection Modal -->
+  <div
+    v-if="showDownloadModal"
+    class="modal show d-block"
+    tabindex="-1"
+    style="background: rgba(0, 0, 0, 0.5)"
+  >
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            Select Download Format
+          </h5>
+          <button
+            type="button"
+            class="btn-close"
+            @click="showDownloadModal = false"
+          />
+        </div>
+        <div class="modal-body">
+          <p class="text-muted mb-3">
+            Choose the format for downloading the certificate:
+          </p>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input
+                id="formatPkcs12"
+                v-model="selectedFormat"
+                class="form-check-input"
+                type="radio"
+                value="pkcs12"
+              >
+              <label
+                class="form-check-label fw-bold"
+                for="formatPkcs12"
+              >
+                PKCS#12 (.p12)
+              </label>
+              <div class="form-text">
+                Full bundle with certificate, private key, CA chain, and password protection
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input
+                id="formatPemKey"
+                v-model="selectedFormat"
+                class="form-check-input"
+                type="radio"
+                value="pem_key"
+              >
+              <label
+                class="form-check-label fw-bold"
+                for="formatPemKey"
+              >
+                PEM + Key (.zip)
+              </label>
+              <div class="form-text">
+                Separate files: certificate.pem + private_key.key in a ZIP archive
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input
+                id="formatPem"
+                v-model="selectedFormat"
+                class="form-check-input"
+                type="radio"
+                value="pem"
+              >
+              <label
+                class="form-check-label fw-bold"
+                for="formatPem"
+              >
+                PEM (.pem)
+              </label>
+              <div class="form-text">
+                Certificate only in text format
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input
+                id="formatDer"
+                v-model="selectedFormat"
+                class="form-check-input"
+                type="radio"
+                value="der"
+              >
+              <label
+                class="form-check-label fw-bold"
+                for="formatDer"
+              >
+                DER (.der)
+              </label>
+              <div class="form-text">
+                Certificate only in binary format
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="showDownloadModal = false"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            @click="confirmDownload"
+          >
+            Download
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSR Signing Modal -->
+  <div
+    v-if="showSignCSRModal"
+    class="modal show d-block"
+    tabindex="-1"
+    style="background: rgba(0, 0, 0, 0.5)"
+  >
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-file-earmark-plus me-2" />
+            Sign Certificate Signing Request (CSR)
+          </h5>
+          <button
+            type="button"
+            class="btn-close"
+            @click="closeSignCSRModal"
+          />
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <!-- CSR Upload Section -->
+            <div class="col-md-8 mb-4">
+              <h6 class="mb-3">
+                CSR File Upload
+              </h6>
+
+              <!-- Drag & Drop Zone -->
+              <div
+                class="border border-2 border-dashed rounded p-4 text-center"
+                :class="csrSignData.csr_file ? 'border-success bg-light' : 'border-primary'"
+                style="cursor: pointer; transition: all 0.2s;"
+                @dragover.prevent="handleDragOver"
+                @dragleave.prevent="handleDragLeave"
+                @drop.prevent="handleFileDrop"
+              >
+                <div v-if="!csrSignData.csr_file">
+                  <i
+                    class="bi bi-cloud-upload text-primary"
+                    style="font-size: 2rem;"
+                  />
+                  <p class="mb-2 mt-2 fw-bold">
+                    Drag & drop your CSR file here
+                  </p>
+                  <p class="text-muted small">
+                    Or click to browse files
+                  </p>
+                  <p class="text-muted small mb-3">
+                    Supported formats: .csr, .pem, .der (Max: 100KB)
+                  </p>
+                  <input
+                    ref="csrFileInput"
+                    type="file"
+                    class="d-none"
+                    accept=".csr,.pem,.der"
+                    @change="handleFileSelect"
+                  >
+                  <button
+                    type="button"
+                    class="btn btn-outline-primary"
+                    @click="csrFileInput?.click()"
+                  >
+                    <i class="bi bi-folder2-open me-1" />
+                    Browse Files
+                  </button>
+                </div>
+
+                <!-- File Selected Display -->
+                <div
+                  v-else
+                  class="text-success"
+                >
+                  <i
+                    class="bi bi-check-circle-fill text-success"
+                    style="font-size: 2rem;"
+                  />
+                  <p class="mb-1 mt-2 fw-bold">
+                    {{ csrSignData.csr_file.name }}
+                  </p>
+                  <p class="text-muted small mb-2">
+                    {{ formatFileSize(csrSignData.csr_file.size) }}
+                  </p>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-danger"
+                    @click="clearCSRFile"
+                  >
+                    <i class="bi bi-x me-1" />
+                    Remove File
+                  </button>
+                </div>
+              </div>
+
+              <!-- Processing Status -->
+              <div
+                v-if="csrParsing"
+                class="mt-3"
+              >
+                <div class="d-flex align-items-center">
+                  <div
+                    class="spinner-border spinner-border-sm me-2"
+                    role="status"
+                  />
+                  Parsing CSR file...
+                </div>
+              </div>
+            </div>
+
+            <!-- Parameters Section -->
+            <div class="col-md-4">
+              <h6 class="mb-3">
+                Signing Parameters
+              </h6>
+
+              <div class="mb-3">
+                <label
+                  for="csrCaId"
+                  class="form-label"
+                >Certificate Authority</label>
+                <select
+                  id="csrCaId"
+                  v-model="csrSignData.ca_id"
+                  class="form-select"
+                  required
+                >
+                  <option
+                    value=""
+                    disabled
+                  >
+                    Select a CA
+                  </option>
+                  <option
+                    v-for="ca in availableCAs"
+                    :key="ca.id"
+                    :value="ca.id"
+                  >
+                    {{ ca.name }} ({{ ca.is_self_signed ? 'Self-Signed' : 'Imported' }})
+                  </option>
+                </select>
+              </div>
+
+              <div class="mb-3">
+                <label
+                  for="csrUserId"
+                  class="form-label"
+                >Assign to User</label>
+                <select
+                  id="csrUserId"
+                  v-model="csrSignData.user_id"
+                  class="form-control"
+                  required
+                >
+                  <option
+                    value=""
+                    disabled
+                  >
+                    Select a user
+                  </option>
+                  <option
+                    v-for="user in userStore.users"
+                    :key="user.id"
+                    :value="user.id"
+                  >
+                    {{ user.name }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="mb-3">
+                <label
+                  for="csrValidity"
+                  class="form-label"
+                >Validity Period</label>
+                <select
+                  id="csrValidity"
+                  v-model="csrSignData.validity_in_days"
+                  class="form-select"
+                >
+                  <option :value="'365'">
+                    1 Year
+                  </option>
+                  <option :value="'730'">
+                    2 Years
+                  </option>
+                  <option :value="'1095'">
+                    3 Years
+                  </option>
+                  <option :value="'1825'">
+                    5 Years
+                  </option>
+                </select>
+              </div>
+
+              <div class="mb-3">
+                <label
+                  for="csrCertType"
+                  class="form-label"
+                >Certificate Type</label>
+                <select
+                  id="csrCertType"
+                  v-model="csrSignData.certificate_type"
+                  class="form-select"
+                  required
+                >
+                  <option value="client">
+                    Client Certificate
+                  </option>
+                  <option value="server">
+                    Server Certificate
+                  </option>
+                </select>
+                <div
+                  v-if="isRootCA"
+                  class="form-text text-warning"
+                >
+                  <i class="bi bi-exclamation-triangle me-1" />
+                  Root CA mode: CSR signing restricted to client/server certificates only.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CSR Details Preview -->
+          <div
+            v-if="parsedCSRDetails"
+            class="mt-4"
+          >
+            <h6 class="mb-3">
+              <i class="bi bi-info-circle me-2" />
+              CSR Details Preview
+            </h6>
+
+            <div class="row">
+              <!-- Subject Information -->
+              <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                  <div class="card-header py-2">
+                    <h6 class="mb-0 small">
+                      Subject Information
+                    </h6>
+                  </div>
+                  <div class="card-body py-2">
+                    <div class="row g-1">
+                      <div class="col-4 small text-muted">
+                        Common Name:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.commonName || 'N/A' }}
+                      </div>
+
+                      <div class="col-4 small text-muted">
+                        Organization:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.organizationName || 'N/A' }}
+                      </div>
+
+                      <div class="col-4 small text-muted">
+                        Org Unit:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.organizationalUnitName || 'N/A' }}
+                      </div>
+
+                      <div class="col-4 small text-muted">
+                        Locality:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.localityName || 'N/A' }}
+                      </div>
+
+                      <div class="col-4 small text-muted">
+                        State/Province:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.stateOrProvinceName || 'N/A' }}
+                      </div>
+
+                      <div class="col-4 small text-muted">
+                        Country:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.countryName || 'N/A' }}
+                      </div>
+
+                      <div class="col-4 small text-muted">
+                        Email:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.emailAddress || 'N/A' }}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Subject Alternative Names -->
-              <div v-if="parsedCSRDetails.subjectAltNames && parsedCSRDetails.subjectAltNames.length > 0" class="mb-3">
-                <div class="card">
+              <!-- Certificate Details -->
+              <div class="col-md-6 mb-3">
+                <div class="card h-100">
                   <div class="card-header py-2">
-                    <h6 class="mb-0 small">Subject Alternative Names</h6>
+                    <h6 class="mb-0 small">
+                      Certificate Details
+                    </h6>
                   </div>
                   <div class="card-body py-2">
-                    <ul class="list-unstyled mb-0">
-                      <li v-for="san in parsedCSRDetails.subjectAltNames" :key="san" class="small fw-mono">
-                        {{ san }}
-                      </li>
-                    </ul>
+                    <div class="row g-1">
+                      <div class="col-4 small text-muted">
+                        Algorithm:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.algorithm || 'N/A' }}
+                      </div>
+
+                      <div class="col-4 small text-muted">
+                        Key Size:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.keySize || 'N/A' }}
+                      </div>
+
+                      <div class="col-4 small text-muted">
+                        Validates:
+                      </div>
+                      <div class="col-8 small fw-mono">
+                        {{ parsedCSRDetails.signatureValid ? 'Valid signature ✓' : 'Invalid signature ✗' }}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- Error Messages -->
-            <div v-if="csrError" class="alert alert-danger mt-3">
-              <i class="bi bi-exclamation-triangle me-2"></i>
-              {{ csrError }}
+            <!-- Subject Alternative Names -->
+            <div
+              v-if="parsedCSRDetails.subjectAltNames && parsedCSRDetails.subjectAltNames.length > 0"
+              class="mb-3"
+            >
+              <div class="card">
+                <div class="card-header py-2">
+                  <h6 class="mb-0 small">
+                    Subject Alternative Names
+                  </h6>
+                </div>
+                <div class="card-body py-2">
+                  <ul class="list-unstyled mb-0">
+                    <li
+                      v-for="san in parsedCSRDetails.subjectAltNames"
+                      :key="san"
+                      class="small fw-mono"
+                    >
+                      {{ san }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeSignCSRModal">
-              Cancel
-            </button>
-            <button
-                type="button"
-                class="btn btn-primary"
-                :disabled="!csrSignData.csr_file || !csrSignData.ca_id || !csrSignData.user_id || csrSigning"
-                @click="signCSR"
-            >
-              <span v-if="csrSigning">
-                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                Signing CSR...
-              </span>
-              <span v-else>
-                <i class="bi bi-check-circle me-1"></i>
-                Sign CSR & Create Certificate
-              </span>
-            </button>
+
+          <!-- Error Messages -->
+          <div
+            v-if="csrError"
+            class="alert alert-danger mt-3"
+          >
+            <i class="bi bi-exclamation-triangle me-2" />
+            {{ csrError }}
           </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="closeSignCSRModal"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="!csrSignData.csr_file || !csrSignData.ca_id || !csrSignData.user_id || csrSigning"
+            @click="signCSR"
+          >
+            <span v-if="csrSigning">
+              <span
+                class="spinner-border spinner-border-sm me-2"
+                role="status"
+              />
+              Signing CSR...
+            </span>
+            <span v-else>
+              <i class="bi bi-check-circle me-1" />
+              Sign CSR & Create Certificate
+            </span>
+          </button>
         </div>
       </div>
     </div>
+  </div>
 </template>
 <script setup lang="ts">
 import {computed, onMounted, reactive, ref} from 'vue';

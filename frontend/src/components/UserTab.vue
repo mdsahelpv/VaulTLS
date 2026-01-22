@@ -16,14 +16,23 @@
     <div class="card">
       <div class="card-body p-0">
         <!-- Loading and Error states inside card -->
-        <div v-if="userStore.loading" class="alert alert-info m-3">
+        <div
+          v-if="userStore.loading"
+          class="alert alert-info m-3"
+        >
           Loading...
         </div>
-        <div v-else-if="userStore.error" class="alert alert-danger m-3">
+        <div
+          v-else-if="userStore.error"
+          class="alert alert-danger m-3"
+        >
           {{ userStore.error }}
         </div>
         <!-- Users Table -->
-        <div v-else class="table-responsive">
+        <div
+          v-else
+          class="table-responsive"
+        >
           <table class="table table-hover mb-0">
             <thead class="table-light">
               <tr>
@@ -33,98 +42,134 @@
                 <th>Actions</th>
               </tr>
             </thead>
-        <tbody>
-          <tr v-for="user in userStore.users" :key="user.id">
-            <td :id="'UserName-' + user.id">{{ user.name }}</td>
-            <td :id="'UserMail-' + user.id">{{ user.email }}</td>
-            <td :id="'UserRole-' + user.id">{{ UserRole[user.role] }}</td>
-            <td>
-              <button
-                :id="'UserDeletebutton-' + user.id"
-                class="btn btn-danger btn-sm"
-                @click="confirmDeleteUser(user)"
+            <tbody>
+              <tr
+                v-for="user in userStore.users"
+                :key="user.id"
               >
-                Delete
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                <td :id="'UserName-' + user.id">
+                  {{ user.name }}
+                </td>
+                <td :id="'UserMail-' + user.id">
+                  {{ user.email }}
+                </td>
+                <td :id="'UserRole-' + user.id">
+                  {{ UserRole[user.role] }}
+                </td>
+                <td>
+                  <button
+                    :id="'UserDeletebutton-' + user.id"
+                    class="btn btn-danger btn-sm"
+                    @click="confirmDeleteUser(user)"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
 
     <!-- Create User Modal -->
     <div 
-      class="modal fade" 
+      v-if="isCreateModalVisible" 
+      class="modal fade"
       :class="{ 'show d-block': isCreateModalVisible }"
       tabindex="-1"
-      v-if="isCreateModalVisible"
     >
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Create New User</h5>
+            <h5 class="modal-title">
+              Create New User
+            </h5>
             <button 
               type="button" 
               class="btn-close" 
               @click="isCreateModalVisible = false"
-            ></button>
+            />
           </div>
           <div class="modal-body">
             <form @submit.prevent="handleCreateUser">
-              <div v-if="userStore.error" class="alert alert-danger">
+              <div
+                v-if="userStore.error"
+                class="alert alert-danger"
+              >
                 {{ userStore.error }}
               </div>
               <div class="mb-3">
-                <label for="user_name" class="form-label">Username</label>
+                <label
+                  for="user_name"
+                  class="form-label"
+                >Username</label>
                 <input
+                  id="user_name"
+                  v-model="newUser.user_name"
                   type="text"
                   class="form-control"
                   :class="{ 'is-invalid': validationErrors.user_name }"
-                  id="user_name"
-                  v-model="newUser.user_name"
                   maxlength="255"
                   required
                 >
-                <div v-if="validationErrors.user_name" class="invalid-feedback">
+                <div
+                  v-if="validationErrors.user_name"
+                  class="invalid-feedback"
+                >
                   {{ validationErrors.user_name }}
                 </div>
               </div>
               <div class="mb-3">
-                <label for="user_email" class="form-label">E-Mail</label>
+                <label
+                  for="user_email"
+                  class="form-label"
+                >E-Mail</label>
                 <input
-                    type="email"
-                    class="form-control"
-                    :class="{ 'is-invalid': validationErrors.user_email }"
-                    id="user_email"
-                    v-model="newUser.user_email"
-                    maxlength="254"
-                    required
+                  id="user_email"
+                  v-model="newUser.user_email"
+                  type="email"
+                  class="form-control"
+                  :class="{ 'is-invalid': validationErrors.user_email }"
+                  maxlength="254"
+                  required
                 >
-                <div v-if="validationErrors.user_email" class="invalid-feedback">
+                <div
+                  v-if="validationErrors.user_email"
+                  class="invalid-feedback"
+                >
                   {{ validationErrors.user_email }}
                 </div>
               </div>
               <div class="mb-3">
-                <label for="password" class="form-label">Password</label>
+                <label
+                  for="password"
+                  class="form-label"
+                >Password</label>
                 <input 
-                  type="password" 
-                  class="form-control" 
-                  id="password"
-                  v-model="newUser.password"
+                  id="password" 
+                  v-model="newUser.password" 
+                  type="password"
+                  class="form-control"
                 >
               </div>
               <div class="mb-3">
-                <label for="user_role" class="form-label">Role</label>
+                <label
+                  for="user_role"
+                  class="form-label"
+                >Role</label>
                 <select
-                    class="form-select"
-                    id="user_role"
-                    v-model="newUser.role"
-                    required
+                  id="user_role"
+                  v-model="newUser.role"
+                  class="form-select"
+                  required
                 >
-                  <option :value="UserRole.User">User</option>
-                  <option :value="UserRole.Admin">Admin</option>
+                  <option :value="UserRole.User">
+                    User
+                  </option>
+                  <option :value="UserRole.Admin">
+                    Admin
+                  </option>
                 </select>
               </div>
 
@@ -136,7 +181,10 @@
                 >
                   Cancel
                 </button>
-                <button type="submit" class="btn btn-primary">
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                >
                   Create User
                 </button>
               </div>
@@ -147,22 +195,28 @@
     </div>
     <!-- Modal Backdrop -->
     <div 
-      class="modal-backdrop fade show" 
-      v-if="isCreateModalVisible"
-    ></div>
+      v-if="isCreateModalVisible" 
+      class="modal-backdrop fade show"
+    />
 
     <!-- Delete Confirmation Modal -->
     <div
-        v-if="isDeleteModalVisible"
-        class="modal show d-block"
-        tabindex="-1"
-        style="background: rgba(0, 0, 0, 0.5)"
+      v-if="isDeleteModalVisible"
+      class="modal show d-block"
+      tabindex="-1"
+      style="background: rgba(0, 0, 0, 0.5)"
     >
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Delete User</h5>
-            <button type="button" class="btn-close" @click="closeDeleteModal"></button>
+            <h5 class="modal-title">
+              Delete User
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="closeDeleteModal"
+            />
           </div>
           <div class="modal-body">
             <p>
@@ -176,10 +230,18 @@
             </p>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeDeleteModal">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="closeDeleteModal"
+            >
               Cancel
             </button>
-            <button type="button" class="btn btn-danger" @click="deleteUser">
+            <button
+              type="button"
+              class="btn btn-danger"
+              @click="deleteUser"
+            >
               Delete
             </button>
           </div>

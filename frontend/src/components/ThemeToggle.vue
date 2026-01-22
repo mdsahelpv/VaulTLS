@@ -2,17 +2,23 @@
   <div
     class="theme-toggle-slide"
     :class="{ 'dark-mode': isDark }"
-    @click="toggleTheme"
     :title="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
     tabindex="0"
     role="button"
     :aria-pressed="isDark"
+    @click="toggleTheme"
     @keydown.enter="toggleTheme"
     @keydown.space.prevent="toggleTheme"
   >
     <div class="toggle-track">
-      <div class="toggle-thumb" :class="{ 'dark': isDark }">
-        <i :class="iconClass" class="toggle-icon"></i>
+      <div
+        class="toggle-thumb"
+        :class="{ 'dark': isDark }"
+      >
+        <i
+          :class="iconClass"
+          class="toggle-icon"
+        />
       </div>
       <div class="toggle-labels">
         <span class="toggle-label">{{ isDark ? '' : '☀️' }}</span>

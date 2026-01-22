@@ -9,24 +9,41 @@
       <div class="modal-content border-0 shadow-lg">
         <div class="modal-header bg-white border-0">
           <h5 class="modal-title d-flex align-items-center">
-            <i class="bi bi-shield-plus me-2"></i>
+            <i class="bi bi-shield-plus me-2" />
             Generate New Certificate
           </h5>
-          <button type="button" class="btn-close" @click="closeModal"></button>
+          <button
+            type="button"
+            class="btn-close"
+            @click="closeModal"
+          />
         </div>
         <div class="modal-body">
           <!-- Server Error Display -->
-          <div v-if="certificateStore.error" class="alert alert-danger mb-3 d-flex align-items-center">
-            <i class="bi bi-exclamation-octagon-fill me-2 fs-5"></i>
+          <div
+            v-if="certificateStore.error"
+            class="alert alert-danger mb-3 d-flex align-items-center"
+          >
+            <i class="bi bi-exclamation-octagon-fill me-2 fs-5" />
             <div>
-              <div class="fw-bold">Error Creating Certificate</div>
+              <div class="fw-bold">
+                Error Creating Certificate
+              </div>
               <small>{{ certificateStore.error }}</small>
             </div>
-            <button type="button" class="btn-close ms-auto" @click="certificateStore.clearError()" aria-label="Close"></button>
+            <button
+              type="button"
+              class="btn-close ms-auto"
+              aria-label="Close"
+              @click="certificateStore.clearError()"
+            />
           </div>
 
           <div class="mb-3">
-            <label for="certName" class="form-label">Common Name</label>
+            <label
+              for="certName"
+              class="form-label"
+            >Common Name</label>
             <input
               id="certName"
               v-model="certReq.cert_name"
@@ -35,37 +52,73 @@
               :class="{ 'is-invalid': validationErrors.cert_name }"
               placeholder="Enter certificate name"
               maxlength="255"
-            />
-            <div v-if="validationErrors.cert_name" class="invalid-feedback">
+            >
+            <div
+              v-if="validationErrors.cert_name"
+              class="invalid-feedback"
+            >
               {{ validationErrors.cert_name }}
             </div>
           </div>
           <div class="mb-3">
-            <label for="certType" class="form-label">Certificate Type</label>
+            <label
+              for="certType"
+              class="form-label"
+            >Certificate Type</label>
             <select
-              class="form-select"
               id="certType"
               v-model="certReq.cert_type"
+              class="form-select"
               required
             >
-              <option v-if="!isRootCa" :value="CertificateType.Client">Client</option>
-              <option v-if="!isRootCa" :value="CertificateType.Server">Server</option>
-              <option v-if="isRootCa" :value="CertificateType.SubordinateCA">Subordinate CA</option>
+              <option
+                v-if="!isRootCa"
+                :value="CertificateType.Client"
+              >
+                Client
+              </option>
+              <option
+                v-if="!isRootCa"
+                :value="CertificateType.Server"
+              >
+                Server
+              </option>
+              <option
+                v-if="isRootCa"
+                :value="CertificateType.SubordinateCA"
+              >
+                Subordinate CA
+              </option>
             </select>
-            <div v-if="isRootCa" class="form-text text-info">
-              <i class="bi bi-info-circle me-1"></i>
+            <div
+              v-if="isRootCa"
+              class="form-text text-info"
+            >
+              <i class="bi bi-info-circle me-1" />
               Root CA Server mode: Only subordinate CA certificates can be issued.
             </div>
           </div>
           <div class="mb-3">
-            <label for="caId" class="form-label">Certificate Authority (CA)</label>
+            <label
+              for="caId"
+              class="form-label"
+            >Certificate Authority (CA)</label>
             <select
               id="caId"
               v-model="certReq.ca_id"
               class="form-control"
             >
-              <option value="" disabled>Select a CA</option>
-              <option v-for="ca in availableCas" :key="ca.id" :value="ca.id">
+              <option
+                value=""
+                disabled
+              >
+                Select a CA
+              </option>
+              <option
+                v-for="ca in availableCas"
+                :key="ca.id"
+                :value="ca.id"
+              >
                 {{ ca.name }} ({{ ca.is_self_signed ? 'Self-Signed' : 'Imported' }})
               </option>
             </select>
@@ -81,112 +134,185 @@
               type="button"
               @click="advancedConfigExpanded = !advancedConfigExpanded"
             >
-              <i class="bi" :class="advancedConfigExpanded ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+              <i
+                class="bi"
+                :class="advancedConfigExpanded ? 'bi-chevron-up' : 'bi-chevron-down'"
+              />
               Advanced Configuration
             </button>
           </div>
 
           <!-- Advanced Configuration Panel -->
-          <div v-if="advancedConfigExpanded" class="border rounded p-3 mb-3 bg-light">
-            <h6 class="mb-3">Advanced Certificate Configuration</h6>
+          <div
+            v-if="advancedConfigExpanded"
+            class="border rounded p-3 mb-3 bg-light"
+          >
+            <h6 class="mb-3">
+              Advanced Certificate Configuration
+            </h6>
 
             <!-- Cryptographic Parameters -->
             <div class="row mb-3">
               <div class="col-md-4">
-                <label for="keyType" class="form-label">Key Type</label>
+                <label
+                  for="keyType"
+                  class="form-label"
+                >Key Type</label>
                 <select
                   id="keyType"
                   v-model="certReq.key_type"
                   class="form-select"
                 >
-                  <option value="rsa">RSA</option>
-                  <option value="ecdsa">ECDSA</option>
+                  <option value="rsa">
+                    RSA
+                  </option>
+                  <option value="ecdsa">
+                    ECDSA
+                  </option>
                 </select>
               </div>
               <div class="col-md-4">
-                <label for="keySize" class="form-label">Key Size</label>
+                <label
+                  for="keySize"
+                  class="form-label"
+                >Key Size</label>
                 <select
                   id="keySize"
                   v-model="certReq.key_size"
                   class="form-select"
                 >
-                  <option v-if="certReq.key_type === 'rsa'" value="2048">2048 bits</option>
-                  <option v-if="certReq.key_type === 'rsa'" value="3072">3072 bits</option>
-                  <option v-if="certReq.key_type === 'rsa'" value="4096">4096 bits</option>
-                  <option v-if="certReq.key_type === 'ecdsa'" value="256">P-256</option>
-                  <option v-if="certReq.key_type === 'ecdsa'" value="384">P-384</option>
+                  <option
+                    v-if="certReq.key_type === 'rsa'"
+                    value="2048"
+                  >
+                    2048 bits
+                  </option>
+                  <option
+                    v-if="certReq.key_type === 'rsa'"
+                    value="3072"
+                  >
+                    3072 bits
+                  </option>
+                  <option
+                    v-if="certReq.key_type === 'rsa'"
+                    value="4096"
+                  >
+                    4096 bits
+                  </option>
+                  <option
+                    v-if="certReq.key_type === 'ecdsa'"
+                    value="256"
+                  >
+                    P-256
+                  </option>
+                  <option
+                    v-if="certReq.key_type === 'ecdsa'"
+                    value="384"
+                  >
+                    P-384
+                  </option>
                 </select>
               </div>
               <div class="col-md-4">
-                <label for="hashAlgorithm" class="form-label">Hash Algorithm</label>
+                <label
+                  for="hashAlgorithm"
+                  class="form-label"
+                >Hash Algorithm</label>
                 <select
                   id="hashAlgorithm"
                   v-model="certReq.hash_algorithm"
                   class="form-select"
                 >
-                  <option value="sha256">SHA-256</option>
-                  <option value="sha384">SHA-384</option>
-                  <option value="sha512">SHA-512</option>
+                  <option value="sha256">
+                    SHA-256
+                  </option>
+                  <option value="sha384">
+                    SHA-384
+                  </option>
+                  <option value="sha512">
+                    SHA-512
+                  </option>
                 </select>
               </div>
             </div>
 
             <!-- Certificate URLs -->
             <div class="mb-3">
-              <h6 class="mb-2">Certificate URLs</h6>
+              <h6 class="mb-2">
+                Certificate URLs
+              </h6>
               <div class="row">
                 <div class="col-md-4">
-                  <label for="aiaUrl" class="form-label">Authority Information Access (AIA)</label>
+                  <label
+                    for="aiaUrl"
+                    class="form-label"
+                  >Authority Information Access (AIA)</label>
                   <input
                     id="aiaUrl"
                     v-model="certReq.aia_url"
                     type="url"
                     class="form-control"
-                    :placeholder="`${getCurrentBaseUrl()}/api/certificates/ca/download`"
-                  />
-                  <div class="form-text text-muted">URL where CA certificates can be downloaded</div>
+                  >
+                  <div class="form-text text-muted">
+                    URL where CA certificates can be downloaded
+                  </div>
                 </div>
                 <div class="col-md-4">
-                  <label for="ocspUrl" class="form-label">OCSP Responder URL</label>
+                  <label
+                    for="ocspUrl"
+                    class="form-label"
+                  >OCSP Responder URL</label>
                   <input
                     id="ocspUrl"
                     v-model="certReq.ocsp_url"
                     type="url"
                     class="form-control"
-                    :placeholder="`${getCurrentBaseUrl()}/api/certificates/ocsp`"
-                  />
-                  <div class="form-text text-muted">URL for real-time certificate status checking</div>
+                  >
+                  <div class="form-text text-muted">
+                    URL for real-time certificate status checking
+                  </div>
                 </div>
                 <div class="col-md-4">
-                  <label for="cdpUrl" class="form-label">CRL Distribution Point (CDP)</label>
+                  <label
+                    for="cdpUrl"
+                    class="form-label"
+                  >CRL Distribution Point (CDP)</label>
                   <input
                     id="cdpUrl"
                     v-model="certReq.cdp_url"
                     type="url"
                     class="form-control"
-                    :placeholder="`${getCurrentBaseUrl()}/api/certificates/crl`"
-                  />
-                  <div class="form-text text-muted">URL where Certificate Revocation List can be downloaded</div>
+                  >
+                  <div class="form-text text-muted">
+                    URL where Certificate Revocation List can be downloaded
+                  </div>
                 </div>
               </div>
             </div>
 
             <!-- DNS Names (for server certificates) -->
-            <div class="mb-3" v-if="certReq.cert_type === CertificateType.Server">
+            <div
+              v-if="certReq.cert_type === CertificateType.Server"
+              class="mb-3"
+            >
               <label class="form-label">
                 DNS Names
                 <span class="text-danger">*</span>
                 <small class="text-muted">(required for server certificates)</small>
               </label>
-              <div v-for="(_, index) in certReq.dns_names" :key="index" class="mb-2">
+              <div
+                v-for="(_, index) in certReq.dns_names"
+                :key="index"
+                class="mb-2"
+              >
                 <div class="input-group">
                   <input
+                    v-model="certReq.dns_names[index]"
                     type="text"
                     class="form-control"
                     :class="{ 'is-invalid': certReq.cert_type === CertificateType.Server && !hasValidDNSNames }"
-                    v-model="certReq.dns_names[index]"
                     :placeholder="'DNS Name ' + (index + 1)"
-                  />
+                  >
                   <button
                     v-if="index === certReq.dns_names.length - 1"
                     type="button"
@@ -205,7 +331,10 @@
                   </button>
                 </div>
               </div>
-              <div v-if="certReq.cert_type === CertificateType.Server && !hasValidDNSNames" class="invalid-feedback d-block">
+              <div
+                v-if="certReq.cert_type === CertificateType.Server && !hasValidDNSNames"
+                class="invalid-feedback d-block"
+              >
                 At least one DNS name is required for server certificates.
               </div>
             </div>
@@ -213,7 +342,10 @@
 
           <!-- Certificate Validity -->
           <div class="mb-3">
-            <label for="validityYears" class="form-label">Certificate Validity (Years)</label>
+            <label
+              for="validityYears"
+              class="form-label"
+            >Certificate Validity (Years)</label>
             <input
               id="validityYears"
               v-model.number="certReq.validity_in_years"
@@ -222,15 +354,21 @@
               min="1"
               max="10"
               placeholder="1"
-            />
+            >
             <div class="form-text">
               Number of years the certificate will be valid (default: 1 year).
             </div>
           </div>
 
           <!-- Certificate Password -->
-          <div v-if="!isSystemPasswordRule(passwordRule)" class="mb-3">
-            <label for="certPassword" class="form-label">Certificate Password</label>
+          <div
+            v-if="!isSystemPasswordRule(passwordRule)"
+            class="mb-3"
+          >
+            <label
+              for="certPassword"
+              class="form-label"
+            >Certificate Password</label>
             <div class="input-group">
               <input
                 id="certPassword"
@@ -240,25 +378,31 @@
                 :placeholder="certReq.system_generated_password ? 'Will be generated automatically' : 'Enter password'"
                 :disabled="certReq.system_generated_password"
                 :required="passwordRule === PasswordRule.Required"
-              />
+              >
               <button
                 class="btn btn-outline-secondary"
                 type="button"
                 @click="showPassword = !showPassword"
               >
-                <i class="bi" :class="showPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
+                <i
+                  class="bi"
+                  :class="showPassword ? 'bi-eye-slash' : 'bi-eye'"
+                />
               </button>
             </div>
             <div class="form-check form-switch mt-2">
               <input
-                type="checkbox"
-                class="form-check-input"
                 id="systemGeneratedPassword"
                 v-model="certReq.system_generated_password"
+                type="checkbox"
+                class="form-check-input"
                 role="switch"
                 :disabled="isSystemPasswordRule(passwordRule)"
-              />
-              <label class="form-check-label" for="systemGeneratedPassword">
+              >
+              <label
+                class="form-check-label"
+                for="systemGeneratedPassword"
+              >
                 System Generated Password
               </label>
             </div>
@@ -266,14 +410,26 @@
 
           <!-- User Assignment -->
           <div class="mb-3">
-            <label for="userId" class="form-label">Assign to User</label>
+            <label
+              for="userId"
+              class="form-label"
+            >Assign to User</label>
             <select
               id="userId"
               v-model.number="certReq.user_id"
               class="form-control"
             >
-              <option value="0" disabled>Select a user</option>
-              <option v-for="user in users" :key="user.id" :value="user.id">
+              <option
+                value="0"
+                disabled
+              >
+                Select a user
+              </option>
+              <option
+                v-for="user in users"
+                :key="user.id"
+                :value="user.id"
+              >
                 {{ user.name }} ({{ user.email }})
               </option>
             </select>
@@ -283,21 +439,30 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" @click="closeModal">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="closeModal"
+          >
+            Cancel
+          </button>
           <button
             type="button"
             class="btn btn-primary"
-            @click="generateCertificate"
             :disabled="!canGenerateCertificate"
             :title="!canGenerateCertificate ? 'Please fill in all required fields (Name, Type, CA, and DNS Names for Server certs)' : 'Generate new certificate'"
+            @click="generateCertificate"
           >
-            <i class="bi bi-plus-circle me-1"></i>
+            <i class="bi bi-plus-circle me-1" />
             Generate Certificate
           </button>
         </div>
-        <div v-if="!canGenerateCertificate" class="text-end mt-1 px-3 pb-3">
+        <div
+          v-if="!canGenerateCertificate"
+          class="text-end mt-1 px-3 pb-3"
+        >
           <small class="text-danger fw-bold">
-            <i class="bi bi-exclamation-triangle me-1"></i>
+            <i class="bi bi-exclamation-triangle me-1" />
             Missing: 
             <span v-if="!certReq.cert_name.trim()">Common Name, </span>
             <span v-if="certReq.ca_id === undefined">CA Selection, </span>
@@ -338,6 +503,12 @@ interface Emits {
 const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
+// Function to get current base URL
+const getCurrentBaseUrl = () => {
+  const origin = window.location.origin;
+  return origin || 'http://localhost:8000';
+};
+
 // Reactive data
 const certReq = ref<CertificateRequirements>({
   cert_name: '',
@@ -353,9 +524,9 @@ const certReq = ref<CertificateRequirements>({
   key_type: 'rsa',
   key_size: '4096',
   hash_algorithm: 'sha256',
-  aia_url: '',
-  ocsp_url: '',
-  cdp_url: '',
+  aia_url: `${getCurrentBaseUrl()}/api/certificates/ca/download`,
+  ocsp_url: `${getCurrentBaseUrl()}/ocsp`,
+  cdp_url: `${getCurrentBaseUrl()}/api/certificates/crl`,
 });
 
 const showPassword = ref(false);
@@ -390,6 +561,29 @@ watch(() => props.isRootCa, (isRoot) => {
     certReq.value.cert_type = CertificateType.SubordinateCA;
   } else if (certReq.value.cert_type === CertificateType.SubordinateCA) {
     certReq.value.cert_type = CertificateType.Client;
+  }
+}, { immediate: true });
+
+// Watch for CA selection changes to update URLs
+watch(() => certReq.value.ca_id, (newCaId) => {
+  if (newCaId) {
+    // Handle both string and number types for CA ID
+    const caIdToFind = typeof newCaId === 'string' ? parseInt(newCaId, 10) : newCaId;
+    const selectedCa = props.availableCas.find(ca => ca.id === caIdToFind);
+
+    if (selectedCa) {
+      // Update AIA URL to CA-specific URL or fallback to generic
+      certReq.value.aia_url = selectedCa.aia_url || `${getCurrentBaseUrl()}/api/certificates/ca/download`;
+      // Update CDP URL to CA-specific URL (includes CA ID) or fallback to generic with CA ID
+      certReq.value.cdp_url = selectedCa.cdp_url || `${getCurrentBaseUrl()}/api/certificates/crl/${caIdToFind}`;
+      // OCSP URL remains global (not CA-specific)
+      certReq.value.ocsp_url = `${getCurrentBaseUrl()}/ocsp`;
+    } else {
+      // Fallback to generic URLs if CA not found
+      certReq.value.aia_url = `${getCurrentBaseUrl()}/api/certificates/ca/download`;
+      certReq.value.cdp_url = `${getCurrentBaseUrl()}/api/certificates/crl`;
+      certReq.value.ocsp_url = `${getCurrentBaseUrl()}/ocsp`;
+    }
   }
 }, { immediate: true });
 
@@ -437,9 +631,9 @@ const resetForm = () => {
     key_type: 'rsa',
     key_size: '4096',
     hash_algorithm: 'sha256',
-    aia_url: '',
-    ocsp_url: '',
-    cdp_url: '',
+    aia_url: `${getCurrentBaseUrl()}/api/certificates/ca/download`,
+    ocsp_url: `${getCurrentBaseUrl()}/ocsp`,
+    cdp_url: `${getCurrentBaseUrl()}/api/certificates/crl`,
   };
   showPassword.value = false;
   advancedConfigExpanded.value = false;
@@ -467,12 +661,6 @@ const generateCertificate = async () => {
   } catch (error) {
     console.error('Failed to generate certificate:', error);
   }
-};
-
-// Function to get current base URL
-const getCurrentBaseUrl = () => {
-  const origin = window.location.origin;
-  return origin || 'http://localhost:8000';
 };
 
 // Watch for certificate name changes and sanitize in real-time

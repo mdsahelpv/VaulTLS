@@ -4,8 +4,12 @@
       {{ firstLetter }}
     </div>
     <div class="profile-info">
-      <div class="profile-name">{{ authStore.current_user?.name }}</div>
-      <div class="profile-email">{{ formatEmail(authStore.current_user?.email) }}</div>
+      <div class="profile-name">
+        {{ authStore.current_user?.name }}
+      </div>
+      <div class="profile-email">
+        {{ formatEmail(authStore.current_user?.email) }}
+      </div>
     </div>
   </div>
 </template>

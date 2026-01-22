@@ -30,6 +30,4 @@ export interface CA {
     cdp_url?: string;              // Certificate Revocation List Distribution Point URL
 }
 
-export interface CAAndCertificate extends CA {
-    // Additional fields that may come from the CA + Certificate combination
-}
+export type CAAndCertificate = CA;

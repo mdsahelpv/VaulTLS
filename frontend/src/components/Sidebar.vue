@@ -2,25 +2,25 @@
   <div>
     <!-- Always visible toggle button when sidebar is hidden -->
     <button
-        v-if="!visible"
-        class="sidebar-toggle btn btn-primary d-lg-none"
-        @click="toggleSidebar"
-        :style="{ left: '10px' }"
+      v-if="!visible"
+      class="sidebar-toggle btn btn-primary d-lg-none"
+      :style="{ left: '10px' }"
+      @click="toggleSidebar"
     >
-      <i class="bi bi-list"></i>
+      <i class="bi bi-list" />
     </button>
 
     <!-- Sidebar Backdrop (Mobile Only) -->
     <div
-        class="sidebar-backdrop"
-        :class="{ 'd-block': visible && isMobile }"
-        @click="toggleSidebar"
-    ></div>
+      class="sidebar-backdrop"
+      :class="{ 'd-block': visible && isMobile }"
+      @click="toggleSidebar"
+    />
 
     <!-- Sidebar Content -->
     <div
-        class="sidebar shadow-lg rounded-end d-flex flex-column"
-        :class="{ 'sidebar-visible': visible, 'sidebar-hidden': !visible }"
+      class="sidebar shadow-lg rounded-end d-flex flex-column"
+      :class="{ 'sidebar-visible': visible, 'sidebar-hidden': !visible }"
     >
       <ProfileCard />
 
@@ -33,50 +33,59 @@
         <ul class="nav flex-column flex-grow-1">
           <li class="nav-item mb-2">
             <a
-                href="#"
-                class="nav-link d-flex align-items-center gap-2"
-                :class="{ active: activeRouteName === 'Overview' }"
-                @click.prevent="goToRoute('Overview')"
+              href="#"
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeRouteName === 'Overview' }"
+              @click.prevent="goToRoute('Overview')"
             >
               Overview
             </a>
           </li>
           <li class="nav-item mb-2">
             <a
-                href="#"
-                class="nav-link d-flex align-items-center gap-2"
-                :class="{ active: activeRouteName === 'CA' }"
-                @click.prevent="goToRoute('CA')"
+              href="#"
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeRouteName === 'CA' }"
+              @click.prevent="goToRoute('CA')"
             >
               CA Tools
             </a>
           </li>
-          <li v-if="isAdmin" class="nav-item mb-2">
+          <li
+            v-if="isAdmin"
+            class="nav-item mb-2"
+          >
             <a
-                href="#"
-                class="nav-link d-flex align-items-center gap-2"
-                :class="{ active: activeRouteName === 'Users' }"
-                @click.prevent="goToRoute('Users')"
+              href="#"
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeRouteName === 'Users' }"
+              @click.prevent="goToRoute('Users')"
             >
               Users
             </a>
           </li>
-          <li v-if="isAdmin" class="nav-item mb-2">
+          <li
+            v-if="isAdmin"
+            class="nav-item mb-2"
+          >
             <a
-                href="#"
-                class="nav-link d-flex align-items-center gap-2"
-                :class="{ active: activeRouteName === 'CRL' }"
-                @click.prevent="goToRoute('CRL')"
+              href="#"
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeRouteName === 'CRL' }"
+              @click.prevent="goToRoute('CRL')"
             >
               CRL / OCSP
             </a>
           </li>
-          <li v-if="isAdmin" class="nav-item mb-2">
+          <li
+            v-if="isAdmin"
+            class="nav-item mb-2"
+          >
             <a
-                href="#"
-                class="nav-link d-flex align-items-center gap-2"
-                :class="{ active: activeRouteName === 'Audit' }"
-                @click.prevent="goToRoute('Audit')"
+              href="#"
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeRouteName === 'Audit' }"
+              @click.prevent="goToRoute('Audit')"
             >
               Audit Logs
             </a>
@@ -84,10 +93,10 @@
 
           <li class="nav-item">
             <a
-                href="#"
-                class="nav-link d-flex align-items-center gap-2"
-                :class="{ active: activeRouteName === 'Settings' }"
-                @click.prevent="goToRoute('Settings')"
+              href="#"
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeRouteName === 'Settings' }"
+              @click.prevent="goToRoute('Settings')"
             >
               Settings
             </a>
@@ -96,9 +105,9 @@
       </div>
       <div class="p-3">
         <a
-            href="#"
-            class="nav-link logout-link d-flex align-items-center gap-2"
-            @click="handleLogout"
+          href="#"
+          class="nav-link logout-link d-flex align-items-center gap-2"
+          @click="handleLogout"
         >
           Logout
         </a>

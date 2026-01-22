@@ -1,49 +1,63 @@
 <template>
   <div class="container d-flex justify-content-center align-items-center min-vh-100 py-4">
-    <div class="card p-4 shadow" style="max-width: 750px; width: 100%; max-height: 90vh; overflow-y: auto;">
-      <h1 class="text-center mb-4">SETUP</h1>
+    <div
+      class="card p-4 shadow"
+      style="max-width: 750px; width: 100%; max-height: 90vh; overflow-y: auto;"
+    >
+      <h1 class="text-center mb-4">
+        SETUP
+      </h1>
 
       <!-- Show notice if OIDC is enabled -->
-      <div v-if="setupStore.oidcUrl" class="alert alert-info text-center">
+      <div
+        v-if="setupStore.oidcUrl"
+        class="alert alert-info text-center"
+      >
         OAuth (OIDC) is configured. You can still set a password for local login if desired.
       </div>
 
       <form @submit.prevent="setupPassword">
         <div class="mb-3">
-          <label for="username" class="form-label">Username</label>
+          <label
+            for="username"
+            class="form-label"
+          >Username</label>
           <input
-              id="username"
-              type="text"
-              v-model="username"
-              class="form-control"
-              required
-          />
+            id="username"
+            v-model="username"
+            type="text"
+            class="form-control"
+            required
+          >
         </div>
 
         <!-- Password field moved here, next to username -->
         <div class="mb-3">
-          <label for="password" class="form-label">Password</label>
+          <label
+            for="password"
+            class="form-label"
+          >Password</label>
           <div class="input-group">
             <input
-                id="password"
-                :type="showPassword ? 'text' : 'password'"
-                v-model="password"
-                class="form-control"
-                autocomplete="new-password"
-                :required="!setupStore.oidcUrl"
-            />
+              id="password"
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              class="form-control"
+              autocomplete="new-password"
+              :required="!setupStore.oidcUrl"
+            >
             <button
-                class="btn btn-outline-secondary"
-                type="button"
-                @click="showPassword = !showPassword"
-                tabindex="-1"
+              class="btn btn-outline-secondary"
+              type="button"
+              tabindex="-1"
+              @click="showPassword = !showPassword"
             >
               <img
-                  :src="`/images/${showPassword ? 'eye-hidden' : 'eye-open'}.png`"
-                  alt="Toggle password visibility"
-                  width="16"
-                  height="16"
-              />
+                :src="`/images/${showPassword ? 'eye-hidden' : 'eye-open'}.png`"
+                alt="Toggle password visibility"
+                width="16"
+                height="16"
+              >
             </button>
           </div>
           <small class="text-muted">
@@ -52,49 +66,61 @@
         </div>
 
         <div class="mb-3">
-          <label for="email" class="form-label">E-Mail</label>
+          <label
+            for="email"
+            class="form-label"
+          >E-Mail</label>
           <input
-              id="email"
-              type="email"
-              v-model="email"
-              class="form-control"
-              maxlength="254"
-              required
-          />
+            id="email"
+            v-model="email"
+            type="email"
+            class="form-control"
+            maxlength="254"
+            required
+          >
         </div>
 
         <div class="mb-3">
           <label class="form-label">Certificate Authority</label>
           <div class="form-check">
             <input
-                class="form-check-input"
-                type="radio"
-                id="ca_type_upload"
-                value="upload"
-                v-model="ca_type"
-                required
-            />
-            <label class="form-check-label" for="ca_type_upload">
+              id="ca_type_upload"
+              v-model="ca_type"
+              class="form-check-input"
+              type="radio"
+              value="upload"
+              required
+            >
+            <label
+              class="form-check-label"
+              for="ca_type_upload"
+            >
               Upload Existing CA
             </label>
           </div>
           <div class="form-check">
             <input
-                class="form-check-input"
-                type="radio"
-                id="ca_type_self_signed"
-                value="self_signed"
-                v-model="ca_type"
-                required
-            />
-            <label class="form-check-label" for="ca_type_self_signed">
+              id="ca_type_self_signed"
+              v-model="ca_type"
+              class="form-check-input"
+              type="radio"
+              value="self_signed"
+              required
+            >
+            <label
+              class="form-check-label"
+              for="ca_type_self_signed"
+            >
               Create Root CA
             </label>
           </div>
         </div>
 
         <!-- Root CA Server Mode -->
-        <div v-if="ca_type === 'self_signed'" class="mb-3">
+        <div
+          v-if="ca_type === 'self_signed'"
+          class="mb-3"
+        >
           <div class="form-check">
             <!-- <input
                 class="form-check-input"
@@ -102,7 +128,10 @@
                 id="is_root_ca"
                 v-model="is_root_ca"
             /> -->
-            <label class="form-check-label" for="is_root_ca">
+            <label
+              class="form-check-label"
+              for="is_root_ca"
+            >
               <strong>SubCA signing Only</strong>
             </label>
             <div class="form-text">
@@ -113,150 +142,187 @@
 
         <!-- Distinguished Name Configuration for Root CA -->
         <div v-if="ca_type === 'self_signed'">
-          <h6 class="mb-3">Certificate Authority Configuration</h6>
+          <h6 class="mb-3">
+            Certificate Authority Configuration
+          </h6>
 
           <!-- Distinguished Name Fields -->
           <div class="row">
             <div class="col-md-6 mb-3">
-              <label for="countryName" class="form-label">Country Name (2 letter code)</label>
+              <label
+                for="countryName"
+                class="form-label"
+              >Country Name (2 letter code)</label>
               <input
-                  type="text"
-                  class="form-control"
-                  id="countryName"
-                  v-model="countryName"
-                  required
-                  maxlength="2"
-                  placeholder="QA"
-              />
+                id="countryName"
+                v-model="countryName"
+                type="text"
+                class="form-control"
+                required
+                maxlength="2"
+                placeholder="QA"
+              >
             </div>
             <div class="col-md-6 mb-3">
-              <label for="stateOrProvinceName" class="form-label">State or Province Name</label>
+              <label
+                for="stateOrProvinceName"
+                class="form-label"
+              >State or Province Name</label>
               <input
-                  type="text"
-                  class="form-control"
-                  id="stateOrProvinceName"
-                  v-model="stateOrProvinceName"
-                  required
-                  placeholder="Doha"
-              />
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="col-md-6 mb-3">
-              <label for="localityName" class="form-label">Locality Name</label>
-              <input
-                  type="text"
-                  class="form-control"
-                  id="localityName"
-                  v-model="localityName"
-                  required
-                  placeholder="Bin Omran"
-              />
-            </div>
-            <div class="col-md-6 mb-3">
-              <label for="organizationName" class="form-label">Organization Name</label>
-              <input
-                  type="text"
-                  class="form-control"
-                  id="organizationName"
-                  v-model="organizationName"
-                  required
-                  placeholder="Your Organization"
-              />
+                id="stateOrProvinceName"
+                v-model="stateOrProvinceName"
+                type="text"
+                class="form-control"
+                required
+                placeholder="Doha"
+              >
             </div>
           </div>
 
           <div class="row">
             <div class="col-md-6 mb-3">
-              <label for="organizationalUnitName" class="form-label">Organizational Unit (Optional)</label>
+              <label
+                for="localityName"
+                class="form-label"
+              >Locality Name</label>
               <input
-                  type="text"
-                  class="form-control"
-                  id="organizationalUnitName"
-                  v-model="organizationalUnitName"
-                  placeholder="IT Department"
-              />
+                id="localityName"
+                v-model="localityName"
+                type="text"
+                class="form-control"
+                required
+                placeholder="Bin Omran"
+              >
             </div>
             <div class="col-md-6 mb-3">
-              <label for="commonName" class="form-label">Common Name</label>
+              <label
+                for="organizationName"
+                class="form-label"
+              >Organization Name</label>
               <input
-                  type="text"
-                  class="form-control"
-                  id="commonName"
-                  v-model="commonName"
-                  required
-                  placeholder="rootca.yourdomain.com"
-              />
+                id="organizationName"
+                v-model="organizationName"
+                type="text"
+                class="form-control"
+                required
+                placeholder="Your Organization"
+              >
             </div>
           </div>
 
           <div class="row">
             <div class="col-md-6 mb-3">
-              <label for="emailAddress" class="form-label">Email Address</label>
+              <label
+                for="organizationalUnitName"
+                class="form-label"
+              >Organizational Unit (Optional)</label>
               <input
-                  type="email"
-                  class="form-control"
-                  id="emailAddress"
-                  v-model="emailAddress"
-                  required
-                  placeholder="pki@yourdomain.com"
-              />
+                id="organizationalUnitName"
+                v-model="organizationalUnitName"
+                type="text"
+                class="form-control"
+                placeholder="IT Department"
+              >
             </div>
             <div class="col-md-6 mb-3">
-              <label for="ca_validity_in_years" class="form-label">Validity (Years)</label>
+              <label
+                for="commonName"
+                class="form-label"
+              >Common Name</label>
               <input
-                  type="number"
-                  class="form-control"
-                  id="ca_validity_in_years"
-                  v-model.number="ca_validity_in_years"
-                  required
-                  min="1"
-                  max="30"
-              />
+                id="commonName"
+                v-model="commonName"
+                type="text"
+                class="form-control"
+                required
+                placeholder="rootca.yourdomain.com"
+              >
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label
+                for="emailAddress"
+                class="form-label"
+              >Email Address</label>
+              <input
+                id="emailAddress"
+                v-model="emailAddress"
+                type="email"
+                class="form-control"
+                required
+                placeholder="pki@yourdomain.com"
+              >
+            </div>
+            <div class="col-md-6 mb-3">
+              <label
+                for="ca_validity_in_years"
+                class="form-label"
+              >Validity (Years)</label>
+              <input
+                id="ca_validity_in_years"
+                v-model.number="ca_validity_in_years"
+                type="number"
+                class="form-control"
+                required
+                min="1"
+                max="30"
+              >
             </div>
           </div>
 
           <div class="mb-3">
-            <label for="ca_name" class="form-label">CA Display Name (Optional)</label>
+            <label
+              for="ca_name"
+              class="form-label"
+            >CA Display Name (Optional)</label>
             <input
-                type="text"
-                class="form-control"
-                id="ca_name"
-                v-model="ca_name"
-                placeholder="Defaults to Common Name if left empty"
-            />
+              id="ca_name"
+              v-model="ca_name"
+              type="text"
+              class="form-control"
+              placeholder="Defaults to Common Name if left empty"
+            >
             <small class="text-muted">Optional display name for the CA. If left empty, the Common Name will be used.</small>
           </div>
 
           <!-- Advanced CA Configuration -->
-          <h6 class="mb-3 mt-4">Advanced CA Configuration</h6>
+          <h6 class="mb-3 mt-4">
+            Advanced CA Configuration
+          </h6>
 
           <div class="mb-3">
             <label class="form-label">Key Type</label>
             <div class="form-check">
               <input
-                  class="form-check-input"
-                  type="radio"
-                  id="keyTypeRSA"
-                  value="RSA"
-                  v-model="keyType"
-                  required
-              />
-              <label class="form-check-label" for="keyTypeRSA">
+                id="keyTypeRSA"
+                v-model="keyType"
+                class="form-check-input"
+                type="radio"
+                value="RSA"
+                required
+              >
+              <label
+                class="form-check-label"
+                for="keyTypeRSA"
+              >
                 RSA
               </label>
             </div>
             <div class="form-check">
               <input
-                  class="form-check-input"
-                  type="radio"
-                  id="keyTypeECDSA"
-                  value="ECDSA"
-                  v-model="keyType"
-                  required
-              />
-              <label class="form-check-label" for="keyTypeECDSA">
+                id="keyTypeECDSA"
+                v-model="keyType"
+                class="form-check-input"
+                type="radio"
+                value="ECDSA"
+                required
+              >
+              <label
+                class="form-check-label"
+                for="keyTypeECDSA"
+              >
                 ECDSA
               </label>
             </div>
@@ -264,173 +330,271 @@
 
           <div class="row">
             <div class="col-md-6 mb-3">
-              <label for="keySize" class="form-label">Key Size</label>
+              <label
+                for="keySize"
+                class="form-label"
+              >Key Size</label>
               <select
-                  class="form-select"
-                  id="keySize"
-                  v-model="keySize"
-                  required
+                id="keySize"
+                v-model="keySize"
+                class="form-select"
+                required
               >
-                <option v-if="keyType === 'RSA'" value="2048">2048</option>
-                <option v-if="keyType === 'RSA'" value="4096">4096</option>
-                <option v-if="keyType === 'ECDSA'" value="P-256">P-256</option>
-                <option v-if="keyType === 'ECDSA'" value="P-521">P-521</option>
+                <option
+                  v-if="keyType === 'RSA'"
+                  value="2048"
+                >
+                  2048
+                </option>
+                <option
+                  v-if="keyType === 'RSA'"
+                  value="4096"
+                >
+                  4096
+                </option>
+                <option
+                  v-if="keyType === 'ECDSA'"
+                  value="P-256"
+                >
+                  P-256
+                </option>
+                <option
+                  v-if="keyType === 'ECDSA'"
+                  value="P-521"
+                >
+                  P-521
+                </option>
               </select>
             </div>
             <div class="col-md-6 mb-3">
-              <label for="hashAlgorithm" class="form-label">Hash Algorithm</label>
+              <label
+                for="hashAlgorithm"
+                class="form-label"
+              >Hash Algorithm</label>
               <select
-                  class="form-select"
-                  id="hashAlgorithm"
-                  v-model="hashAlgorithm"
-                  required
+                id="hashAlgorithm"
+                v-model="hashAlgorithm"
+                class="form-select"
+                required
               >
-                <option value="sha256">SHA-256</option>
-                <option value="sha512">SHA-512</option>
+                <option value="sha256">
+                  SHA-256
+                </option>
+                <option value="sha512">
+                  SHA-512
+                </option>
               </select>
             </div>
           </div>
 
           <div class="row">
             <div class="col-md-6 mb-3">
-              <label for="crlValidityDays" class="form-label">CRL Validity (days)</label>
+              <label
+                for="crlValidityDays"
+                class="form-label"
+              >CRL Validity (days)</label>
               <input
-                  type="number"
-                  class="form-control"
-                  id="crlValidityDays"
-                  v-model.number="crlValidityDays"
-                  required
-                  min="1"
-                  max="365"
-              />
+                id="crlValidityDays"
+                v-model.number="crlValidityDays"
+                type="number"
+                class="form-control"
+                required
+                min="1"
+                max="365"
+              >
             </div>
             <div class="col-md-6 mb-3">
-              <label for="pathLength" class="form-label">Maximum intermediate CA levels</label>
+              <label
+                for="pathLength"
+                class="form-label"
+              >Maximum intermediate CA levels</label>
               <input
-                  type="number"
-                  class="form-control"
-                  id="pathLength"
-                  v-model.number="pathLength"
-                  required
-                  min="0"
-                  max="10"
-              />
+                id="pathLength"
+                v-model.number="pathLength"
+                type="number"
+                class="form-control"
+                required
+                min="0"
+                max="10"
+              >
               <!-- <small class="text-muted">Maximum number of intermediate CA levels</small> -->
             </div>
           </div>
 
           <div class="mb-3">
-            <label for="aiaUrl" class="form-label">AIA URL (where CA certificate can be downloaded)</label>
+            <label
+              for="aiaUrl"
+              class="form-label"
+            >AIA URL (where CA certificate can be downloaded)</label>
             <input
-                type="url"
-                class="form-control"
-                id="aiaUrl"
-                v-model="aiaUrl"
-                :placeholder="`${getCurrentBaseUrl()}/api/certificates/ca/download`"
-            />
+              id="aiaUrl"
+              v-model="aiaUrl"
+              type="url"
+              class="form-control"
+              :placeholder="`${getCurrentBaseUrl()}/api/certificates/ca/download`"
+            >
             <small class="text-muted">Optional. Used by clients to download the CA certificate.</small>
           </div>
 
           <div class="mb-3">
-            <label for="cdpUrl" class="form-label">CDP URL (where Certificate Revocation List can be downloaded)</label>
+            <label
+              for="cdpUrl"
+              class="form-label"
+            >CDP URL (where Certificate Revocation List can be downloaded)</label>
             <input
-                type="url"
-                class="form-control"
-                id="cdpUrl"
-                v-model="cdpUrl"
-                :placeholder="`${getCurrentBaseUrl()}/api/certificates/crl`"
-            />
+              id="cdpUrl"
+              v-model="cdpUrl"
+              type="url"
+              class="form-control"
+              :placeholder="`${getCurrentBaseUrl()}/api/certificates/crl`"
+            >
             <!-- <small class="text-muted">URL where Certificate Revocation List can be downloaded</small> -->
           </div>
 
           <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>
+            <i class="bi bi-info-circle me-2" />
             These settings configure the Distinguished Name (DN) and advanced certificate extensions for your Root CA certificate, following standard X.509 certificate practices. Default values are loaded from the OpenSSL configuration.
           </div>
         </div>
 
-        <div v-if="ca_type === 'upload'" class="mb-3">
+        <div
+          v-if="ca_type === 'upload'"
+          class="mb-3"
+        >
           <div class="file-input-wrapper">
             <input
-                id="pfx_file"
-                type="file"
-                @change="handleFileChange"
-                class="form-control file-input-hidden"
-                accept=".pfx,.p12"
-                required
-            />
+              id="pfx_file"
+              type="file"
+              class="form-control file-input-hidden"
+              accept=".pfx,.p12"
+              required
+              @change="handleFileChange"
+            >
             <div class="file-input-custom">
-              <button type="button" class="btn btn-outline-secondary btn-sm me-2" @click="triggerFileInput">Select</button>
+              <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm me-2"
+                @click="triggerFileInput"
+              >
+                Select
+              </button>
               <span class="file-input-text">{{ selectedFileName || 'Upload CA certificate in PKCS12 (.pfx/.p12) format' }}</span>
             </div>
           </div>
         </div>
 
-        <div v-if="ca_type === 'upload'" class="mb-3">
-          <label for="pfx_password" class="form-label">PFX Password</label>
+        <div
+          v-if="ca_type === 'upload'"
+          class="mb-3"
+        >
+          <label
+            for="pfx_password"
+            class="form-label"
+          >PFX Password</label>
           <div class="input-group">
             <input
-                id="pfx_password"
-                :type="showPfxPassword ? 'text' : 'password'"
-                v-model="pfx_password"
-                class="form-control"
-                placeholder="Enter Password (leave empty if none)"
-            />
+              id="pfx_password"
+              v-model="pfx_password"
+              :type="showPfxPassword ? 'text' : 'password'"
+              class="form-control"
+              placeholder="Enter Password (leave empty if none)"
+            >
             <button
-                class="btn btn-outline-secondary"
-                type="button"
-                @click="showPfxPassword = !showPfxPassword"
-                tabindex="-1"
+              class="btn btn-outline-secondary"
+              type="button"
+              tabindex="-1"
+              @click="showPfxPassword = !showPfxPassword"
             >
               <img
-                  :src="`/images/${showPfxPassword ? 'eye-hidden' : 'eye-open'}.png`"
-                  alt="Toggle PFX password visibility"
-                  width="16"
-                  height="16"
-              />
+                :src="`/images/${showPfxPassword ? 'eye-hidden' : 'eye-open'}.png`"
+                alt="Toggle PFX password visibility"
+                width="16"
+                height="16"
+              >
             </button>
           </div>
         </div>
 
         <!-- Certificate Validation for Upload Option -->
-        <div v-if="ca_type === 'upload'" class="mb-3">
+        <div
+          v-if="ca_type === 'upload'"
+          class="mb-3"
+        >
           <button
-              type="button"
-              @click="validateCertificate"
-              :disabled="!pfx_file || isValidating"
-              class="btn btn-outline-secondary me-2"
+            type="button"
+            :disabled="!pfx_file || isValidating"
+            class="btn btn-outline-secondary me-2"
+            @click="validateCertificate"
           >
-            <span v-if="isValidating" class="spinner-border spinner-border-sm me-2" role="status"></span>
+            <span
+              v-if="isValidating"
+              class="spinner-border spinner-border-sm me-2"
+              role="status"
+            />
             {{ isValidating ? 'Validating...' : 'Validate Certificate' }}
           </button>
           <small class="text-muted">Validate your PKCS#12 file before proceeding with setup</small>
-          <div v-if="validationStatus === 'success' && !detailedValidation.validations" class="alert alert-success mt-2">
-            <i class="bi bi-check-circle me-2"></i>Certificate validated successfully!
+          <div
+            v-if="validationStatus === 'success' && !detailedValidation.validations"
+            class="alert alert-success mt-2"
+          >
+            <i class="bi bi-check-circle me-2" />Certificate validated successfully!
           </div>
-          <div v-else-if="validationStatus === 'success' && detailedValidation.validations" class="alert alert-success mt-2">
-            <i class="bi bi-check-circle me-2"></i>
+          <div
+            v-else-if="validationStatus === 'success' && detailedValidation.validations"
+            class="alert alert-success mt-2"
+          >
+            <i class="bi bi-check-circle me-2" />
             <strong>Certificate Validated Successfully!</strong>
             <div class="mt-2">
               <small class="text-success">Validation completed with the following checks:</small>
               <div class="validation-steps mt-2">
-                <div v-for="check in detailedValidation.validations" :key="check.check_name" class="validation-step">
-                  <span v-if="check.passed" class="validation-status-success">✓</span>
-                  <span v-else class="validation-status-error">✗</span>
+                <div
+                  v-for="check in detailedValidation.validations"
+                  :key="check.check_name"
+                  class="validation-step"
+                >
+                  <span
+                    v-if="check.passed"
+                    class="validation-status-success"
+                  >✓</span>
+                  <span
+                    v-else
+                    class="validation-status-error"
+                  >✗</span>
                   {{ check.description }}
                 </div>
               </div>
             </div>
           </div>
-          <div v-if="validationStatus === 'error'" class="alert alert-danger mt-2">
-            <i class="bi bi-exclamation-triangle me-2"></i>
+          <div
+            v-if="validationStatus === 'error'"
+            class="alert alert-danger mt-2"
+          >
+            <i class="bi bi-exclamation-triangle me-2" />
             <strong>Certificate Validation Failed</strong>
-            <div v-if="validationError">{{ validationError }}</div>
-            <div v-else-if="detailedValidation.validations" class="mt-2">
+            <div v-if="validationError">
+              {{ validationError }}
+            </div>
+            <div
+              v-else-if="detailedValidation.validations"
+              class="mt-2"
+            >
               <small class="text-danger">Validation failed with the following issues:</small>
               <div class="validation-steps mt-2">
-                <div v-for="check in detailedValidation.validations" :key="check.check_name" class="validation-step">
-                  <span v-if="check.passed" class="validation-status-success">✓</span>
-                  <span v-else class="validation-status-error">✗</span>
+                <div
+                  v-for="check in detailedValidation.validations"
+                  :key="check.check_name"
+                  class="validation-step"
+                >
+                  <span
+                    v-if="check.passed"
+                    class="validation-status-success"
+                  >✓</span>
+                  <span
+                    v-else
+                    class="validation-status-error"
+                  >✗</span>
                   {{ check.description }}
                 </div>
               </div>
@@ -438,15 +602,25 @@
           </div>
         </div>
 
-        <button type="submit" class="btn btn-primary w-100" :disabled="ca_type === 'upload' && validationStatus !== 'success'">
+        <button
+          type="submit"
+          class="btn btn-primary w-100"
+          :disabled="ca_type === 'upload' && validationStatus !== 'success'"
+        >
           Complete Setup
         </button>
 
-        <div v-if="ca_type === 'upload' && validationStatus !== 'success'" class="text-muted mt-2">
-          <i class="bi bi-info-circle me-2"></i>Please validate your certificate first
+        <div
+          v-if="ca_type === 'upload' && validationStatus !== 'success'"
+          class="text-muted mt-2"
+        >
+          <i class="bi bi-info-circle me-2" />Please validate your certificate first
         </div>
 
-        <p v-if="errorMessage" class="text-danger mt-3">
+        <p
+          v-if="errorMessage"
+          class="text-danger mt-3"
+        >
           {{ errorMessage }}
         </p>
       </form>

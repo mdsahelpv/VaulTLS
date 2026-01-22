@@ -1,36 +1,57 @@
 <template>
   <div class="ca-tools-container">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h2 class="mb-0">CA Tools</h2>
+      <h2 class="mb-0">
+        CA Tools
+      </h2>
       <button
         class="btn btn-primary"
         @click="handleAddCA"
       >
-        <i class="bi bi-plus-circle me-2"></i>
+        <i class="bi bi-plus-circle me-2" />
         {{ isRootCA ? 'Add Root CA' : 'Add CA' }}
       </button>
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading" class="text-center py-5">
-      <div class="spinner-border text-primary" role="status">
+    <div
+      v-if="loading"
+      class="text-center py-5"
+    >
+      <div
+        class="spinner-border text-primary"
+        role="status"
+      >
         <span class="visually-hidden">Loading...</span>
       </div>
-      <p class="mt-3 text-muted">Loading CAs...</p>
+      <p class="mt-3 text-muted">
+        Loading CAs...
+      </p>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="alert alert-danger">
-      <i class="bi bi-exclamation-triangle me-2"></i>
+    <div
+      v-else-if="error"
+      class="alert alert-danger"
+    >
+      <i class="bi bi-exclamation-triangle me-2" />
       {{ error }}
-      <button class="btn btn-sm btn-outline-danger ms-3" @click="loadCAs">Retry</button>
+      <button
+        class="btn btn-sm btn-outline-danger ms-3"
+        @click="loadCAs"
+      >
+        Retry
+      </button>
     </div>
 
     <!-- CA List -->
-    <div v-else-if="cas && cas.length > 0" class="card">
+    <div
+      v-else-if="cas && cas.length > 0"
+      class="card"
+    >
       <div class="card-header">
         <h5 class="mb-0">
-          <i class="bi bi-shield-check me-2"></i>
+          <i class="bi bi-shield-check me-2" />
           Certificate Authorities ({{ cas.length }})
         </h5>
       </div>
@@ -44,7 +65,9 @@
                 <th>Status</th>
                 <th>Created</th>
                 <th>Expires</th>
-                <th class="text-center">Actions</th>
+                <th class="text-center">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -60,12 +83,18 @@
                   <small class="text-muted">{{ ca.serial_number }}</small>
                 </td>
                 <td>
-                  <span class="badge" :class="getCATypeText(ca) === 'Self-Signed' ? 'bg-success' : 'bg-info'">
+                  <span
+                    class="badge"
+                    :class="getCATypeText(ca) === 'Self-Signed' ? 'bg-success' : 'bg-info'"
+                  >
                     {{ getCATypeText(ca) }}
                   </span>
                 </td>
                 <td>
-                  <span class="badge" :class="getStatusClass(ca)">
+                  <span
+                    class="badge"
+                    :class="getStatusClass(ca)"
+                  >
                     {{ getStatusText(ca) }}
                   </span>
                 </td>
@@ -75,23 +104,23 @@
                   <div class="d-flex flex-sm-row flex-column gap-1">
                     <button
                       class="btn btn-primary btn-sm"
-                      @click="viewCADetails(ca)"
                       title="View CA Details"
+                      @click="viewCADetails(ca)"
                     >
-                      <i class="bi bi-eye"></i> View
+                      <i class="bi bi-eye" /> View
                     </button>
                     <button
                       class="btn btn-primary btn-sm"
-                      @click="handleDownloadCAKeyPair(ca)"
                       title="Download CA Certificate and Private Key"
+                      @click="handleDownloadCAKeyPair(ca)"
                     >
-                      <i class="bi bi-eye"></i> Download
+                      <i class="bi bi-eye" /> Download
                     </button>
                     <button
                       v-if="isAdmin"
                       class="btn btn-danger btn-sm flex-grow-1"
-                      @click="confirmDeleteCA(ca)"
                       title="Delete CA"
+                      @click="confirmDeleteCA(ca)"
                     >
                       Delete
                     </button>
@@ -105,52 +134,82 @@
     </div>
 
     <!-- No CAs Found -->
-    <div v-else class="text-center py-5">
-      <i class="bi bi-shield-slash text-muted" style="font-size: 3rem;"></i>
-      <h4 class="mt-3">No Certificate Authorities Found</h4>
-      <p class="text-muted">Create your first CA to start managing certificates.</p>
-      <button class="btn btn-primary" @click="handleAddCA">
-        <i class="bi bi-plus-circle me-2"></i>
+    <div
+      v-else
+      class="text-center py-5"
+    >
+      <i
+        class="bi bi-shield-slash text-muted"
+        style="font-size: 3rem;"
+      />
+      <h4 class="mt-3">
+        No Certificate Authorities Found
+      </h4>
+      <p class="text-muted">
+        Create your first CA to start managing certificates.
+      </p>
+      <button
+        class="btn btn-primary"
+        @click="handleAddCA"
+      >
+        <i class="bi bi-plus-circle me-2" />
         {{ isRootCA ? 'Create Your First Root CA' : 'Create Your First CA' }}
       </button>
     </div>
 
     <!-- Add CA Modal -->
-    <div class="modal fade" :class="{ show: showAddCAModal }" :style="{ display: showAddCAModal ? 'block' : 'none' }" tabindex="-1">
+    <div
+      class="modal fade"
+      :class="{ show: showAddCAModal }"
+      :style="{ display: showAddCAModal ? 'block' : 'none' }"
+      tabindex="-1"
+    >
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ isRootCA ? 'Create Root CA' : 'Import Subordinate Certificate Authority' }}</h5>
-            <button type="button" class="btn-close" @click="showAddCAModal = false"></button>
+            <h5 class="modal-title">
+              {{ isRootCA ? 'Create Root CA' : 'Import Subordinate Certificate Authority' }}
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="showAddCAModal = false"
+            />
           </div>
           <div class="modal-body">
-
-
             <!-- Self-Signed CA Form -->
-            <div v-if="caCreationType === 'self-signed'" class="mt-4">
+            <div
+              v-if="caCreationType === 'self-signed'"
+              class="mt-4"
+            >
               <form @submit.prevent="createSelfSignedCAWrapper">
-
                 <!-- Distinguished Name Fields -->
                 <div class="row">
                   <div class="col-md-6 mb-3">
-                    <label for="countryName" class="form-label">Country Name (2 letter code)</label>
+                    <label
+                      for="countryName"
+                      class="form-label"
+                    >Country Name (2 letter code)</label>
                     <input
-                      type="text"
-                      class="form-control"
                       id="countryName"
                       v-model="selfSignedForm.countryName"
+                      type="text"
+                      class="form-control"
                       required
                       maxlength="2"
                       placeholder="QA"
                     >
                   </div>
                   <div class="col-md-6 mb-3">
-                    <label for="stateOrProvinceName" class="form-label">State or Province Name</label>
+                    <label
+                      for="stateOrProvinceName"
+                      class="form-label"
+                    >State or Province Name</label>
                     <input
-                      type="text"
-                      class="form-control"
                       id="stateOrProvinceName"
                       v-model="selfSignedForm.stateOrProvinceName"
+                      type="text"
+                      class="form-control"
                       required
                       placeholder="Doha"
                     >
@@ -159,23 +218,29 @@
 
                 <div class="row">
                   <div class="col-md-6 mb-3">
-                    <label for="localityName" class="form-label">Locality Name</label>
+                    <label
+                      for="localityName"
+                      class="form-label"
+                    >Locality Name</label>
                     <input
-                      type="text"
-                      class="form-control"
                       id="localityName"
                       v-model="selfSignedForm.localityName"
+                      type="text"
+                      class="form-control"
                       required
                       placeholder="Bin Omran"
                     >
                   </div>
                   <div class="col-md-6 mb-3">
-                    <label for="organizationName" class="form-label">Organization Name</label>
+                    <label
+                      for="organizationName"
+                      class="form-label"
+                    >Organization Name</label>
                     <input
-                      type="text"
-                      class="form-control"
                       id="organizationName"
                       v-model="selfSignedForm.organizationName"
+                      type="text"
+                      class="form-control"
                       required
                       placeholder="Your Organization"
                     >
@@ -184,22 +249,28 @@
 
                 <div class="row">
                   <div class="col-md-6 mb-3">
-                    <label for="organizationalUnitName" class="form-label">Organizational Unit (Optional)</label>
+                    <label
+                      for="organizationalUnitName"
+                      class="form-label"
+                    >Organizational Unit (Optional)</label>
                     <input
-                      type="text"
-                      class="form-control"
                       id="organizationalUnitName"
                       v-model="selfSignedForm.organizationalUnitName"
+                      type="text"
+                      class="form-control"
                       placeholder="IT Department"
                     >
                   </div>
                   <div class="col-md-6 mb-3">
-                    <label for="commonName" class="form-label">Common Name</label>
+                    <label
+                      for="commonName"
+                      class="form-label"
+                    >Common Name</label>
                     <input
-                      type="text"
-                      class="form-control"
                       id="commonName"
                       v-model="selfSignedForm.commonName"
+                      type="text"
+                      class="form-control"
                       required
                       placeholder="rootca.yourdomain.com"
                     >
@@ -208,23 +279,29 @@
 
                 <div class="row">
                   <div class="col-md-6 mb-3">
-                    <label for="emailAddress" class="form-label">Email Address</label>
+                    <label
+                      for="emailAddress"
+                      class="form-label"
+                    >Email Address</label>
                     <input
-                      type="email"
-                      class="form-control"
                       id="emailAddress"
                       v-model="selfSignedForm.emailAddress"
+                      type="email"
+                      class="form-control"
                       required
                       placeholder="pki@yourdomain.com"
                     >
                   </div>
                   <div class="col-md-6 mb-3">
-                    <label for="ca_validity_in_years" class="form-label">Validity (Years)</label>
+                    <label
+                      for="ca_validity_in_years"
+                      class="form-label"
+                    >Validity (Years)</label>
                     <input
-                      type="number"
-                      class="form-control"
                       id="ca_validity_in_years"
                       v-model.number="selfSignedForm.validityYears"
+                      type="number"
+                      class="form-control"
                       required
                       min="1"
                       max="30"
@@ -233,45 +310,56 @@
                 </div>
 
                 <div class="mb-3">
-                  <label for="ca_name" class="form-label">CA Display Name (Optional)</label>
+                  <label
+                    for="ca_name"
+                    class="form-label"
+                  >CA Display Name (Optional)</label>
                   <input
-                    type="text"
-                    class="form-control"
                     id="ca_name"
                     v-model="selfSignedForm.caName"
+                    type="text"
+                    class="form-control"
                     placeholder="Defaults to Common Name if left empty"
                   >
                   <small class="text-muted">Optional display name for the CA. If left empty, the Common Name will be used.</small>
                 </div>
 
                 <!-- Advanced CA Configuration -->
-                <h6 class="mb-3 mt-4">Advanced CA Configuration</h6>
+                <h6 class="mb-3 mt-4">
+                  Advanced CA Configuration
+                </h6>
 
                 <div class="mb-3">
                   <label class="form-label">Key Type</label>
                   <div class="form-check">
                     <input
+                      id="keyTypeRSA"
+                      v-model="selfSignedForm.keyType"
                       class="form-check-input"
                       type="radio"
-                      id="keyTypeRSA"
                       value="RSA"
-                      v-model="selfSignedForm.keyType"
                       required
                     >
-                    <label class="form-check-label" for="keyTypeRSA">
+                    <label
+                      class="form-check-label"
+                      for="keyTypeRSA"
+                    >
                       RSA
                     </label>
                   </div>
                   <div class="form-check">
                     <input
+                      id="keyTypeECDSA"
+                      v-model="selfSignedForm.keyType"
                       class="form-check-input"
                       type="radio"
-                      id="keyTypeECDSA"
                       value="ECDSA"
-                      v-model="selfSignedForm.keyType"
                       required
                     >
-                    <label class="form-check-label" for="keyTypeECDSA">
+                    <label
+                      class="form-check-label"
+                      for="keyTypeECDSA"
+                    >
                       ECDSA
                     </label>
                   </div>
@@ -279,53 +367,89 @@
 
                 <div class="row">
                   <div class="col-md-6 mb-3">
-                    <label for="keySize" class="form-label">Key Size</label>
+                    <label
+                      for="keySize"
+                      class="form-label"
+                    >Key Size</label>
                     <select
-                      class="form-select"
                       id="keySize"
                       v-model="selfSignedForm.keySize"
+                      class="form-select"
                       required
                     >
-                      <option v-if="selfSignedForm.keyType === 'RSA'" value="2048">2048</option>
-                      <option v-if="selfSignedForm.keyType === 'RSA'" value="4096">4096</option>
-                      <option v-if="selfSignedForm.keyType === 'ECDSA'" value="P-256">P-256</option>
-                      <option v-if="selfSignedForm.keyType === 'ECDSA'" value="P-521">P-521</option>
+                      <option
+                        v-if="selfSignedForm.keyType === 'RSA'"
+                        value="2048"
+                      >
+                        2048
+                      </option>
+                      <option
+                        v-if="selfSignedForm.keyType === 'RSA'"
+                        value="4096"
+                      >
+                        4096
+                      </option>
+                      <option
+                        v-if="selfSignedForm.keyType === 'ECDSA'"
+                        value="P-256"
+                      >
+                        P-256
+                      </option>
+                      <option
+                        v-if="selfSignedForm.keyType === 'ECDSA'"
+                        value="P-521"
+                      >
+                        P-521
+                      </option>
                     </select>
                   </div>
                   <div class="col-md-6 mb-3">
-                    <label for="hashAlgorithm" class="form-label">Hash Algorithm</label>
+                    <label
+                      for="hashAlgorithm"
+                      class="form-label"
+                    >Hash Algorithm</label>
                     <select
-                      class="form-select"
                       id="hashAlgorithm"
                       v-model="selfSignedForm.hashAlgorithm"
+                      class="form-select"
                       required
                     >
-                      <option value="sha256">SHA-256</option>
-                      <option value="sha512">SHA-512</option>
+                      <option value="sha256">
+                        SHA-256
+                      </option>
+                      <option value="sha512">
+                        SHA-512
+                      </option>
                     </select>
                   </div>
                 </div>
 
                 <div class="row">
                   <div class="col-md-6 mb-3">
-                    <label for="crlValidityDays" class="form-label">CRL Validity (days)</label>
+                    <label
+                      for="crlValidityDays"
+                      class="form-label"
+                    >CRL Validity (days)</label>
                     <input
-                      type="number"
-                      class="form-control"
                       id="crlValidityDays"
                       v-model.number="selfSignedForm.crlValidityDays"
+                      type="number"
+                      class="form-control"
                       required
                       min="1"
                       max="365"
                     >
                   </div>
                   <div class="col-md-6 mb-3">
-                    <label for="pathLength" class="form-label">Maximum intermediate CA levels</label>
+                    <label
+                      for="pathLength"
+                      class="form-label"
+                    >Maximum intermediate CA levels</label>
                     <input
-                      type="number"
-                      class="form-control"
                       id="pathLength"
                       v-model.number="selfSignedForm.pathLength"
+                      type="number"
+                      class="form-control"
                       required
                       min="0"
                       max="10"
@@ -334,29 +458,35 @@
                 </div>
 
                 <div class="mb-3">
-                  <label for="aiaUrl" class="form-label">AIA URL (where CA certificate can be downloaded)</label>
+                  <label
+                    for="aiaUrl"
+                    class="form-label"
+                  >AIA URL (where CA certificate can be downloaded)</label>
                   <input
-                    type="url"
-                    class="form-control"
                     id="aiaUrl"
                     v-model="selfSignedForm.aiaUrl"
+                    type="url"
+                    class="form-control"
                     placeholder="https://pki.example.com/certs/ca.cert.pem"
                   >
                 </div>
 
                 <div class="mb-3">
-                  <label for="cdpUrl" class="form-label">CDP URL (where Certificate Revocation List can be downloaded)</label>
+                  <label
+                    for="cdpUrl"
+                    class="form-label"
+                  >CDP URL (where Certificate Revocation List can be downloaded)</label>
                   <input
-                    type="url"
-                    class="form-control"
                     id="cdpUrl"
                     v-model="selfSignedForm.cdpUrl"
+                    type="url"
+                    class="form-control"
                     placeholder="https://pki.example.com/crl/ca.crl.pem"
                   >
                 </div>
 
                 <div class="alert alert-info">
-                  <i class="bi bi-info-circle me-2"></i>
+                  <i class="bi bi-info-circle me-2" />
                   {{ isRootCA ? 'These settings configure the Distinguished Name (DN) and advanced certificate extensions for your subordinate CA certificate, following standard X.509 certificate practices.' : 'These settings configure the Distinguished Name (DN) and advanced certificate extensions for your Root CA certificate, following standard X.509 certificate practices. Default values are loaded from the OpenSSL configuration.' }}
                 </div>
 
@@ -366,41 +496,60 @@
                     class="btn btn-primary"
                     :disabled="creatingCA"
                   >
-                    <span v-if="creatingCA" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    <span
+                      v-if="creatingCA"
+                      class="spinner-border spinner-border-sm me-2"
+                      role="status"
+                    />
                     {{ isRootCA ? 'Create Subordinate CA' : 'Create Root CA' }}
                   </button>
-                  <button type="button" class="btn btn-secondary" @click="showAddCAModal = false">Cancel</button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    @click="showAddCAModal = false"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </form>
             </div>
 
             <!-- Import CA Form -->
-            <div v-if="caCreationType === 'import'" class="mt-4">
+            <div
+              v-if="caCreationType === 'import'"
+              class="mt-4"
+            >
               <form @submit.prevent="importCA">
                 <div class="mb-3">
-                  <label for="pkcs12File" class="form-label">Upload your existing CA certificate in PKCS#12 format</label>
+                  <label
+                    for="pkcs12File"
+                    class="form-label"
+                  >Upload your existing CA certificate in PKCS#12 format</label>
                   <input
-                    type="file"
-                    class="form-control"
                     id="pkcs12File"
                     ref="fileInput"
-                    @change="handleFileSelect"
+                    type="file"
+                    class="form-control"
                     accept=".p12,.pfx"
                     required
+                    @change="handleFileSelect"
                   >
                 </div>
                 <div class="mb-3">
-                  <label for="importPassword" class="form-label">PKCS#12 Password</label>
+                  <label
+                    for="importPassword"
+                    class="form-label"
+                  >PKCS#12 Password</label>
                   <input
-                    type="password"
-                    class="form-control"
                     id="importPassword"
                     v-model="importForm.password"
+                    type="password"
+                    class="form-control"
                     placeholder="Leave empty if no password is set"
                   >
                 </div>
                 <div class="alert alert-info">
-                  <i class="bi bi-info-circle me-2"></i>
+                  <i class="bi bi-info-circle me-2" />
                   The PKCS#12 file should contain the CA certificate, private key, and any intermediate certificates.
                 </div>
                 <div class="d-flex gap-2">
@@ -409,10 +558,20 @@
                     class="btn btn-success"
                     :disabled="creatingCA || !importForm.file"
                   >
-                    <span v-if="creatingCA" class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    <span
+                      v-if="creatingCA"
+                      class="spinner-border spinner-border-sm me-2"
+                      role="status"
+                    />
                     Import CA
                   </button>
-                  <button type="button" class="btn btn-secondary" @click="showAddCAModal = false">Cancel</button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    @click="showAddCAModal = false"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </form>
             </div>
@@ -430,50 +589,81 @@
       @click.self="showCADetailsModal = false"
     >
       <div class="modal-dialog modal-xl">
-        <div class="modal-content" @click.stop>
+        <div
+          class="modal-content"
+          @click.stop
+        >
           <div class="modal-header">
             <h5 class="modal-title">
-              <i class="bi bi-shield-check me-2"></i>
+              <i class="bi bi-shield-check me-2" />
               CA Details: {{ viewingCA?.name }}
             </h5>
-            <button type="button" class="btn-close" @click="showCADetailsModal = false"></button>
+            <button
+              type="button"
+              class="btn-close"
+              @click="showCADetailsModal = false"
+            />
           </div>
-          <div class="modal-body" v-if="viewingCA">
+          <div
+            v-if="viewingCA"
+            class="modal-body"
+          >
             <div class="row">
               <!-- Basic Information -->
               <div class="col-lg-6 mb-4">
                 <div class="card h-100">
                   <div class="card-header">
                     <h6 class="mb-0">
-                      <i class="bi bi-info-circle me-2"></i>
+                      <i class="bi bi-info-circle me-2" />
                       Basic Information
                     </h6>
                   </div>
                   <div class="card-body">
                     <div class="row">
-                      <div class="col-sm-4"><strong>Name:</strong></div>
-                      <div class="col-sm-8">{{ viewingCA.name }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Serial:</strong></div>
-                      <div class="col-sm-8"><code>{{ viewingCA.serial_number }}</code></div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Key Size:</strong></div>
-                      <div class="col-sm-8">{{ viewingCA.key_size }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Algorithm:</strong></div>
-                      <div class="col-sm-8">{{ viewingCA.signature_algorithm }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Type:</strong></div>
+                      <div class="col-sm-4">
+                        <strong>Name:</strong>
+                      </div>
                       <div class="col-sm-8">
-                        <span class="badge" :class="getCATypeText(viewingCA) === 'Self-Signed' ? 'bg-success' : 'bg-info'">
+                        {{ viewingCA.name }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Serial:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        <code>{{ viewingCA.serial_number }}</code>
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Key Size:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        {{ viewingCA.key_size }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Algorithm:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        {{ viewingCA.signature_algorithm }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Type:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        <span
+                          class="badge"
+                          :class="getCATypeText(viewingCA) === 'Self-Signed' ? 'bg-success' : 'bg-info'"
+                        >
                           {{ getCATypeText(viewingCA) }}
                         </span>
                       </div>
@@ -487,25 +677,38 @@
                 <div class="card h-100">
                   <div class="card-header">
                     <h6 class="mb-0">
-                      <i class="bi bi-calendar-check me-2"></i>
+                      <i class="bi bi-calendar-check me-2" />
                       Validity
                     </h6>
                   </div>
                   <div class="card-body">
                     <div class="row">
-                      <div class="col-sm-4"><strong>Created:</strong></div>
-                      <div class="col-sm-8">{{ formatDate(viewingCA.created_on) }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Expires:</strong></div>
-                      <div class="col-sm-8">{{ formatDate(viewingCA.valid_until) }}</div>
-                    </div>
-                    <hr>
-                    <div class="row">
-                      <div class="col-sm-4"><strong>Status:</strong></div>
+                      <div class="col-sm-4">
+                        <strong>Created:</strong>
+                      </div>
                       <div class="col-sm-8">
-                        <span class="badge" :class="getStatusClass(viewingCA)">
+                        {{ formatDate(viewingCA.created_on) }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Expires:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        {{ formatDate(viewingCA.valid_until) }}
+                      </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                      <div class="col-sm-4">
+                        <strong>Status:</strong>
+                      </div>
+                      <div class="col-sm-8">
+                        <span
+                          class="badge"
+                          :class="getStatusClass(viewingCA)"
+                        >
                           {{ getStatusText(viewingCA) }}
                         </span>
                       </div>
@@ -519,7 +722,7 @@
                 <div class="card h-100">
                   <div class="card-header">
                     <h6 class="mb-0">
-                      <i class="bi bi-person me-2"></i>
+                      <i class="bi bi-person me-2" />
                       Subject
                     </h6>
                   </div>
@@ -534,7 +737,7 @@
                 <div class="card h-100">
                   <div class="card-header">
                     <h6 class="mb-0">
-                      <i class="bi bi-building me-2"></i>
+                      <i class="bi bi-building me-2" />
                       Issuer
                     </h6>
                   </div>
@@ -549,19 +752,29 @@
                 <div class="card h-100">
                   <div class="card-header">
                     <h6 class="mb-0">
-                      <i class="bi bi-link-45deg me-2"></i>
+                      <i class="bi bi-link-45deg me-2" />
                       Authority Information Access URL
                     </h6>
                   </div>
                   <div class="card-body">
-                    <div v-if="viewingCA.aia_url" class="mb-2">
-                      <a :href="viewingCA.aia_url" target="_blank" class="text-break small link-primary text-decoration-none">
+                    <div
+                      v-if="viewingCA.aia_url"
+                      class="mb-2"
+                    >
+                      <a
+                        :href="viewingCA.aia_url"
+                        target="_blank"
+                        class="text-break small link-primary text-decoration-none"
+                      >
                         {{ viewingCA.aia_url }}
-                        <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                        <i class="bi bi-box-arrow-up-right ms-1 small" />
                       </a>
                     </div>
-                    <div v-else class="text-muted small">
-                      <i class="bi bi-dash-circle me-1"></i>
+                    <div
+                      v-else
+                      class="text-muted small"
+                    >
+                      <i class="bi bi-dash-circle me-1" />
                       Not configured
                     </div>
                   </div>
@@ -573,19 +786,29 @@
                 <div class="card h-100">
                   <div class="card-header">
                     <h6 class="mb-0">
-                      <i class="bi bi-arrow-repeat me-2"></i>
+                      <i class="bi bi-arrow-repeat me-2" />
                       CRL Distribution Point URL
                     </h6>
                   </div>
                   <div class="card-body">
-                    <div v-if="viewingCA.cdp_url" class="mb-2">
-                      <a :href="viewingCA.cdp_url" target="_blank" class="text-break small link-primary text-decoration-none">
+                    <div
+                      v-if="viewingCA.cdp_url"
+                      class="mb-2"
+                    >
+                      <a
+                        :href="viewingCA.cdp_url"
+                        target="_blank"
+                        class="text-break small link-primary text-decoration-none"
+                      >
                         {{ viewingCA.cdp_url }}
-                        <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                        <i class="bi bi-box-arrow-up-right ms-1 small" />
                       </a>
                     </div>
-                    <div v-else class="text-muted small">
-                      <i class="bi bi-dash-circle me-1"></i>
+                    <div
+                      v-else
+                      class="text-muted small"
+                    >
+                      <i class="bi bi-dash-circle me-1" />
                       Not configured
                     </div>
                   </div>
@@ -597,14 +820,17 @@
                 <div class="card">
                   <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0">
-                      <i class="bi bi-diagram-3 me-2"></i>
+                      <i class="bi bi-diagram-3 me-2" />
                       Certificate Chain
                     </h6>
                     <small class="text-muted">{{ viewingCA.chain_length || 0 }} certificate{{ viewingCA.chain_length !== 1 ? 's' : '' }}</small>
                   </div>
                   <div class="card-body">
                     <!-- Certificates List -->
-                    <div v-if="viewingCA.chain_certificates?.length > 0" class="row g-3">
+                    <div
+                      v-if="viewingCA.chain_certificates?.length > 0"
+                      class="row g-3"
+                    >
                       <div
                         v-for="(cert, index) in viewingCA.chain_certificates"
                         :key="index"
@@ -612,15 +838,20 @@
                       >
                         <div class="certificate-card shadow-sm border rounded p-3">
                           <div class="d-flex align-items-center gap-3 mb-2">
-                            <div class="certificate-number">{{ index + 1 }}</div>
-                            <span class="badge small" :class="getCertificateTypeClass(cert.certificate_type)">
+                            <div class="certificate-number">
+                              {{ index + 1 }}
+                            </div>
+                            <span
+                              class="badge small"
+                              :class="getCertificateTypeClass(cert.certificate_type)"
+                            >
                               {{ getCertificateTypeLabel(cert.certificate_type) }}
                             </span>
                           </div>
                           <div class="certificate-info">
                             <div class="mb-1">
                               <strong class="text-dark">Subject:</strong>
-                              <br />
+                              <br>
                               <small class="text-muted">{{ formatCertificateName(cert.subject) }}</small>
                             </div>
                             <div>
@@ -632,13 +863,21 @@
                       </div>
                     </div>
                     <!-- No Chain Information -->
-                    <div v-else-if="viewingCA.chain_length > 0" class="alert alert-warning mb-0">
-                      <i class="bi bi-exclamation-triangle me-2"></i>
+                    <div
+                      v-else-if="viewingCA.chain_length > 0"
+                      class="alert alert-warning mb-0"
+                    >
+                      <i class="bi bi-exclamation-triangle me-2" />
                       Certificate chain contains {{ viewingCA.chain_length }} certificate{{ viewingCA.chain_length !== 1 ? 's' : '' }}, but detailed information could not be parsed. The full PEM certificate is available for download.
                     </div>
-                    <div v-else class="text-center text-muted py-4">
-                      <i class="bi bi-info-circle fs-1 mb-2 opacity-50"></i>
-                      <p class="mb-0">Certificate chain information is not available for this CA.</p>
+                    <div
+                      v-else
+                      class="text-center text-muted py-4"
+                    >
+                      <i class="bi bi-info-circle fs-1 mb-2 opacity-50" />
+                      <p class="mb-0">
+                        Certificate chain information is not available for this CA.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -649,16 +888,22 @@
             <div class="card">
               <div class="card-header d-flex justify-content-between align-items-center">
                 <h6 class="mb-0">
-                  <i class="bi bi-file-earmark-text me-2"></i>
+                  <i class="bi bi-file-earmark-text me-2" />
                   Certificate (PEM Format)
                 </h6>
                 <div class="btn-group btn-group-sm">
-                  <button class="btn btn-outline-secondary" @click="copyToClipboard(viewingCA.certificate_pem)">
-                    <i class="bi bi-clipboard me-1"></i>
+                  <button
+                    class="btn btn-outline-secondary"
+                    @click="copyToClipboard(viewingCA.certificate_pem)"
+                  >
+                    <i class="bi bi-clipboard me-1" />
                     Copy
                   </button>
-                  <button class="btn btn-outline-primary" @click="downloadCACertificate(viewingCA)">
-                    <i class="bi bi-download me-1"></i>
+                  <button
+                    class="btn btn-outline-primary"
+                    @click="downloadCACertificate(viewingCA)"
+                  >
+                    <i class="bi bi-download me-1" />
                     Download
                   </button>
                 </div>
@@ -669,39 +914,64 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="showCADetailsModal = false">Close</button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="showCADetailsModal = false"
+            >
+              Close
+            </button>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Delete Confirmation Modal -->
-    <div class="modal fade" :class="{ show: showDeleteModal }" :style="{ display: showDeleteModal ? 'block' : 'none' }" tabindex="-1">
+    <div
+      class="modal fade"
+      :class="{ show: showDeleteModal }"
+      :style="{ display: showDeleteModal ? 'block' : 'none' }"
+      tabindex="-1"
+    >
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title text-danger">
-              <i class="bi bi-exclamation-triangle me-2"></i>
+              <i class="bi bi-exclamation-triangle me-2" />
               Delete Certificate Authority
             </h5>
-            <button type="button" class="btn-close" @click="showDeleteModal = false"></button>
+            <button
+              type="button"
+              class="btn-close"
+              @click="showDeleteModal = false"
+            />
           </div>
           <div class="modal-body">
             <p>Are you sure you want to delete the Certificate Authority <strong>{{ deletingCA?.name }}</strong>?</p>
             <div class="alert alert-danger">
-              <i class="bi bi-exclamation-triangle me-2"></i>
+              <i class="bi bi-exclamation-triangle me-2" />
               <strong>Warning:</strong> This action cannot be undone. All certificates issued by this CA will become invalid.
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="showDeleteModal = false">Cancel</button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="showDeleteModal = false"
+            >
+              Cancel
+            </button>
             <button
               type="button"
               class="btn btn-danger"
               :disabled="deletingCAInProgress"
               @click="performDeleteCA"
             >
-              <span v-if="deletingCAInProgress" class="spinner-border spinner-border-sm me-2" role="status"></span>
+              <span
+                v-if="deletingCAInProgress"
+                class="spinner-border spinner-border-sm me-2"
+                role="status"
+              />
               Delete CA
             </button>
           </div>
@@ -715,10 +985,9 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore } from '@/stores/settings';
-import { fetchCAs, createSelfSignedCA, importCAFromFile, deleteCA, downloadCA, downloadCAKeyPair, downloadCAById, downloadCAKeyPairById } from '@/api/certificates';
+import { fetchCAs, createSelfSignedCA, importCAFromFile, deleteCA, downloadCAById, downloadCAKeyPairById } from '@/api/certificates';
 import { UserRole } from '@/types/User';
 import type { CA } from '@/types/CA';
-import ApiClient from '@/api/ApiClient';
 
 const authStore = useAuthStore();
 const settingsStore = useSettingsStore();
@@ -806,15 +1075,6 @@ const loadCAs = async () => {
 const viewCADetails = (ca: CA) => {
   viewingCA.value = ca;
   showCADetailsModal.value = true;
-};
-
-const handleDownloadCA = async (ca: CA) => {
-  try {
-    await downloadCAById(ca.id);
-  } catch (err: unknown) {
-    console.error('Failed to download CA:', err);
-    alert('Failed to download CA certificate');
-  }
 };
 
 const handleDownloadCAKeyPair = async (ca: CA) => {
